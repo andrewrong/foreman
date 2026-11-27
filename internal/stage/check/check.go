@@ -1,13 +1,15 @@
 // Package check runs the check stage of work steps (state-machine reconciler:
 // running(check)): the session head is fetched into foremand's integration
-// directory with the hardened fetch (D-045), checked out detached, and the
-// project's L0 commands run there. The result is an event value (MD-7).
+// directory with the hardened fetch (D-045), exported to a throwaway checkout
+// in the Run's directory, and the project's L0 commands run there. The result is an event value (MD-7).
 package check
 
 import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -28,11 +30,11 @@ const (
 type Env struct {
 	Integ *integrate.Dir
 	// Launcher runs the L0 commands: with srt they run inside the sandbox
-	// (the integration directory is the working directory); pass-through
+	// (the throwaway checkout <RunDir>/l0 is the working directory); pass-through
 	// only in tests.
 	Launcher launch.Launcher
 	// Policy carries the run-independent sandbox inputs (Path, DenyWrite,
-	// hosts ...); SessionRepo (the integration directory) and RunTmp are set
+	// hosts ...); SessionRepo (the l0 checkout) and RunTmp are set
 	// per Run.
 	Policy policy.Inputs
 }
@@ -51,15 +53,22 @@ type Request struct {
 // tail, or infra when a command cannot be started or is killed.
 func Run(ctx context.Context, env Env, r Request) (model.Event, error) {
 	ref := integrate.StepRefPrefix + "steps/" + r.StepID
-	if _, err := env.Integ.FetchFromSession(ctx, r.SessionRepo, r.SessionBranch, ref); err != nil {
+	head, err := env.Integ.FetchFromSession(ctx, r.SessionRepo, r.SessionBranch, ref)
+	if err != nil {
 		return model.Event{}, fmt.Errorf("check: fetch session head: %w", err)
 	}
-	head, err := env.Integ.CheckoutDetached(ctx, ref)
-	if err != nil {
-		return model.Event{}, fmt.Errorf("check: checkout: %w", err)
+	// L0 runs code written by the AI session, so it gets a throwaway checkout
+	// inside the Run's own directory; the integration directory stays
+	// denyWrite and foremand never runs git in the checkout afterwards.
+	work := filepath.Join(r.RunDir, "l0")
+	if err := os.RemoveAll(work); err != nil {
+		return model.Event{}, fmt.Errorf("check: clear l0 checkout: %w", err)
+	}
+	if err := env.Integ.ExportCheckout(ctx, head, work); err != nil {
+		return model.Event{}, fmt.Errorf("check: export checkout: %w", err)
 	}
 	in := env.Policy
-	in.SessionRepo, in.RunTmp = env.Integ.Path, r.RunDir
+	in.SessionRepo, in.RunTmp = work, r.RunDir
 	pol, err := policy.New(in)
 	if err != nil {
 		return model.Event{}, err
