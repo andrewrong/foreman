@@ -28,7 +28,7 @@
 | T8 | internal/harness/api 与 scripted 假模型；里程碑 M1：scripted 模型 + 假 GitHub 跑通一个需求 | protocol-run.yaml；D-037 | M1 端到端测试 | ready |
 | T11 | internal/resource（meter、ledger、gate、history）：资源注册表、预占与结算、Gate 的 Allow/Wait、窗口与 pacing | resources.yaml；D-027、D-030、D-051 | test:quota-all-windows-gate、test:quota-daily-pacing、test:budget-fallback-default 等 resources.yaml 引用的测试 | done |
 | T9 | internal/forge | forge.yaml | test:forge-* | ready |
-| T10 | internal/sandbox（T10b；workspace 已由 T10a 完成） | access.yaml；D-045、D-056 | test:sandbox-*、test:session-* | ready |
+| T10 | internal/sandbox（T10b；workspace 已由 T10a 完成） | access.yaml；D-045、D-056 | test:sandbox-*、test:session-* | done |
 
 里程碑 M2（真实 Claude 与 GitHub 跑通 foreman-sandbox 上的一个需求）在 T8–T10 之后另行拆分。
 
@@ -39,3 +39,4 @@
 - T7a：S19 hold_released 在 hold 仍为 set 时经 HOLD-1 回到 waiting(hold)；reconciler 必须只在 hold 清除后发 hold_released（T7b/reconciler 任务加断言）。无 HOLD-1 而进入 waiting(hold) 的行保留当前 stage，resume_stage 由 record_resume_stage effect 写入。
 - T10a：integrate 的 push 停止标志（默认分支被改动后停止推送）只在内存；需要持久化到 global.db（reconciler 任务）。reconciler 必须先 Mirror.Update 再 SyncFromMirror。
 - T11 未实现：unknown_capacity（无百分比的模型按近 7 天 p95 估算）、额度错误时把累计值记为新上限、RES-GH-ACTIONS 夜间隔天规则（pipeline）、告警去重（notify）、floor 时的磁盘清理；SessionSlots 默认 4 待 CF-04 定义；claude status=rejected 未当作耗尽（取值集合未核实）。pacing 的当日基线不持久化，重启后偏宽松。
+- T10b：sandbox.New 拒绝位于 denyWrite 目录内的会话仓库与运行临时目录，所以 denyWrite 不能是整个 FOREMAN_HOME，只能是其中的 projects/<p>/repo.git、db、config、secrets 等子目录；会话仓库与 runs/ 放在 FOREMAN_HOME 下但不在 denyWrite 内（需在 access.yaml 写明目录布局）。RunTmp 路径 ≤ 70 字节（srt 的 unix socket 路径上限）。srt 让沙箱内 .git/config 与 .git/hooks 只读（有利：会话改不了 hooks）。
