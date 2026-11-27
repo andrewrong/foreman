@@ -1,0 +1,17 @@
+# Example roles.toml (CF-02). Defaults: coder sonnet, reviewer opus, intake
+# sonnet, planner/rescuer opus; coder has an opus advisor (D-040, D-044).
+
+[role.coder]
+model = "sonnet"
+effort = "medium"          # low | medium | high | xhigh | max, or omit
+timeout = "45m"
+advisor = true
+advisor_model = "opus"
+retry_upgrade_model = "opus"
+
+[role.reviewer]
+model = "opus"
+timeout = "30m"
+
+[role.intake]
+model = "sonnet"
