@@ -5,9 +5,12 @@ package launch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"sort"
+	"strings"
 
 	"github.com/andrewrong/foreman/internal/sandbox/policy"
 )
@@ -45,13 +48,27 @@ type Runner interface {
 type IO struct {
 	Stdin          io.Reader
 	Stdout, Stderr io.Writer
+	// ExtraEnv are the environment additions of a harness Invocation
+	// (api.Invocation.Env). They are appended to the policy environment; a
+	// name the policy environment already sets is refused, so an adapter
+	// cannot override HOME, TMPDIR, PATH or a credential.
+	ExtraEnv map[string]string
 }
 
 // Launcher starts sandboxed processes.
 type Launcher struct {
 	SrtPath string
 	Runner  Runner // nil means the real os/exec runner
+	// PassThrough lets an empty SrtPath run argv directly, with the same
+	// from-scratch environment and working directory but no OS sandbox.
+	// Only for adapters that need no sandbox (scripted) and for tests; the
+	// caller must refuse sandbox-requiring adapters (claude) when Sandboxed
+	// is false.
+	PassThrough bool
 }
+
+// Sandboxed reports whether argv would run inside srt.
+func (l Launcher) Sandboxed() bool { return l.SrtPath != "" }
 
 // Command returns the srt argv (without the srt path itself) for argv.
 func Command(settingsPath string, argv []string) []string {
@@ -62,7 +79,7 @@ func Command(settingsPath string, argv []string) []string {
 // Start writes the settings file (0600) into the run tmp and starts argv
 // inside the sandbox with exactly the policy environment, in the session repo.
 func (l Launcher) Start(ctx context.Context, pol policy.Policy, argv []string, io IO) (Process, error) {
-	if l.SrtPath == "" {
+	if l.SrtPath == "" && !l.PassThrough {
 		return nil, errors.New("launch: srt path not set")
 	}
 	if len(argv) == 0 || argv[0] == "" {
@@ -81,14 +98,22 @@ func (l Launcher) Start(ctx context.Context, pol policy.Policy, argv []string, i
 	if err := writePrivate(pol.SettingsPath(), settings); err != nil {
 		return nil, err
 	}
+	env, err := mergeEnv(pol.Env(), io.ExtraEnv)
+	if err != nil {
+		return nil, err
+	}
 	r := l.Runner
 	if r == nil {
 		r = ExecRunner{}
 	}
+	path, args := l.SrtPath, Command(pol.SettingsPath(), argv)
+	if path == "" {
+		path, args = argv[0], argv[1:]
+	}
 	return r.Start(ctx, Spec{
-		Path:   l.SrtPath,
-		Args:   Command(pol.SettingsPath(), argv),
-		Env:    pol.Env(),
+		Path:   path,
+		Args:   args,
+		Env:    env,
 		Dir:    pol.SessionRepo(),
 		Stdin:  io.Stdin,
 		Stdout: io.Stdout,
@@ -103,6 +128,31 @@ func (l Launcher) Run(ctx context.Context, pol policy.Policy, argv []string, io 
 		return Exit{Code: -1}, err
 	}
 	return p.Wait()
+}
+
+// mergeEnv appends the sorted additions to base, refusing names base sets.
+func mergeEnv(base []string, extra map[string]string) ([]string, error) {
+	if len(extra) == 0 {
+		return base, nil
+	}
+	have := map[string]bool{}
+	for _, kv := range base {
+		name, _, _ := strings.Cut(kv, "=")
+		have[name] = true
+	}
+	names := make([]string, 0, len(extra))
+	for n := range extra {
+		if n == "" || strings.Contains(n, "=") || have[n] {
+			return nil, fmt.Errorf("launch: environment addition %q is invalid or overrides the policy environment", n)
+		}
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	out := append([]string{}, base...)
+	for _, n := range names {
+		out = append(out, n+"="+extra[n])
+	}
+	return out, nil
 }
 
 func writePrivate(path string, data []byte) error {

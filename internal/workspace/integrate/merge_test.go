@@ -105,7 +105,7 @@ func TestSquashMergeBackRejectsBadNames(t *testing.T) {
 	ctx := context.Background()
 	for _, s := range []MergeSpec{
 		{ReqID: "../x", StepID: "s", StepRef: StepRefPrefix + "s", Subject: "x"},
-		{ReqID: "r1", StepID: "s/1", StepRef: StepRefPrefix + "s", Subject: "x"},
+		{ReqID: "r1", StepID: "s/1/2", StepRef: StepRefPrefix + "s", Subject: "x"},
 		{ReqID: "r1", StepID: "s", StepRef: "refs/heads/main", Subject: "x"},
 		{ReqID: "r1", StepID: "s", StepRef: StepRefPrefix + "s", Subject: "--amend"},
 	} {

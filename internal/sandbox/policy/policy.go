@@ -54,7 +54,12 @@ type TestCred Cred
 type Inputs struct {
 	SessionRepo string // writable: the session's own repo (D-045)
 	RunTmp      string // writable: run temp dir; HOME lives inside
-	ForemanHome string // denyWrite: foremand's home (mirror, db, caches)
+	ForemanHome string // denyWrite: foremand's home (mirror, db, caches); empty when DenyWrite lists subdirectories instead
+	// DenyWrite lists denyWrite subdirectories of FOREMAN_HOME (access.yaml
+	// layout: db/, config/, projects/<p>/repo.git/, projects/<p>/integrate/).
+	// The whole home cannot be denied because session repos and run dirs
+	// live inside it, so a deployment sets this and leaves ForemanHome empty.
+	DenyWrite []string
 	// ProjectCacheDir is the per-project Go cache master (D-066); never
 	// writable from the session. The session works on a clone in RunTmp.
 	ProjectCacheDir string
@@ -84,8 +89,20 @@ const maxRunTmpLen = 70
 
 // New validates inputs and returns a Policy.
 func New(in Inputs) (Policy, error) {
-	for name, p := range map[string]string{"SessionRepo": in.SessionRepo, "RunTmp": in.RunTmp, "ForemanHome": in.ForemanHome} {
+	for name, p := range map[string]string{"SessionRepo": in.SessionRepo, "RunTmp": in.RunTmp} {
 		if err := absPath(name, p); err != nil {
+			return Policy{}, err
+		}
+	}
+	if in.ForemanHome == "" && len(in.DenyWrite) == 0 {
+		return Policy{}, errors.New("policy: ForemanHome or DenyWrite is required")
+	}
+	denied := append([]string{}, in.DenyWrite...)
+	if in.ForemanHome != "" {
+		denied = append(denied, in.ForemanHome)
+	}
+	for _, p := range denied {
+		if err := absPath("DenyWrite", p); err != nil {
 			return Policy{}, err
 		}
 	}
@@ -103,8 +120,13 @@ func New(in Inputs) (Policy, error) {
 	}
 	// A deny-write ancestor would silently override the allowWrite entry.
 	for name, p := range map[string]string{"SessionRepo": in.SessionRepo, "RunTmp": in.RunTmp} {
-		if within(p, in.ForemanHome) || (in.ProjectCacheDir != "" && within(p, in.ProjectCacheDir)) {
+		if in.ProjectCacheDir != "" && within(p, in.ProjectCacheDir) {
 			return Policy{}, fmt.Errorf("policy: %s is inside a deny-write directory", name)
+		}
+		for _, d := range denied {
+			if within(p, d) {
+				return Policy{}, fmt.Errorf("policy: %s is inside a deny-write directory", name)
+			}
 		}
 	}
 	// srt creates a unix socket "<RunTmp>/srt-mux-<pid>-<n>.sock"; sun_path
@@ -193,7 +215,13 @@ func (p Policy) DenyReadPaths() []string {
 
 // DenyWritePaths returns the sorted denyWrite list.
 func (p Policy) DenyWritePaths() []string {
-	set := map[string]bool{p.in.ForemanHome: true}
+	set := map[string]bool{}
+	if p.in.ForemanHome != "" {
+		set[p.in.ForemanHome] = true
+	}
+	for _, d := range p.in.DenyWrite {
+		set[d] = true
+	}
 	if p.in.ProjectCacheDir != "" {
 		set[p.in.ProjectCacheDir] = true
 	}
