@@ -96,7 +96,9 @@ func TestM1L1FailBecomesFixStep(t *testing.T) {
 	}
 	var fs string
 	query(t, s.app, `SELECT status FROM findings WHERE id = '`+ids[0]+`'`, &fs)
-	t.Logf("integrate step's check finding %s is %s after the fix passed (nothing closes it: see report)", ids[0], fs)
+	if fs != "closed" {
+		t.Errorf("integrate step's check finding %s is %s after L1 passed again (S30), want closed (implicit write of l1_pass)", ids[0], fs)
+	}
 }
 
 // Transient L1 failures are rerun through OP-09 without an event, once per

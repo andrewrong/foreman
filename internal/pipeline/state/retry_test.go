@@ -54,6 +54,29 @@ func TestScenarioFindingsClosedByPassAndApprove(t *testing.T) {
 	}
 }
 
+// l1_pass closes the integrate step's open check findings (implicit_writes);
+// a build step's check findings stay open.
+func TestScenarioL1PassClosesIntegrateCheckFindings(t *testing.T) {
+	e := newEnv(t)
+	e.req("R-t-8")
+	build := e.step("R-t-8", model.StepBuild, model.StateRunning, model.StageCheck)
+	integ := e.step("R-t-8", model.StepIntegrate, model.StateWaiting, model.StageCheck,
+		func(s *model.Step) { s.Reason = "ci" })
+	wantRow(t, e.transition(build, Event{Name: "check_fail", FailingTests: []string{"TestB"}, LogTail: "FAIL"}).RowID, "S50")
+	wantRow(t, e.transition(integ, Event{Name: "l1_fail", FailingTests: []string{"TestI"}, LogTail: "x"}).RowID, "S31")
+	open := func(scope string) int {
+		return e.count(`SELECT COUNT(*) FROM findings WHERE scope = ? AND kind = 'check' AND status = 'open'`, scope)
+	}
+	if open(integ) != 1 {
+		t.Fatalf("integrate check finding not open after l1_fail: %d", open(integ))
+	}
+	e.exec(`UPDATE steps SET state = 'waiting', reason = 'ci' WHERE id = ?`, integ) // test setup only: as after S35 and S07
+	wantRow(t, e.transition(integ, Event{Name: "l1_pass", SingleStep: "many"}).RowID, "S30")
+	if open(integ) != 0 || open(build) != 1 {
+		t.Errorf("open check findings after l1_pass: integrate %d (want 0), build step %d (want 1)", open(integ), open(build))
+	}
+}
+
 // bad_result resets on any valid result and infra on any non-infra result
 // (state-machine.yaml counters), so two non-consecutive bad results do not
 // add up to the cap.

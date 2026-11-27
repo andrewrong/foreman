@@ -50,6 +50,24 @@ func (m *Mirror) Update(ctx context.Context) error {
 	return err
 }
 
+// ImportBranch fetches refs/heads/<branch> of another foremand-owned repo
+// (the integration directory) into the same branch of the mirror, so a later
+// clone --shared sees it. The source is only a path argument; the hardened
+// -c options reach the spawned upload-pack. A failure leaves the mirror as it
+// was. Mirror.Update prunes branches absent from the remote, so the imported
+// branch lives only until the next Update (the PR push publishes it).
+func (m *Mirror) ImportBranch(ctx context.Context, srcRepo, branch string) error {
+	if err := git.ValidateName(branch); err != nil {
+		return err
+	}
+	if !filepath.IsAbs(srcRepo) {
+		return fmt.Errorf("session: source repo path must be absolute: %q", srcRepo)
+	}
+	_, err := m.r.Run(ctx, m.Dir, "-c", "fetch.fsckObjects=true", "fetch", "--no-tags", "--no-recurse-submodules",
+		"--", srcRepo, "+refs/heads/"+branch+":refs/heads/"+branch)
+	return err
+}
+
 // DefaultBranch is the branch the mirror's HEAD points at.
 func (m *Mirror) DefaultBranch(ctx context.Context) (string, error) {
 	return m.r.Line(ctx, m.Dir, "symbolic-ref", "--short", "HEAD")

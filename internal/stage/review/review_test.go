@@ -124,7 +124,8 @@ func (w *world) request(resultBody string, mb bool) Request {
 		RunDir: filepath.Join(w.root, "runs", "r2"), SessionRepo: w.sess.Dir, Context: "# ctx\n", Prompt: "review\n",
 		Extra: map[string]string{scripted.ExtraScript: script}}}
 	if mb {
-		r.MergeBack = &MergeBack{ReqID: "r1", StepID: "r1/S1", SessionRepo: w.sess.Dir, SessionBranch: w.sess.Branch, Subject: "implement sum"}
+		r.MergeBack = &MergeBack{ReqID: "r1", StepID: "r1/S1", SessionRepo: w.sess.Dir, SessionBranch: w.sess.Branch, Subject: "implement sum",
+			Identity: wsgit.Identity{Name: "foreman-session", Email: "foreman-session@users.noreply.example"}}
 	}
 	return r
 }
@@ -151,6 +152,14 @@ func TestReviewApproveMergesBackWithStepIDTrailer(t *testing.T) {
 	}
 	if n, _ := w.git.Line(ctx, w.integ.Path, "rev-list", "--count", "refs/remotes/mirror/main.."+tip); n != "1" {
 		t.Fatalf("two coder commits must squash to one, got %s", n)
+	}
+	// The session repo was refreshed: its branch is the requirement branch tip
+	// (the squash commit, not the coder's two) and its tree has the files.
+	if head, _ := w.git.Line(ctx, "", "--git-dir", filepath.Join(w.sess.Dir, ".git"), "rev-parse", "HEAD"); head != tip {
+		t.Errorf("session head %s, want the requirement tip %s", head, tip)
+	}
+	if _, err := os.Stat(filepath.Join(w.sess.Dir, "sum2.go")); err != nil {
+		t.Errorf("refreshed session lacks the merged file: %v", err)
 	}
 	// Re-running after a crash is idempotent (the trailer is already there).
 	ev2, err := Run(ctx, w.env, w.request(approve, true))

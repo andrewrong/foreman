@@ -87,6 +87,46 @@ func Create(ctx context.Context, r *git.Runner, m *Mirror, dir string, spec Spec
 	return &Repo{Dir: dir, Branch: branch}, nil
 }
 
+// Refresh replaces the session repo at dir by a new one cloned from the mirror
+// at spec.BaseBranch (the requirement branch, put there with
+// Mirror.ImportBranch), so the next session sees what was merged back. The
+// old repo is never read or run: git is not executed on it at all (D-056), it
+// is only renamed and deleted, and the new clone comes from foremand's own
+// mirror. Uncommitted leftovers of the old working tree are discarded; a
+// session still running in it must have ended (v1 steps are serial). A crash
+// between the renames leaves dir missing or the old repo in place; the next
+// Refresh (merge-back is idempotent) finishes the job.
+func (m *Mirror) Refresh(ctx context.Context, dir string, spec Spec) (*Repo, error) {
+	return Refresh(ctx, m.r, m, dir, spec)
+}
+
+// Refresh is Mirror.Refresh with an explicit runner.
+func Refresh(ctx context.Context, r *git.Runner, m *Mirror, dir string, spec Spec) (*Repo, error) {
+	fresh, old := dir+".new", dir+".old"
+	for _, p := range []string{fresh, old} {
+		if err := os.RemoveAll(p); err != nil {
+			return nil, err
+		}
+	}
+	repo, err := Create(ctx, r, m, fresh, spec)
+	if err != nil {
+		_ = os.RemoveAll(fresh)
+		return nil, err
+	}
+	if err := os.Rename(dir, old); err != nil && !errors.Is(err, os.ErrNotExist) {
+		_ = os.RemoveAll(fresh)
+		return nil, err
+	}
+	if err := os.Rename(fresh, dir); err != nil {
+		return nil, err
+	}
+	if err := os.RemoveAll(old); err != nil {
+		return nil, err
+	}
+	repo.Dir = dir
+	return repo, nil
+}
+
 // Remove deletes a session repo directory. It refuses anything that is not a
 // git working repo (has a .git directory).
 func Remove(dir string) error {
