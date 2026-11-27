@@ -1,0 +1,7 @@
+# 本机路径与私有笔记，不进仓库（privguard P1）
+.local/
+# 构建产物
+/bin/
+/dist/
+*.test
+*.out
