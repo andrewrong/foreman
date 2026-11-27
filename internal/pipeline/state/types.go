@@ -5,6 +5,8 @@
 // the reconciler).
 package state
 
+import "time"
+
 //go:generate go run ./tablegen
 
 // Hold values of Requirement.hold (req_hold.values). A step-table guard
@@ -51,6 +53,24 @@ type Event struct {
 	Budget     string // ok|over
 	Deps       string // done|pending
 	Lease      string // ok|wait
+
+	// Payload read by the effect executors (Transition, TransitionReq). The
+	// tables never read these.
+
+	Head         string      // head sha, set:last_reviewed_sha=head
+	Detail       string      // free-text trigger reason (planner/rescuer input, denial reason)
+	Guidance     string      // rescuer guidance (inject_guidance)
+	Resource     string      // resource of an access request (grant_access, inject_denial)
+	DropReason   string      // dropped_reason, required by drop_all_steps (ACR-05)
+	Subject      string      // step id the trigger concerns (owner_trigger sent directly)
+	AskID        string      // owner_answer / owner_retry: which ask; empty = the only open ask
+	AnswerOption string      // option id chosen (defaults to Answer)
+	ResetsAt     time.Time   // quota reset time, for the waiting(quota) deadline
+	Findings     []FindingIn // add_findings
+	FailingTests []string    // add_findings:check
+	LogTail      string      // add_findings:check; already redacted by the caller (privguard)
+	Plan         *PlanDiff   // apply_plan_diff
+	Ask          *AskContent // create_owner_ask text; defaults are generated when nil
 }
 
 // To is the resolved target of a step transition. Stage is concrete (same,
@@ -68,22 +88,34 @@ type To struct {
 // verbatim effect strings of the row (plus those of the escalate expansion).
 // HoldRewritten reports that HOLD-1 replaced a queued target. When Ignored,
 // RowID is empty and there are no effects.
+//
+// Causes lists the counters that were at_cap in the matched row's guards
+// (expanded escalate rows included), as "<name>" without the guard kind.
+// Reqs are the table B rows hit by req_hold effects, in execution order
+// (Transition only).
 type Outcome struct {
 	RowID         string
 	To            To
 	Effects       []string
 	Ignored       bool
 	HoldRewritten bool
+	Causes        []string
+	Reqs          []ReqOutcome
 }
 
 // ReqOutcome is the result of DecideReq. RowID is the req_hold row id, with
 // "+roo" appended for rows reached through rescue_or_owner. To is the new
 // hold value.
+//
+// Causes is as in Outcome. Followups are table B rows run for pending
+// triggers once the hold returned to none (TransitionReq only).
 type ReqOutcome struct {
-	RowID   string
-	To      string
-	Effects []string
-	Ignored bool
+	RowID     string
+	To        string
+	Effects   []string
+	Ignored   bool
+	Causes    []string
+	Followups []ReqOutcome
 }
 
 // Row types of the generated tables.

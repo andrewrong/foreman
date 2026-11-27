@@ -157,6 +157,9 @@ type ReqCounters struct {
 	PlannerFailures int `yaml:"planner_failures" json:"planner_failures"`
 	ReqRescues      int `yaml:"req_rescues" json:"req_rescues"`
 	FixSteps        int `yaml:"fix_steps" json:"fix_steps"`
+	// AccessRequests is in state-machine.yaml dims.req_counters but missing
+	// from the E-REQ.req_counters field list in entities.yaml.
+	AccessRequests int `yaml:"access_requests" json:"access_requests"`
 }
 
 type Budget struct {
