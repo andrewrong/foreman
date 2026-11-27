@@ -26,6 +26,7 @@ const (
 	EnvScript = "FOREMAN_SCRIPTED_SCRIPT" // path of the script JSON
 	EnvRunDir = "FOREMAN_RUN_DIR"
 	EnvRunID  = "FOREMAN_RUN_ID"
+	EnvModel  = "FOREMAN_SCRIPTED_MODEL" // RunSpec.Model, echoed in the stream so tests can see which model a Run was given
 )
 
 // ExtraScript is the RunSpec.Extra key holding the script path.
@@ -84,7 +85,7 @@ func (a *Adapter) BuildInvocation(s api.RunSpec) (api.Invocation, error) {
 	return api.Invocation{
 		Argv: []string{a.cfg.Exe, "-foreman-scripted-child"},
 		Env: map[string]string{
-			EnvChild: "1", EnvScript: script, EnvRunDir: s.RunDir, EnvRunID: s.RunID,
+			EnvChild: "1", EnvScript: script, EnvRunDir: s.RunDir, EnvRunID: s.RunID, EnvModel: s.Model,
 		},
 		Timeout: s.Timeout,
 	}, nil

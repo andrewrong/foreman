@@ -52,6 +52,9 @@ type Config struct {
 	Models map[string]string
 	// Scripts maps a role to its script path (scripted harness).
 	Scripts map[api.Role]string
+	// ScriptFor, if set, picks the script of each Run at launch (scripted
+	// harness) and takes precedence over Scripts; empty falls back to Scripts.
+	ScriptFor func(role api.Role, stepID string) string
 	// Path is the session PATH; it is passed explicitly, never inherited.
 	Path         string
 	L0           [][]string
@@ -165,8 +168,14 @@ func (a *App) wire(ctx context.Context, cfg Config) error {
 			}
 			return scripted.New(lease, scripted.Config{})
 		},
-		RunExtra: func(role api.Role, _ string) map[string]string {
-			if p := cfg.Scripts[role]; p != "" {
+		RunExtra: func(role api.Role, stepID string) map[string]string {
+			p := cfg.Scripts[role]
+			if cfg.ScriptFor != nil {
+				if q := cfg.ScriptFor(role, stepID); q != "" {
+					p = q
+				}
+			}
+			if p != "" {
 				return map[string]string{scripted.ExtraScript: p}
 			}
 			return nil

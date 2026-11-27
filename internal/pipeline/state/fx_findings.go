@@ -116,6 +116,15 @@ func fxAddCheckFindings(c *txc, _ string) error {
 		truncRunes(problem, maxProblem), "the failing checks pass", round)
 }
 
+// closeFindings closes the step's open findings of one kind: a passing check
+// closes the check finding (the next context.md must not show a failure that
+// was fixed) and an approving review closes the review findings it was shown.
+func (c *txc) closeFindings(kind string) error {
+	_, err := c.tx.ExecContext(c.ctx, `UPDATE findings SET status = 'closed'
+		WHERE scope = ? AND kind = ? AND status = 'open'`, c.step.id, kind)
+	return err
+}
+
 // fxAddFixStep inserts the fix step for the integrate step: queued(code),
 // acceptance = the findings this event just wrote, touches of the integrate
 // step.
