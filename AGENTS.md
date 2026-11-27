@@ -27,7 +27,7 @@ foreman 是 agent-crew 的 Go 重写：程序驱动的 AI 开发流水线。spec
 ## 隐私（仓库公开，C-09）
 - tracked 文件、commit message、PR 文本里不得出现：用户目录或外接卷绝对路径、
   真实邮箱、用户名、主机名、IP、token。本机路径只写在 .local/
-- 提交前运行：git grep -nE '/Users/|/Volumes/|/private/tmp|@gmail' -- . ':!spec/design/privguard.yaml' ':!AGENTS.md'
+- 提交前运行：git grep -nE '/Users/|/Volumes/|/private/tmp|@gmail' -- . ':!spec/design/privguard.yaml' ':!AGENTS.md'  # privguard:allow rule-definition
 - 提交身份用仓库已配置的 noreply 身份，不要改 git config
 
 ## 凭据

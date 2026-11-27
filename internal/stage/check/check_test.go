@@ -163,6 +163,26 @@ func TestCheckStageInfraWhenCommandCannotStart(t *testing.T) {
 	}
 }
 
+// The L0 log is redacted before the failing tests and the tail are taken.
+func TestCheckStageRedactsLog(t *testing.T) {
+	w := newWorld(t)
+	failing := `package sum
+
+import "testing"
+
+func TestLeak(t *testing.T) { t.Fatal("cannot open /Us" + "ers/zed/work and mail zed" + "@corp." + "io") }
+`
+	w.commit(map[string]string{"sum.go": sumGo("a + b"), "sum_test.go": failing})
+	ev, err := Run(context.Background(), w.env, w.req())
+	if err != nil || ev.Name != model.EventCheckFail {
+		t.Fatalf("event %+v err %v", ev, err)
+	}
+	if strings.Contains(ev.LogTail, "zed") || !strings.Contains(ev.LogTail, "[redacted:abs-path]") ||
+		!strings.Contains(ev.LogTail, "[redacted:email]") {
+		t.Errorf("log tail not redacted: %q", ev.LogTail)
+	}
+}
+
 func TestLogTailLimits(t *testing.T) {
 	var b strings.Builder
 	for i := 0; i < 300; i++ {

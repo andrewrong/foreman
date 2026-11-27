@@ -54,6 +54,8 @@ func TestL1FailureClassification(t *testing.T) {
 			map[int64]string{1: "--- FAIL: TestSum\nProcess completed with exit code 137.\n"}, false, L1Rerun, 1, nil},
 		{"same failure on the base", []ops.CheckRun{failedJob(1, "ci", "failure")}, map[int64]string{1: realLog}, true, L1Rerun, 1, nil},
 		{"real failing test", []ops.CheckRun{failedJob(1, "ci", "failure")}, map[int64]string{1: realLog}, false, L1Fail, 0, []string{"TestSum"}},
+		{"log text is redacted before names are read", []ops.CheckRun{failedJob(1, "ci", "failure")},
+			map[int64]string{1: "--- FAIL: TestSum/zed" + "@corp." + "io\n"}, false, L1Fail, 0, []string{"TestSum/[redacted:email]"}},
 		{"unreadable log is not guessed", []ops.CheckRun{failedJob(1, "ci", "failure")}, nil, false, L1Fail, 0, []string{"ci"}},
 	}
 	for _, c := range cases {

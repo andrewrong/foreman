@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/andrewrong/foreman/internal/privguard"
 	"github.com/andrewrong/foreman/internal/sandbox/launch"
 	"github.com/andrewrong/foreman/internal/sandbox/policy"
 	"github.com/andrewrong/foreman/internal/spec/model"
@@ -93,8 +94,11 @@ func Run(ctx context.Context, env Env, r Request) (model.Event, error) {
 		case exit.Signaled:
 			return model.Event{Name: model.EventInfra, Head: head, Detail: fmt.Sprintf("L0 command %q was killed", argv[0])}, nil
 		case exit.Code != 0:
-			return model.Event{Name: model.EventCheckFail, Head: head, FailingTests: failingTests(log.String()),
-				LogTail: logTail(log.String())}, nil
+			// The log comes from a session-controlled build: redact it before
+			// anything is taken from it (C-09).
+			out := privguard.Redact(log.String())
+			return model.Event{Name: model.EventCheckFail, Head: head, FailingTests: failingTests(out),
+				LogTail: logTail(out)}, nil
 		}
 	}
 	return model.Event{Name: model.EventCheckPass, Head: head}, nil

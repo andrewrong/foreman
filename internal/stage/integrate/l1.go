@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/andrewrong/foreman/internal/forge/ops"
+	"github.com/andrewrong/foreman/internal/privguard"
 	"github.com/andrewrong/foreman/internal/spec/model"
 	"github.com/andrewrong/foreman/internal/stage/check"
 )
@@ -144,9 +145,10 @@ func classify(ctx context.Context, env Env, r L1Request, failed []ops.CheckRun) 
 			transient = false // cannot tell: report it rather than rerun blindly
 			continue
 		}
-		names := check.FailingTests(string(log))
+		text := privguard.Redact(string(log)) // job logs are untrusted text (C-09)
+		names := check.FailingTests(text)
 		tests = append(tests, names...)
-		if len(names) > 0 && !killed(string(log)) {
+		if len(names) > 0 && !killed(text) {
 			transient = false
 		}
 	}
