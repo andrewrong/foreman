@@ -465,3 +465,10 @@ decisions:
     resolves: []
     enforced_by: "test:sandbox-env-has-only-allowed-credentials；test:intake-model-selection"
     status: active
+
+  - id: D-066
+    date: 2026-11-28
+    statement: "第 1 阶段探测结论（docs/probes/phase-1.md）：① 会话环境从空环境按白名单构造，不继承 foremand 的环境（srt 会原样继承父进程环境）；② claude 会话固定使用 --strict-mcp-config --disable-slash-commands --setting-sources \"\" 与按角色的 --tools 清单，启动开销约降到 1/4；advisor 以 --settings advisorModel 传入，无需列入 --tools；③ 订阅登录下不能使用 --bare；④ Go 缓存按项目一份，会话用 cp -c 克隆"
+    amends: [D-056]
+    enforced_by: "test:sandbox-env-has-only-allowed-credentials；test:harness-claude-argv"
+    status: active

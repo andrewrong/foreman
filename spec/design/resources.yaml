@@ -103,7 +103,7 @@ kinds:
     pacing: "7d 窗口每日可用 = 剩余 / 剩余天数；当日超出只放行 P0"
     priority_gate: "剩余 < 30% 只放行 P0–P1"
     reservation_estimate: "预留百分点 = 该 role 最近 20 次运行加权 token 的 p75 × k_model。加权 token = input + output×5 + cache_read×0.1（权重可配置）；k_model 按模型分开，只用相邻读数增量 > 0 的样本（滚动窗回落导致的 0 或负增量丢弃），样本少于 10 个时预留固定 2 个百分点"
-    granularity: "utilization 在 agent-crew 中存为 REAL；实际精度未核实（verified: false）"
+    granularity: "utilization 为 0–1 小数、两位精度；rate_limit_event 只含本次报告的窗口，缺席窗口沿用上次值（2026-11-28 实测，docs/probes/phase-1.md）"
     stale_rule: "该资源的读数只在会话输出中出现；超过 stale_after 时按 RT-9 估算，不阻断派发"
 
   - id: RES-GH-REST
