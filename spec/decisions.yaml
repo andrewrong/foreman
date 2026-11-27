@@ -210,7 +210,7 @@ decisions:
     statement: "GitHub REST 用 github.com/google/go-github，GraphQL 用 github.com/shurcooL/githubv4；自写部分只有 ETag 缓存 RoundTripper 与 Gate 包装，internal/forge 自写代码约 600–900 行"
     amends: D-031
     enforced_by: none
-    status: active
+    status: superseded
 
   - id: D-033
     date: 2026-11-27
@@ -483,4 +483,12 @@ decisions:
     date: 2026-11-28
     statement: "FOREMAN_HOME 目录布局固定为 access.yaml layout：db/、config/、projects/<p>/repo.git、projects/<p>/integrate、cache/<p>/、sessions/<req id>/、runs/<run id>/；沙箱 denyWrite 只覆盖其中的系统目录，会话目录与运行目录在 FOREMAN_HOME 下但只对各自的会话可写；runs/<run id>/ 路径 ≤ 70 字节"
     enforced_by: "test:sandbox-layout-policy；test:startup-integrity-check"
+    status: active
+
+  - id: D-069
+    date: 2026-11-28
+    statement: "（取代 D-032）internal/forge 用标准库 net/http + encoding/json 直接实现 forge.yaml 的 OP-01..OP-14 与 FG-8 的 GraphQL 批量查询，不引入 go-github 与 githubv4：v1 只用 14 个操作，自写的类型与错误映射已覆盖 FG-2、FG-5，依赖更少；MD-2 继续限制任何 GitHub 客户端库只能被 internal/forge 导入"
+    supersedes: D-032
+    amends: [D-031]
+    enforced_by: "test:module-deps；test:forge-error-mapping"
     status: active

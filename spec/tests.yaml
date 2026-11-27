@@ -99,6 +99,7 @@ tests:
   - forge:FG-3
 - name: test:forge-error-mapping
   covers:
+  - D-069
   - forge:FG-5
 - name: test:forge-graphql-cost
   covers:
@@ -151,9 +152,9 @@ tests:
   - D-002
   - D-027
   - D-030
-  - D-032
   - D-041
   - D-064
+  - D-069
   - forge:FG-1
   - forge:FG-6
 - name: test:nightly-flaky-rerun
