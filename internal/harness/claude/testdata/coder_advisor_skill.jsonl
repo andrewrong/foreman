@@ -1,0 +1,9 @@
+{"type":"system","subtype":"init","session_id":"sess-1","model":"claude-sonnet-5-5","tools":["Bash","Read","Edit","Write","Glob","Grep"]}
+{"type":"assistant","message":{"model":"claude-sonnet-5-5","content":[{"type":"text","text":"Reading the step."},{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"context.md"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"..."}]}}
+{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"seven_day":{"utilization":0.89,"resetsAt":1800100000,"status":"allowed","surpassedThreshold":0.75}}}}
+{"type":"assistant","message":{"model":"claude-sonnet-5-5","content":[{"type":"tool_use","id":"t2","name":"Skill","input":{"skill":"tdd"}},{"type":"server_tool_use","id":"s1","name":"advisor","input":{}},{"type":"advisor_tool_result","tool_use_id":"s1","content":"use a table test"},{"type":"tool_use","id":"t3","name":"Bash","input":{"command":"go test ./..."}},{"type":"tool_use","id":"t4","name":"Bash","input":{"command":"git commit -am x"}}]}}
+{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.31,"resetsAt":1800003600,"status":"allowed"}}}}
+not json at all
+{"type":"mystery","x":1}
+{"type":"result","subtype":"success","is_error":false,"num_turns":3,"result":"done","total_cost_usd":0.0421,"terminal_reason":"completed","permission_denials":[{"tool":"Bash"}],"usage":{"input_tokens":120,"output_tokens":340,"cache_creation_input_tokens":3174,"cache_read_input_tokens":5205},"modelUsage":{"claude-sonnet-5-5":{"inputTokens":100,"outputTokens":300,"cacheReadInputTokens":5205,"cacheCreationInputTokens":3174,"costUSD":0.04},"claude-opus-5-5":{"inputTokens":20,"outputTokens":40,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"costUSD":0.0021}}}
