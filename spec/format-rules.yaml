@@ -16,7 +16,7 @@ rules:
     rule: "enforced_by 不允许只写 program:<模块>：模块名不是检查，必须附至少一个 test: 或 check:，否则按 none 计（ACR-34）；constitution 中 none 最多 3 条"
     check: "lint"
   - id: F5
-    rule: "禁用模糊词：适当、合理、尽量、必要时、等等、相关的、大约（数值请写具体值或范围）"
+    rule: "禁用模糊词：『适当』『合理』『尽量』『必要时』『等等』『相关的』『大约』（数值请写具体值或范围）"
     check: "lint：词表匹配，引号内的原话引用除外"
   - id: F6
     rule: "未决问题只能写在 open-questions.yaml；其它文件引用未决问题时必须标 pending: Q-n"

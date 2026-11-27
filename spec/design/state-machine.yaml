@@ -7,6 +7,10 @@
 # 本文件由 tools/smcheck（暂为 scratchpad 脚本，后续改为 Go 测试 test:state-table-exhaustive）穷举检查。
 schema: foreman.state-machine/2
 
+rules:
+  - { id: TX-1, rule: "Transition 的事务只写数据库（含插入 fix 步骤、创建 Run 记录）；一切外部动作由 reconciler 根据当前状态幂等执行，结果再以事件送回 Transition" }
+  - { id: HOLD-1, rule: "Requirement.hold ≠ none 时，Step 表算出的目标若是 queued(X)，改为 waiting(hold) 并记 resume_stage=X" }
+
 dims:
   states: [queued, running, waiting, done, dropped]
   terminal: [done, dropped]

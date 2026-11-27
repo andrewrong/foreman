@@ -7,7 +7,7 @@ entities:
     name: Requirement
     db: work.db
     owns_state: false
-    phase: "推导值，见 derived_phase"
+    derived_from: "推导值，见 derived_phase"
     fields:
       - { name: id, type: string, required: true, format: "R-<project>-<n>" }
       - { name: kind, type: "enum feature|bug|chore", required: true }
