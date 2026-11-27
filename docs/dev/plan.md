@@ -23,7 +23,7 @@
 | T4 | spec lint：F1 id 唯一与引用可解析、F3 enforced_by 格式、F4、F5 禁用词、F7/F8、F10 phase 标签 | format-rules.yaml；C-12 | check:spec-lint、check:spec-phase-tags | done |
 | T5 | internal/spec/model 与 validate、ears：Requirement/Spec/Step 类型与入库校验 | entities.yaml；format-rules F2 | test:spec-validate-requirement、test:derived-phase-total | done |
 | T6 | internal/store：sqlite 打开、迁移、单写者 | entities.yaml；D-002 | test:store-single-writer | done |
-| T7a | internal/pipeline/state 的纯决策函数 Decide：由 tablegen 从 state-machine.yaml 生成转移表（含表 B、escalate、HOLD-1、ignored）；不碰数据库 | state-machine.yaml；C-01、C-02 | 生成表与 smcheck 展开结果逐条一致；穷举所有 (配置, 事件, 守卫取值) 有且只有一个结果 | ready |
+| T7a | internal/pipeline/state 的纯决策函数 Decide：由 tablegen 从 state-machine.yaml 生成转移表（含表 B、escalate、HOLD-1、ignored）；不碰数据库 | state-machine.yaml；C-01、C-02 | 生成表与 smcheck 展开结果逐条一致；穷举所有 (配置, 事件, 守卫取值) 有且只有一个结果 | done |
 | T7b | Transition：在 store 的单写事务中读取步骤与需求、调用 Decide、写回状态与 effects（TX-1）；补 T6 的 panic 回滚 | state-machine.yaml TX-1；entities.yaml | test:only-transition-writes-state | 等实体表任务 |
 | T8 | internal/harness/api 与 scripted 假模型；里程碑 M1：scripted 模型 + 假 GitHub 跑通一个需求 | protocol-run.yaml；D-037 | M1 端到端测试 | ready |
 | T11 | internal/resource（meter、ledger、gate、history）：资源注册表、预占与结算、Gate 的 Allow/Wait、窗口与 pacing | resources.yaml；D-027、D-030、D-051 | test:quota-all-windows-gate、test:quota-daily-pacing、test:budget-fallback-default 等 resources.yaml 引用的测试 | ready |
@@ -36,3 +36,4 @@
 
 - T5 未实现的 entities.yaml 约束：spec_version 递增、current 必须有引用、必填列表是否允许为空（change、repro、current）、E-STEP 全部约束（max_len、min_items、required_when、code_role）、Acceptance/Unknown id 唯一、E-REF 模块名对照 modules.yaml。需要先在 entities.yaml 写清「必填列表能否为空」与 spec_version 起始值，再开任务。
 - T6：Write 中 fn panic 时事务不回滚、写连接被占住；T7 前补 recover + rollback。
+- T7a：S19 hold_released 在 hold 仍为 set 时经 HOLD-1 回到 waiting(hold)；reconciler 必须只在 hold 清除后发 hold_released（T7b/reconciler 任务加断言）。无 HOLD-1 而进入 waiting(hold) 的行保留当前 stage，resume_stage 由 record_resume_stage effect 写入。
