@@ -6,7 +6,8 @@ binary: "单一可执行文件 foreman；foreman daemon 启动常驻进程，其
 
 modules:
   - { module: clock,     layer: 0, packages: [internal/clock],                                   duty: "可注入时钟（C-05）" }
-  - { module: spec,      layer: 0, packages: [internal/spec/model, internal/spec/validate, internal/spec/ears], duty: "Requirement/Spec/Step 的类型与入库校验（entities.yaml）" }
+  - { module: spec,      layer: 0, packages: [internal/spec/model, internal/spec/validate, internal/spec/ears, internal/spec/lint, internal/spec/smcheck], duty: "Requirement/Spec/Step 的类型与入库校验（entities.yaml）；spec 文件 lint（format-rules F1–F10，foreman spec lint）；状态表检查（smcheck，C-02）。读取 YAML 用 gopkg.in/yaml.v3" }
+  - { module: repocheck, layer: 0, packages: [internal/repocheck], duty: "仓库级检查，只有测试：package 行数（C-03）、模块依赖（C-04）、AGENTS.md 体积（C-11）、测试禁 time.Sleep（C-05）、禁执行 gh、禁止的测试类型（C-07）；不被任何 package 导入" }
 
   - { module: store,     layer: 1, packages: [internal/store/sqlite, internal/store/migrate],    duty: "global.db / work.db / ci.db 的打开、迁移、单写者" }
   - { module: config,    layer: 1, packages: [internal/config/schema, internal/config/revision], duty: "配置读取、校验、revision、回退（config.yaml）" }
