@@ -17,15 +17,20 @@
 
 | 编号 | 任务 | spec | 验收（测试名） | 状态 |
 |---|---|---|---|---|
-| T1 | Go 骨架：go.mod、cmd/foreman（只有 version 子命令）、Makefile（build/test/lint）、internal/clock（Clock 接口、Real、Fake） | modules.yaml clock、cli；C-05 | go build/test/vet 通过；Fake 时钟的单测 | ready |
+| T1 | Go 骨架：go.mod、cmd/foreman（只有 version 子命令）、Makefile（build/test/lint）、internal/clock（Clock 接口、Real、Fake） | modules.yaml clock、cli；C-05 | go build/test/vet 通过；Fake 时钟的单测 | done |
 | T2 | 把 tools/smcheck.rb 移植为 Go 测试：读取 spec/design/state-machine.yaml 与 protocol-run.yaml，实现与 ruby 版相同的全部检查 | state-machine.yaml；C-02 | test:state-table-exhaustive；对 ruby 版做过的变异逐一给出 Go 测试用例（报错一致） | ready |
-| T3 | 仓库检查：package 行数（C-03）、模块依赖方向（MD-*）、AGENTS.md 体积（C-11）、测试里禁 time.Sleep、禁执行 gh | modules.yaml；C-03、C-04、C-05、C-11 | check:size-limits、test:module-deps、check:agents-md-size、check:no-sleep-in-tests、check:no-gh-exec | ready |
+| T3 | 仓库检查：package 行数（C-03）、模块依赖方向（MD-*）、AGENTS.md 体积（C-11）、测试里禁 time.Sleep、禁执行 gh | modules.yaml；C-03、C-04、C-05、C-11 | check:size-limits、test:module-deps、check:agents-md-size、check:no-sleep-in-tests、check:no-gh-exec | done |
 | T4 | spec lint：F1 id 唯一与引用可解析、F3 enforced_by 格式、F4、F5 禁用词、F7/F8、F10 phase 标签 | format-rules.yaml；C-12 | check:spec-lint、check:spec-phase-tags | ready |
-| T5 | internal/spec/model 与 validate、ears：Requirement/Spec/Step 类型与入库校验 | entities.yaml；format-rules F2 | test:spec-validate-requirement、test:derived-phase-total | ready |
-| T6 | internal/store：sqlite 打开、迁移、单写者 | entities.yaml；D-002 | test:store-single-writer | ready |
+| T5 | internal/spec/model 与 validate、ears：Requirement/Spec/Step 类型与入库校验 | entities.yaml；format-rules F2 | test:spec-validate-requirement、test:derived-phase-total | done |
+| T6 | internal/store：sqlite 打开、迁移、单写者 | entities.yaml；D-002 | test:store-single-writer | done |
 | T7 | internal/pipeline/state：Transition，转移表由 state-machine.yaml 生成为 Go 数据（生成物标 generated） | state-machine.yaml；C-01 | test:only-transition-writes-state、test:state-table-exhaustive（复用 T2） | ready（T2、T5、T6 之后） |
 | T8 | internal/harness/api 与 scripted 假模型；里程碑 M1：scripted 模型 + 假 GitHub 跑通一个需求 | protocol-run.yaml；D-037 | M1 端到端测试 | ready |
 | T9 | internal/forge | forge.yaml | test:forge-* | ready |
 | T10 | internal/sandbox、internal/workspace | access.yaml；D-045、D-056 | test:sandbox-*、test:session-* | ready |
 
 里程碑 M2（真实 Claude 与 GitHub 跑通 foreman-sandbox 上的一个需求）在 T8–T10 之后另行拆分。
+
+## 遗留（审查时记录，后续任务处理）
+
+- T5 未实现的 entities.yaml 约束：spec_version 递增、current 必须有引用、必填列表是否允许为空（change、repro、current）、E-STEP 全部约束（max_len、min_items、required_when、code_role）、Acceptance/Unknown id 唯一、E-REF 模块名对照 modules.yaml。需要先在 entities.yaml 写清「必填列表能否为空」与 spec_version 起始值，再开任务。
+- T6：Write 中 fn panic 时事务不回滚、写连接被占住；T7 前补 recover + rollback。
