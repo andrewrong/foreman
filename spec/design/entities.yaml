@@ -115,6 +115,7 @@ entities:
       - { name: counters, type: Counters, required: true }
       - { name: session_repo, type: string, required: false, note: "v1 为空（使用需求的会话仓库）；phase: v2 并行时为步骤的临时会话仓库" }
       - { name: commit, type: string, required: false, note: "done 时为合回需求分支后的单个 commit sha" }
+      - { name: last_reviewed_sha, type: string, required: false, note: "work 步骤增量 review 的起点（S42/S52 写入）；integrate 步骤用 E-PR.last_reviewed_sha（S29/S43 写入）" }
 
   - id: E-PR
     name: PullRequest
@@ -127,7 +128,8 @@ entities:
       - { name: head_sha, type: string, required: false }
       - { name: state, type: "enum unopened|open|merged|closed", required: true }
       - { name: last_reviewed_sha, type: string, required: false, note: "增量 review 的起点（ACR-15）" }
-      - { name: combination_tested, type: bool, required: false, note: "merge-if-disjoint 跳过重跑 L1 时为 false" }
+      - { name: guardrail_approved_sha, type: string, required: false, note: "owner 对 H6 选 grant 时记录当前 head；head 变化后需重新判定（S47）" }
+      - { name: l1_reruns, type: "map head_sha → int", required: true, default: {}, note: "每个 head 最多自动重跑 L1 一次（ACR-10）" }
 
   - id: E-CNT
     name: Counters
@@ -148,12 +150,12 @@ entities:
       - { name: spec_version, type: int, required: true, note: "Run 基于的 spec 版本；入库时若所引用 acceptance 在此后变过 → bad_result(stale)（ACR-08）" }
       - { name: snapshot_id, type: string, required_when: "role == planner", note: "planner 输入的步骤快照（GEM-4）" }
       - { name: changed_outcome, type: bool, required: false, note: "该 Run 是否改变了结论（review 提出被采纳的 finding、advisor 建议被采用、救援改变路径）；改进指标用（ACR-21）" }
-      - { name: harness, type: string, required_when: "role != check" }
+      - { name: harness, type: string, required_when: "role 为 AI 角色（不是 check、ci_watch、merge）" }
       - { name: pid, type: int, required: false }
       - { name: pid_start, type: time, required: false, note: "与 pid 一起判断进程是否仍是同一个" }
       - { name: dir, type: string, required: true, note: "~/.foreman/projects/<p>/runs/<run id>/" }
       - { name: config_rev, type: int, required: true }
-      - { name: prompt_hash, type: string, required_when: "role != check" }
+      - { name: prompt_hash, type: string, required_when: "role 为 AI 角色（不是 check、ci_watch、merge）" }
       - { name: reserved, type: "[]{resource, amount}", required: true, note: "Ledger 重启时由运行中 Run 的 reserved 重建" }
       - { name: started_at, type: time, required: true }
       - { name: ended_at, type: time, required: false }
@@ -165,9 +167,12 @@ entities:
     db: work.db
     fields:
       - { name: id, type: string, required: true, format: "F<n>" }
+      - { name: kind, type: "enum review|check", required: true, note: "check 由 add_findings:check 写入" }
       - { name: scope, type: "step id | req id", required: true }
       - { name: severity, type: "enum blocking|minor", required: true }
-      - { name: location, type: "{path, line}", required: true }
+      - { name: location, type: "{path, line}", required_when: "kind == review" }
+      - { name: failing_tests, type: "[]string", required_when: "kind == check" }
+      - { name: log_tail, type: string, required_when: "kind == check", max_len: 8000, note: "≤ 80 行，经 privguard redact" }
       - { name: problem, type: string, required: true, max_len: 300 }
       - { name: close_when, type: string, required: true, max_len: 200, note: "怎样算解决" }
       - { name: status, type: "enum open|closed|rejected", required: true }
@@ -185,8 +190,7 @@ entities:
       - { name: ref, type: string, required: false, note: "answer → Unknown id；access_request → resource" }
       - { name: text, type: string, required: true, max_len: 500 }
       - { name: evidence, type: "{path, line} | {cmd, output_line}", required_when: "kind ∈ {answer, spec_conflict, extra_file}", note: "无证据的断言不入库（ACR-07）" }
-      - { name: supersedes, type: "discovery id", required: false, note: "context.md 只渲染未被取代、未被 reviewer 标 rejected 的条目" }
-      - { name: rejected_by, type: "run id", required: false }
+      - { name: supersedes, type: "discovery id", required: false, note: "context.md 只渲染未被取代的条目（test:context-hides-superseded-discoveries）" }
 
   - id: E-ASK
     name: OwnerAsk

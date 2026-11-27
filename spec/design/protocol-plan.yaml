@@ -1,6 +1,12 @@
 # planner 的输出协议（D-034）：首次拆解与重新规划共用。planner 会话写 plan.json，foremand 校验后在一个事务里执行 apply_plan_diff。
 schema: foreman.protocol-plan/1
 
+compat:
+  - "schema_version 只增不减；foremand 同时接受当前版本与上一版本，上一版本缺少的字段按默认值补齐"
+  - "新增可选字段不升版本；新增必填字段、改名、改枚举含义必须升版本"
+  - "收到高于当前支持的版本：按 bad_result 处理并在反馈报告中记录"
+
+
 file:
   name: plan.json
   direction: "planner 会话 → foremand"

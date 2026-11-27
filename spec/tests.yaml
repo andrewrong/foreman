@@ -7,6 +7,9 @@ tests:
 - name: check:agents-md-size
   covers:
   - C-11
+- name: check:forbidden-paths
+  covers:
+  - guardrails:G-05
 - name: check:module-deps
   covers:
   - D-032
@@ -20,7 +23,7 @@ tests:
 - name: check:no-text-pin-tests
   covers:
   - C-07
-  - D-049
+  - D-060
 - name: check:privguard
   covers:
   - C-09
@@ -29,7 +32,7 @@ tests:
 - name: check:prompts-size
   covers:
   - D-020
-  - D-048
+  - D-062
   - format-rules:F9
 - name: check:size-limits
   covers:
@@ -40,9 +43,8 @@ tests:
   - C-12
   - D-015
   - D-025
-  - D-048
-  - D-049
   - D-058
+  - D-062
 - name: check:spec-phase-tags
   covers:
   - D-042
@@ -79,6 +81,9 @@ tests:
   covers:
   - D-040
   - D-044
+- name: test:context-hides-superseded-discoveries
+  covers:
+  - entities:E-DISC
 - name: test:context-pack-lists-resources
   covers:
   - access:access
@@ -87,7 +92,7 @@ tests:
   - D-054
 - name: test:feedback-report-generated
   covers:
-  - D-010
+  - D-061
 - name: test:forge-batch-poll
   covers:
   - forge:FG-7
@@ -110,6 +115,7 @@ tests:
   covers:
   - D-039
   - D-053
+  - D-061
   - guardrails:GR-1
 - name: test:guardrail-improve-evidence
   covers:
@@ -200,7 +206,7 @@ tests:
   - C-13
 - name: test:sandbox-probe-git-commit
   covers:
-  - D-049
+  - D-060
 - name: test:sandbox-probe-no-credentials
   covers:
   - C-08
@@ -249,6 +255,7 @@ tests:
   - D-053
   - D-054
   - D-057
+  - D-060
 - name: test:store-single-writer
   covers:
   - D-004

@@ -1,5 +1,5 @@
 # 模块与 package（D-024）。模块可以大，package 受 C-03 上限约束。
-# 依赖规则：layer 小的不得导入 layer 大的；同层之间只允许 allowed_deps 中列出的边；test:module-deps 检查。
+# 依赖规则：layer 小的不得导入 layer 大的；同一模块内的 package 可以互相导入（无环）；同层不同模块之间只允许 allowed_deps 中列出的边；test:module-deps 检查。
 schema: foreman.modules/1
 
 binary: "单一可执行文件 foreman；foreman daemon 启动常驻进程，其余子命令通过 Unix socket 调用 daemon 的 API"
@@ -37,8 +37,9 @@ allowed_deps:   # 除"低层可被高层导入"之外的额外限制
   - { rule: "只有 internal/pipeline/state 写 Step.state/stage/reason（C-01）", id: MD-4 }
   - { rule: "只有 internal/secrets 打开密钥目录下的文件", id: MD-5 }
   - { rule: "layer 2 内部模块之间不得互相导入（resource 除外：forge、harness 可导入 resource/gate 与 resource/meter）", id: MD-6 }
-  - { rule: "layer 3 内部的边只有：internal/pipeline/sched → internal/stage/*、internal/role/*、internal/prod/*。stage、role、prod 不导入 pipeline：它们执行后返回事件值（类型定义在 layer 0 的 internal/spec/model），由 sched 交给 state.Transition（C-01）", id: MD-7 }
-  - { rule: "internal/pipeline 内部：sched、escalate、recover 可导入 state；state 不导入同模块其它 package", id: MD-8 }
+  - { rule: "layer 3 跨模块的边只有：pipeline → stage、role（sched、recover 调用）；role → stage（只限 internal/stage/context）。stage、role、prod 不导入 pipeline：执行后返回事件值（类型在 layer 0 的 internal/spec/model），由 sched 交给 state.Transition（C-01）", id: MD-7 }
+  - { rule: "internal/pipeline/state 不导入 pipeline 模块内其它 package（保持状态转移纯净）", id: MD-8 }
+  - { rule: "layer 1 跨模块的边只有：config → store（config/revision 写 global.db）", id: MD-9 }
 
 package_limits:   # C-03
   non_test_lines: 3000

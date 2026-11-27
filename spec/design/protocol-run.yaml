@@ -2,6 +2,12 @@
 # 位置：运行目录 ~/.foreman/projects/<p>/runs/<run id>/；会话的工作目录是需求的会话仓库（D-045），运行目录以只读+单文件可写方式映射。
 schema: foreman.protocol-run/1
 
+compat:
+  - "schema_version 只增不减；foremand 同时接受当前版本与上一版本，上一版本缺少的字段按默认值补齐"
+  - "新增可选字段不升版本；新增必填字段、改名、改枚举含义必须升版本"
+  - "收到高于当前支持的版本：按 bad_result 处理并在反馈报告中记录"
+
+
 process:
   - id: PP-1
     rule: "每个会话是独立的进程组（setsid），stdout/stderr 写入运行目录的 stdout.log / stderr.log，不通过管道连到 foremand；foremand 退出不影响会话"
@@ -35,7 +41,7 @@ files:
       - "触及 package 的行数余量：非测试行、测试行、距 C-03 上限（程序生成，ACR-27）"
     order_rule: "稳定内容在前（宪法、语言规则、Spec），变化内容在后，便于同一需求连续会话命中提示词缓存"
     role_overrides:
-      reviewer: "只含：宪法、Spec 的 goal 与 outcome、当前步骤 acceptance、自 PR.last_reviewed_sha（首轮为步骤起点）起的 diff、未关闭 findings。不含 coder 的 note、evidence、discoveries 原文（避免锚定，ACR-15）"
+      reviewer: "只含：宪法、Spec 的 goal 与 outcome、当前步骤 acceptance、自 last_reviewed_sha（work 步骤取 E-STEP，integrate 取 E-PR；首轮为步骤起点）起的 diff、未关闭 findings。不含 coder 的 note、evidence、discoveries 原文（避免锚定，ACR-15）"
       reviewer_rules: "round ≥ 2 时 location 不在本轮 delta 内的新 finding 一律存为 minor；去重键 (path, close_when 哈希)，重复的不入库"
 
   - id: PF-TODO
@@ -73,17 +79,17 @@ files:
       - { name: status, type: "enum ok|spec_conflict|access_request", required: true, note: "会话无法继续时必须二选一：spec_conflict（spec 与现实不符）或 access_request（缺资源）；check_failed / infra / budget_exceeded 由 foremand 判定，会话不能自报" }
       - { name: commits, type: "[]sha", required_when: "role == coder && status == ok", min_items: 1 }
       - { name: acceptance, type: "[]{id, result: pass|fail|cannot_check, evidence}", required_when: "role == coder && status == ok", rule: "覆盖当前步骤的全部 acceptance；cannot_check 表示沙箱内无法验证，该条目改由 reviewer 按 reading 判断，不算失败（ACR-09）" }
-      - { name: findings, type: "[]Finding 字段（不含 id/status/round）", required_when: "role == reviewer" }
-      - { name: verdict, type: "enum approve|changes", required_when: "role == reviewer", rule: "存在 severity=blocking 的 finding 时必须为 changes" }
+      - { name: findings, type: "[]Finding 字段（不含 id/status/round，kind 固定为 review）", required_when: "role == reviewer && status == ok" }
+      - { name: verdict, type: "enum approve|changes", required_when: "role == reviewer && status == ok", rule: "存在 severity=blocking 的 finding 时必须为 changes" }
       - { name: closed_findings, type: "[]finding id", required: false, note: "reviewer 第 2 轮起：本轮确认已解决的旧 finding" }
-      - { name: discoveries, type: "[]{kind, ref, text}", required: false }
-      - { name: decision, type: "step 级：enum retry|drop_step|replan|ask_owner；需求级：enum retry|replan|drop_requirement|ask_owner", required_when: "role == rescuer", rule: "Run.scope 为 step 时取前者，为 requirement 时取后者；取值必须与 state-machine dims.guard_enums 一致（smcheck 交叉检查）" }
+      - { name: discoveries, type: "[]{kind, ref, text, evidence, supersedes}", required: false, rule: "字段与约束同 entities.yaml E-DISC：kind ∈ {answer, spec_conflict, extra_file} 时 evidence 必填" }
+      - { name: decision, type: "step 级：enum retry|drop_step|replan|ask_owner；需求级：enum retry|replan|drop_requirement|ask_owner", required_when: "role == rescuer && status == ok", rule: "Run.scope 为 step 时取前者，为 requirement 时取后者；取值必须与 state-machine dims.guard_enums 一致（smcheck 交叉检查）" }
       - { name: guidance, type: string, required_when: "role == rescuer && decision == retry", max_len: 1000 }
       - { name: access, type: "{resource, reason}", required_when: "status == access_request" }
       - { name: note, type: string, required: false, max_len: 500 }
     examples:
       - name: coder_ok
-        value: { schema_version: 1, run_id: "R-foreman-12/S2/r1", role: coder, status: ok, commits: ["3f2a9c1"], acceptance: [ { id: A3, result: pass, evidence: "TestConcurrentDemand 通过" } ], discoveries: [ { kind: answer, ref: U1, text: "GitHub 304 响应不计入 core 限额，已在 forge 测试中验证" } ] }
+        value: { schema_version: 1, run_id: "R-foreman-12/S2/r1", role: coder, status: ok, commits: ["3f2a9c1"], acceptance: [ { id: A3, result: pass, evidence: "TestConcurrentDemand 通过" } ], discoveries: [ { kind: answer, ref: U1, text: "GitHub 304 响应不计入 core 限额", evidence: { cmd: "go test ./internal/forge/cache -run TestConditionalGetNotCounted", output_line: "ok  internal/forge/cache" } } ] }
       - name: reviewer_changes
         value: { schema_version: 1, run_id: "R-foreman-12/S2/r2", role: reviewer, status: ok, verdict: changes, findings: [ { scope: "R-foreman-12/S2", severity: blocking, location: { path: "internal/resource/ledger/ledger.go", line: 88 }, problem: "Settle 未处理实际用量大于预留的情况，available 会变成负数", close_when: "实际 > 预留时按实际扣减，并有测试覆盖" } ] }
       - name: invalid_reviewer_verdict

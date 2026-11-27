@@ -82,7 +82,7 @@ ops:   # 初始操作集合；新增一个操作 = 改代码 + 测试
   - { id: OP-12, name: BranchProtectionGet, method: "GET /repos/{o}/{r}/branches/{b}/protection",   resource: [rest] }
 
 auth:
-  initial: "细粒度 PAT（fine-grained），权限：contents rw、pull_requests rw、actions rw、checks r、metadata r；不授予 workflows（D-039）；文件 foreman.github.token（D-026）"
+  initial: "细粒度 PAT（fine-grained），权限：contents rw、pull_requests rw、actions rw、commit statuses r、metadata r；不授予 workflows（D-039）；细粒度 PAT 的权限列表中没有 Checks（2026-11-27 owner 建 token 时确认），OP-07 能否读取以探测为准，读不到时用 OP-08 actions runs/jobs 与 commit status；文件 foreman.github.token（D-026）"
   later: "GitHub App 作为可选项（每个安装独立限额；具体上限数值待核实，verified: false），需要时另立决定"
 
 tests_integration:

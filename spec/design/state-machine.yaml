@@ -32,14 +32,16 @@ dims:
     work: [code, check, review]
     integrate: [review, merge]
   counters:   # 步骤级
-    check_fail:      { cap: 3, reset: [check_pass, rescue_retry] }
-    review_rounds:   { cap: 2, reset: [rescue_retry] }
-    merge_conflict:  { cap: 2, reset: [rescue_retry] }
+    check_fail:      { cap: 3, reset: [check_pass], note: "rescuer retry 时 grant_one" }
+    review_rounds:   { cap: 2, reset: [never], note: "rescuer retry 时 grant_one" }
+    merge_conflict:  { cap: 2, reset: [never], note: "rescuer retry 时 grant_one" }
     bad_result:      { cap: 2, reset: [any_valid_result] }
     infra:           { cap: 6, reset: [any_non_infra_result] }
     access_denied:   { cap: 1, reset: [never] }
     rescues:         { cap: 2, reset: [never] }
-    ci_extensions:   { cap: 12, reset: [l1_pass, l1_fail], note: "waiting(ci) 延长 deadline 的次数；12 × 35m ≈ 7h" }
+    ci_extensions:   { cap: 12, reset: [l1_pass, l1_fail], note: "waiting(ci) 延长 deadline 的次数；只在 35m deadline 到期时由 reconciler 发出 ci_progress/lease_wait，12 × 35m ≈ 7h" }
+    merge_waits:     { cap: 6, reset: [merged], note: "running(merge) 延长 deadline 的次数" }
+    rereviews:       { cap: 2, reset: [never], note: "S46 增量 review 的次数" }
   guard_enums:   # 守卫取值全集；smcheck 用它判断穷尽，不从已有行反推
     step_decision: [retry, drop_step, replan, ask_owner]
     req_decision:  [retry, replan, drop_requirement, ask_owner]
@@ -49,6 +51,7 @@ dims:
     planner_failures: { cap: 2, reset: [planner_ok] }
     req_rescues:      { cap: 2 }
     fix_steps:        { cap: 3 }
+    access_requests:  { cap: 5, note: "需求内访问申请总次数" }
 
 # 守卫词汇（结构化）：
 #   hold: set|none        —— Requirement.hold
@@ -57,6 +60,7 @@ dims:
 #   counter: {name, is: below|at_cap}
 #   req_counter: {name, is: below|at_cap}
 #   tier: R1|R2|R3
+#   budget: ok|over      —— 需求累计成本是否超过 Requirement.budget × 2（H4）
 #   single_step: one|many—— 需求只有一个 done 的 work 步骤且无 fix 步骤
 #   decision: 步骤表取 guard_enums.step_decision，表 B 取 guard_enums.req_decision（与 protocol-run PF-RESULT 一致，smcheck 交叉检查）
 #   answer: guard_enums.answer
@@ -72,13 +76,14 @@ dims:
 step_table:
   # ---- 派发（queued）----
   - { id: S01, from: { state: queued, stages: all, types: all }, event: dispatch, guard: { hold: set },                                  to: { state: waiting, reason: hold }, effects: [record_resume_stage] }
-  - { id: S02, from: { state: queued, stages: all, types: all }, event: dispatch, guard: { hold: none, deps: pending },                  to: { state: waiting, reason: deps } }
-  - { id: S03, from: { state: queued, stages: all, types: all }, event: dispatch, guard: { hold: none, deps: done, lease: wait },        to: { state: waiting, reason: quota } }
-  - { id: S04, from: { state: queued, stages: [code], types: work }, event: dispatch, guard: { hold: none, deps: done, lease: ok },      to: { state: running, stage: same }, effects: ["create_run:coder"] }
-  - { id: S05, from: { state: queued, stages: [check], types: work }, event: dispatch, guard: { hold: none, deps: done, lease: ok },     to: { state: running, stage: same }, effects: ["create_run:check"] }
-  - { id: S06, from: { state: queued, stages: [review], types: all }, event: dispatch, guard: { hold: none, deps: done, lease: ok },     to: { state: running, stage: same }, effects: ["create_run:reviewer"] }
-  - { id: S07, from: { state: queued, stages: [check], types: [integrate] }, event: dispatch, guard: { hold: none, deps: done, lease: ok }, to: { state: waiting, reason: ci }, effects: ["create_run:ci_watch"] }
-  - { id: S08, from: { state: queued, stages: [merge], types: [integrate] }, event: dispatch, guard: { hold: none, deps: done, lease: ok }, to: { state: running, stage: same }, effects: ["create_run:merge"] }
+  - { id: S00, from: { state: queued, stages: all, types: all }, event: dispatch, guard: { hold: none, budget: over }, to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H4", record_resume_stage], note: "H4：owner 选 resume 时预算追加一份原预算（cause = budget）" }
+  - { id: S02, from: { state: queued, stages: all, types: all }, event: dispatch, guard: { hold: none, budget: ok, deps: pending },                  to: { state: waiting, reason: deps } }
+  - { id: S03, from: { state: queued, stages: all, types: all }, event: dispatch, guard: { hold: none, budget: ok, deps: done, lease: wait },        to: { state: waiting, reason: quota } }
+  - { id: S04, from: { state: queued, stages: [code], types: work }, event: dispatch, guard: { hold: none, budget: ok, deps: done, lease: ok },      to: { state: running, stage: same }, effects: ["create_run:coder"] }
+  - { id: S05, from: { state: queued, stages: [check], types: work }, event: dispatch, guard: { hold: none, budget: ok, deps: done, lease: ok },     to: { state: running, stage: same }, effects: ["create_run:check"] }
+  - { id: S06, from: { state: queued, stages: [review], types: all }, event: dispatch, guard: { hold: none, budget: ok, deps: done, lease: ok },     to: { state: running, stage: same }, effects: ["create_run:reviewer"] }
+  - { id: S07, from: { state: queued, stages: [check], types: [integrate] }, event: dispatch, guard: { hold: none, budget: ok, deps: done, lease: ok }, to: { state: waiting, reason: ci }, effects: ["create_run:ci_watch"] }
+  - { id: S08, from: { state: queued, stages: [merge], types: [integrate] }, event: dispatch, guard: { hold: none, budget: ok, deps: done, lease: ok }, to: { state: running, stage: same }, effects: ["create_run:merge"], note: "lease 含 local/slots/merge/<repo>、github/base-health/<repo>、github/content-create；合并槽持有到 merged 或 Run 结束" }
   - { id: S09, from: { state: queued, stages: all, types: all }, event: deadline_passed,                                                to: { state: queued, stage: same }, effects: [alert_starved, extend_deadline], note: "排队超过 24h：告警并计入改进指标；出口仍是 dispatch" }
 
   # ---- 等待的出口 ----
@@ -93,7 +98,7 @@ step_table:
   - { id: S18, from: { state: waiting, reason: access, stages: [code, review], types: work }, event: deadline_passed, guard: { counter: { name: infra, is: at_cap } }, to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H7", record_resume_stage] }
   - { id: S19, from: { state: waiting, reason: hold, stages: all, types: all }, event: hold_released, to: { state: queued, stage: resume_stage } }
   - { id: S20, from: { state: waiting, reason: hold, stages: all, types: all }, event: hold_drop,     to: { state: dropped } }
-  - { id: S21, from: { state: waiting, reason: rescue, stages: all, types: all }, event: rescue_decision, guard: { decision: retry },     to: { state: queued, stage: first_stage }, effects: ["grant_one:check_fail,review_rounds,merge_conflict", inject_guidance], note: "grant_one：把计数设为 cap − 1，只多给一轮（ACR-31）" }
+  - { id: S21, from: { state: waiting, reason: rescue, stages: all, types: all }, event: rescue_decision, guard: { decision: retry },     to: { state: queued, stage: first_stage }, effects: ["grant_one:check_fail,review_rounds,merge_conflict", inject_guidance], note: "grant_one：对每个计数 c 取 min(c, cap − 1)，只给已触顶的计数多一轮，不抬高未触顶的计数（ACR-31）" }
   - { id: S22, from: { state: waiting, reason: rescue, stages: all, types: all }, event: rescue_decision, guard: { decision: drop_step }, to: { state: dropped } }
   - { id: S23, from: { state: waiting, reason: rescue, stages: all, types: all }, event: rescue_decision, guard: { decision: replan },    to: { state: waiting, reason: hold }, effects: ["req_hold:replan", record_resume_stage] }
   - { id: S24, from: { state: waiting, reason: rescue, stages: all, types: all }, event: rescue_decision, guard: { decision: ask_owner }, to: { state: waiting, reason: hold }, effects: ["req_hold:owner", record_resume_stage] }
@@ -101,10 +106,10 @@ step_table:
   - { id: S26, from: { state: waiting, reason: rescue, stages: all, types: all }, event: rescue_failed,                                 to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H5", record_resume_stage], note: "rescuer 会话 bad_result 或 infra" }
 
   # ---- integrate 的 CI 与 fix ----
-  - { id: S30, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: l1_pass, guard: { single_step: many }, to: { state: queued, stage: review } }
-  - { id: S29, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: l1_pass, guard: { single_step: one },  to: { state: queued, stage: merge }, note: "需求只有一个 done 的 work 步骤且无 fix 步骤：步骤 review 即最终 review（ACR-30）" }
-  - { id: S31, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: l1_fail, guard: { req_counter: { name: fix_steps, is: below } },  to: { state: waiting, reason: fix }, effects: ["add_findings:check", add_fix_step, "inc:fix_steps"] }
-  - { id: S32, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: l1_fail, guard: { req_counter: { name: fix_steps, is: at_cap } }, to: { state: waiting, reason: hold }, effects: ["add_findings:check", "req_hold:rescue", record_resume_stage] }
+  - { id: S30, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: l1_pass, guard: { single_step: many }, to: { state: queued, stage: review }, effects: ["reset:ci_extensions"] }
+  - { id: S29, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: l1_pass, guard: { single_step: one },  to: { state: queued, stage: merge }, effects: ["reset:ci_extensions", "set:last_reviewed_sha=head"], note: "需求只有一个 done 的 work 步骤且无 fix 步骤：步骤 review 即最终 review（ACR-30）" }
+  - { id: S31, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: l1_fail, guard: { req_counter: { name: fix_steps, is: below } },  to: { state: waiting, reason: fix }, effects: ["reset:ci_extensions", "add_findings:check", add_fix_step, "inc:fix_steps"] }
+  - { id: S32, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: l1_fail, guard: { req_counter: { name: fix_steps, is: at_cap } }, to: { state: waiting, reason: hold }, effects: ["reset:ci_extensions", "add_findings:check", "req_hold:rescue", record_resume_stage] }
   - { id: S33, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: deadline_passed, guard: { counter: { name: infra, is: below } },  to: { state: waiting, reason: infra }, effects: ["inc:infra"] }
   - { id: S34, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: deadline_passed, guard: { counter: { name: infra, is: at_cap } }, to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H7", record_resume_stage] }
   - { id: S35, from: { state: waiting, reason: fix, stages: [check, review, merge], types: [integrate] }, event: fix_done,    to: { state: queued, stage: check } }
@@ -113,11 +118,16 @@ step_table:
   # ---- 运行中：正常推进 ----
   - { id: S40, from: { state: running, stages: [code], types: work },   event: run_ok,          to: { state: queued, stage: check } }
   - { id: S41, from: { state: running, stages: [check], types: work },  event: check_pass,      to: { state: queued, stage: review }, effects: ["reset:check_fail"] }
-  - { id: S42, from: { state: running, stages: [review], types: work }, event: review_approve,  to: { state: done }, note: "reconciler 先合回需求分支（squash 为一个 commit、rebase、快进）；成功才发本事件" }
-  - { id: S43, from: { state: running, stages: [review], types: [integrate] }, event: review_approve, to: { state: queued, stage: merge } }
+  - { id: S42, from: { state: running, stages: [review], types: work }, event: review_approve,  to: { state: done }, effects: ["set:last_reviewed_sha=head"], note: "reconciler 先合回需求分支（squash 为一个 commit、rebase、快进）；成功才发本事件" }
+  - { id: S43, from: { state: running, stages: [review], types: [integrate] }, event: review_approve, to: { state: queued, stage: merge }, effects: ["set:last_reviewed_sha=head"] }
   - { id: S44, from: { state: running, stages: [merge], types: [integrate] },  event: merged,         to: { state: done } }
-  - { id: S46, from: { state: running, stages: [merge], types: [integrate] },  event: needs_rereview, to: { state: queued, stage: review }, note: "update-branch 后 base 自 last_reviewed_sha 以来的改动与 PR 文件集相交：增量 review（只看新 delta）；不相交只重跑 L1（GEM-9、ACR-02）" }
-  - { id: S45, from: { state: running, stages: [merge], types: [integrate] },  event: lease_wait,     to: { state: waiting, reason: quota }, note: "merge 路径上 Gate 返回 Wait（合并槽被占、base 红、GitHub 额度）：不计 infra，释放已占的部分，到点重新 dispatch" }
+  - { id: S47, from: { state: running, stages: [merge], types: [integrate] }, event: guardrail_hit, to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H6", record_resume_stage], note: "reconciler 在合并前以真实 diff 匹配 spec/guardrails.yaml；E-PR.guardrail_approved_sha 等于当前 head 时不触发（H21 grant 时写入），避免批准后重复询问" }
+  - { id: S46, from: { state: running, stages: [merge], types: [integrate] },  event: needs_rereview, guard: { counter: { name: rereviews, is: below } }, to: { state: queued, stage: review }, effects: ["inc:rereviews"], note: "update-branch 后 base 自 last_reviewed_sha 以来的改动与 PR 文件集相交：增量 review（只看新 delta）；不相交只重跑 L1、不发本事件（GEM-9、ACR-02）" }
+  - { id: S46b, from: { state: running, stages: [merge], types: [integrate] }, event: needs_rereview, guard: { counter: { name: rereviews, is: at_cap } }, to: { state: escalate } }
+  - { id: S45, from: { state: running, stages: [merge], types: [integrate] }, event: lease_wait, guard: { counter: { name: merge_waits, is: below } }, to: { state: running, stage: same }, effects: [extend_deadline, "inc:merge_waits"], note: "合并中途 GitHub 额度不足或 L1 仍在跑（ci_progress 同此）：保持 running 与合并槽，延长 deadline；仅在 deadline 到期时由 reconciler 发出" }
+  - { id: S45b, from: { state: running, stages: [merge], types: [integrate] }, event: lease_wait, guard: { counter: { name: merge_waits, is: at_cap } }, to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H7", kill_run, record_resume_stage] }
+  - { id: S48, from: { state: running, stages: [merge], types: [integrate] }, event: ci_progress, guard: { counter: { name: merge_waits, is: below } }, to: { state: running, stage: same }, effects: [extend_deadline, "inc:merge_waits"] }
+  - { id: S48b, from: { state: running, stages: [merge], types: [integrate] }, event: ci_progress, guard: { counter: { name: merge_waits, is: at_cap } }, to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H7", kill_run, record_resume_stage] }
   - { id: S38, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: ci_progress, guard: { counter: { name: ci_extensions, is: below } }, to: { state: waiting, reason: ci }, effects: [extend_deadline, "inc:ci_extensions"], note: "run 为 in_progress，或 queued 且有在线 runner：延长 deadline、不计 infra；只有找不到 run 或 queued 且无 runner 才会到 deadline（ACR-24）" }
   - { id: S38b, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: ci_progress, guard: { counter: { name: ci_extensions, is: at_cap } }, to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H7", record_resume_stage], note: "CI 或额度等待累计过长，视为持续基础设施问题" }
   - { id: S37, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: lease_wait, guard: { counter: { name: ci_extensions, is: below } }, to: { state: waiting, reason: ci }, effects: [extend_deadline, "inc:ci_extensions"], note: "push/开 PR/轮询撞额度：延长 deadline，不计 infra" }
@@ -126,7 +136,7 @@ step_table:
   # ---- 运行中：失败分流（带上限）----
   - { id: S50, from: { state: running, stages: [check], types: work },  event: check_fail,          guard: { counter: { name: check_fail, is: below } },     to: { state: queued, stage: code }, effects: ["inc:check_fail", "add_findings:check"] }
   - { id: S51, from: { state: running, stages: [check], types: work },  event: check_fail,          guard: { counter: { name: check_fail, is: at_cap } },    to: { state: escalate }, effects: ["add_findings:check"] }
-  - { id: S52, from: { state: running, stages: [review], types: work }, event: review_changes,      guard: { counter: { name: review_rounds, is: below } },  to: { state: queued, stage: code }, effects: ["inc:review_rounds", add_findings] }
+  - { id: S52, from: { state: running, stages: [review], types: work }, event: review_changes,      guard: { counter: { name: review_rounds, is: below } },  to: { state: queued, stage: code }, effects: ["inc:review_rounds", add_findings, "set:last_reviewed_sha=head"] }
   - { id: S53, from: { state: running, stages: [review], types: work }, event: review_changes,      guard: { counter: { name: review_rounds, is: at_cap } }, to: { state: escalate }, effects: [add_findings] }
   - { id: S54, from: { state: running, stages: [review], types: work }, event: merge_back_conflict, guard: { counter: { name: merge_conflict, is: below } }, to: { state: queued, stage: code }, effects: ["inc:merge_conflict"] }
   - { id: S55, from: { state: running, stages: [review], types: work }, event: merge_back_conflict, guard: { counter: { name: merge_conflict, is: at_cap } }, to: { state: escalate } }
@@ -146,10 +156,11 @@ step_table:
   - { id: S75, from: { state: running, stages: all, types: all }, event: bad_result,      guard: { counter: { name: bad_result, is: below } }, to: { state: queued, stage: same }, effects: ["inc:bad_result"] }
   - { id: S76, from: { state: running, stages: all, types: all }, event: bad_result,      guard: { counter: { name: bad_result, is: at_cap } }, to: { state: escalate } }
   - { id: S77, from: { state: running, stages: all, types: all }, event: budget_exceeded,                                                      to: { state: escalate }, note: "budget_exceeded 上限为 1，第一次即升级" }
-  - { id: S78, from: { state: running, stages: [code, review], types: work }, event: access_request, guard: { tier: R1, counter: { name: access_denied, is: below } }, to: { state: waiting, reason: access } }
-  - { id: S79, from: { state: running, stages: [code, review], types: work }, event: access_request, guard: { tier: R2, counter: { name: access_denied, is: below } }, to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H6", record_resume_stage] }
-  - { id: S80, from: { state: running, stages: [code, review], types: work }, event: access_request, guard: { tier: R3, counter: { name: access_denied, is: below } }, to: { state: queued, stage: same }, effects: ["inc:access_denied", inject_denial] }
+  - { id: S78, from: { state: running, stages: [code, review], types: work }, event: access_request, guard: { tier: R1, counter: { name: access_denied, is: below }, req_counter: { name: access_requests, is: below } }, to: { state: waiting, reason: access }, effects: ["inc:access_requests"] }
+  - { id: S79, from: { state: running, stages: [code, review], types: work }, event: access_request, guard: { tier: R2, counter: { name: access_denied, is: below }, req_counter: { name: access_requests, is: below } }, to: { state: waiting, reason: hold }, effects: ["inc:access_requests", "req_hold:owner:H6", record_resume_stage] }
+  - { id: S80, from: { state: running, stages: [code, review], types: work }, event: access_request, guard: { tier: R3, counter: { name: access_denied, is: below }, req_counter: { name: access_requests, is: below } }, to: { state: queued, stage: same }, effects: ["inc:access_requests", "inc:access_denied", inject_denial] }
   - { id: S81, from: { state: running, stages: [code, review], types: work }, event: access_request, guard: { counter: { name: access_denied, is: at_cap } },           to: { state: waiting, reason: hold }, effects: ["req_hold:replan", record_resume_stage], note: "被拒后再次申请 → 视为 spec 与环境冲突，重新规划" }
+  - { id: S82, from: { state: running, stages: [code, review], types: work }, event: access_request, guard: { counter: { name: access_denied, is: below }, req_counter: { name: access_requests, is: at_cap } }, to: { state: escalate }, note: "同一需求访问申请次数到上限（含反复申请已自动批准的 R1）：交给 rescuer 判断是否缺资源或方案错误" }
 
   # ---- 取消 ----
   - { id: S90, from: { state: [queued, running, waiting], stages: all, types: all }, event: drop, to: { state: dropped }, effects: [kill_run] }
@@ -162,9 +173,9 @@ escalate:
 # 明确忽略的组合（只记日志）。smcheck：任何未命中行且未被忽略的组合都报错。
 ignored:
   - { states: [done, dropped], events: all }
-  - { states: [queued], events: [ci_progress, needs_rereview, lease_wait, deps_done, dep_dropped, lease_granted, access_granted, access_denied, hold_released, hold_drop, fix_done, fix_dropped, rescue_decision, rescue_failed, l1_pass, l1_fail, run_ok, check_pass, check_fail, review_approve, review_changes, merge_back_conflict, merged, merge_conflict, spec_conflict, infra, bad_result, budget_exceeded, access_request] }
-  - { states: [waiting], events: [needs_rereview, dispatch, run_ok, check_pass, check_fail, review_approve, review_changes, merge_back_conflict, merged, merge_conflict, spec_conflict, infra, bad_result, budget_exceeded, access_request] }
-  - { states: [running], events: [ci_progress, dispatch, deps_done, dep_dropped, lease_granted, access_granted, access_denied, hold_released, hold_drop, fix_done, fix_dropped, rescue_decision, rescue_failed, l1_pass], note: "lease_wait 只在 running(merge) 有行，其它 running 配置按 running_foreign_result 忽略；running(merge) 内部等待 L1 由 reconciler 处理，l1_pass 不触发转移" }
+  - { states: [queued], events: [guardrail_hit, ci_progress, needs_rereview, lease_wait, deps_done, dep_dropped, lease_granted, access_granted, access_denied, hold_released, hold_drop, fix_done, fix_dropped, rescue_decision, rescue_failed, l1_pass, l1_fail, run_ok, check_pass, check_fail, review_approve, review_changes, merge_back_conflict, merged, merge_conflict, spec_conflict, infra, bad_result, budget_exceeded, access_request] }
+  - { states: [waiting], events: [guardrail_hit, needs_rereview, dispatch, run_ok, check_pass, check_fail, review_approve, review_changes, merge_back_conflict, merged, merge_conflict, spec_conflict, infra, bad_result, budget_exceeded, access_request] }
+  - { states: [running], events: [dispatch, deps_done, dep_dropped, lease_granted, access_granted, access_denied, hold_released, hold_drop, fix_done, fix_dropped, rescue_decision, rescue_failed, l1_pass], note: "lease_wait 只在 running(merge) 有行，其它 running 配置按 running_foreign_result 忽略；running(merge) 内部等待 L1 由 reconciler 处理，l1_pass 不触发转移" }
   - { note: "waiting 下不属于该 reason 的出口事件（如 waiting(quota) 收到 deps_done）忽略", rule: waiting_foreign_exit }
   - { note: "running 下不适用于该阶段/类型的结果事件（如 running(code) 收到 review_approve）记为 bad_result 由 reconciler 处理，表中忽略", rule: running_foreign_result }
 
@@ -181,19 +192,19 @@ req_hold:
     - { id: H04, from: replan, event: planner_failed,  guard: { req_counter: { name: planner_failures, is: below } },  to: replan, effects: ["inc:planner_failures", "create_run:planner"] }
     - { id: H05, from: replan, event: planner_failed,  guard: { req_counter: { name: planner_failures, is: at_cap } }, to: rescue_or_owner }
     - { id: H06, from: [none, replan], event: rescue_trigger,                                                         to: rescue_or_owner }
-    - { id: H07, from: rescue, event: rescue_decision, guard: { decision: retry },            to: none,   effects: [inject_guidance, release_steps] }
+    - { id: H07, from: rescue, event: rescue_decision, guard: { decision: retry },            to: none,   effects: ["grant_one:fix_steps,planner_failures", inject_guidance, release_steps] }
     - { id: H08, from: rescue, event: rescue_decision, guard: { decision: replan },           to: replan, effects: ["create_run_when_drained:planner"], note: "不检查 replans 上限；循环由 req_rescues 上限约束" }
     - { id: H09, from: rescue, event: rescue_decision, guard: { decision: drop_requirement }, to: none,   effects: [drop_all_steps] }
     - { id: H10, from: rescue, event: rescue_decision, guard: { decision: ask_owner },        to: owner,  effects: [create_owner_ask] }
     - { id: H11, from: rescue, event: rescue_failed,                                          to: owner,  effects: ["create_owner_ask:H5"] }
     - { id: H12, from: rescue, event: deadline_passed,                                        to: owner,  effects: ["create_owner_ask:H5"] }
     - { id: H13, from: [none, replan, rescue], event: owner_trigger,                          to: owner,  effects: [create_owner_ask] }
-    - { id: H14, from: [owner, parked], event: owner_answer, guard: { answer: resume }, to: none,   effects: ["reset:ask.cause_counter", release_steps, "set:parked=false"], note: "OwnerAsk 创建时记录 cause_counter（H7→该步骤 infra；H5→rescues 或 req_rescues；fix_steps/replans 到上限时为对应计数）；resume 只把该计数清零一次" }
+    - { id: H14, from: [owner, parked], event: owner_answer, guard: { answer: resume }, to: none,   effects: ["reset:ask.cause_counter", release_steps, "set:parked=false"], note: "cause_counter 由创建 ask 的那一行决定：该行守卫中处于 at_cap 的计数（如 S37b → ci_extensions，S72 → infra，S59 → fix_steps）；S00（H4）的 cause 为 budget，resume 时预算追加一份原预算；resume 只把该计数清零一次" }
     - { id: H15, from: [owner, parked], event: owner_answer, guard: { answer: replan }, to: replan, effects: ["create_run_when_drained:planner", "set:parked=false"] }
-    - { id: H16, from: [owner, parked], event: owner_answer, guard: { answer: drop },   to: none,   effects: [drop_all_steps] }
+    - { id: H16, from: [owner, parked], event: owner_answer, guard: { answer: drop },   to: none,   effects: [kill_runs, drop_all_steps, "set:parked=false"] }
     - { id: H21, from: [owner, parked], event: owner_answer, guard: { answer: grant },  to: none,   effects: [grant_access, release_steps, "set:parked=false"], note: "H6 访问申请：[永久允许] 写入项目配置，[仅本次] 只对该 Run 生效（ask.options 区分，事件相同）" }
     - { id: H22, from: [owner, parked], event: owner_answer, guard: { answer: deny },   to: none,   effects: ["inc:access_denied", inject_denial, release_steps, "set:parked=false"], note: "再次申请同一资源走 S81（重新规划），不会循环" }
-    - { id: H23, from: [owner, parked], event: owner_answer, guard: { answer: drop_step }, to: none, effects: [drop_held_step, release_steps, "set:parked=false"], note: "H7 的 [放弃该步骤]：只放弃引发 ask 的步骤（ask.subject），需求继续；之后 DT-1 检查 outcome 覆盖" }
+    - { id: H23, from: [owner, parked], event: owner_answer, guard: { answer: drop_step }, to: none, effects: [drop_held_step, release_steps, "set:parked=false"], note: "H7 的 [放弃该步骤]：只放弃引发 ask 的 work 步骤（ask.subject），需求继续，之后 DT-1 检查 outcome 覆盖。subject 为 integrate 步骤时 ask 不提供此选项（放弃 integrate 等于终止需求，选项为 [终止需求]，走 H16）；若仍收到则按 H16 处理" }
     - { id: H24, from: [none, replan, rescue, owner, parked], event: owner_drop, to: none, effects: [kill_runs, drop_all_steps, "set:parked=false"], note: "web/Telegram 的 [终止需求] 按钮（ACR-25）；drop_all_steps 同时写 dropped_reason" }
     - { id: H25, from: [owner, parked], event: owner_retry, to: none, effects: ["reset:ask.cause_counter", release_steps, "set:parked=false"], note: "[重试] 按钮，等同 resume" }
     - { id: H17, from: owner,  event: deadline_passed,                                        to: parked, effects: ["set:parked=true", release_session_repo, notify], note: "D-036" }
@@ -201,7 +212,7 @@ req_hold:
     - { id: H19, from: replan, event: replan_trigger,                                         to: replan, effects: [append_trigger_to_planner_input], note: "同一需求只有一个 planner 运行；新触发的原因并入其输入，若已启动则在 planner_ok 后再触发一次" }
     - { id: H20, from: rescue, event: rescue_trigger,                                         to: rescue, effects: [append_trigger_to_rescuer_input] }
   ignored:   # (hold, event) 组合中明确忽略的（只记日志）；smcheck 检查表 B 全覆盖
-    - { from: [none, replan, rescue, parked], events: [owner_answer], note: "ask 已 moot 或已回答后的陈旧点按" }
+    - { from: [none, replan, rescue], events: [owner_answer], note: "ask 已 moot 或已回答后的陈旧点按" }
     - { from: [none], events: [planner_ok, planner_failed, rescue_decision, rescue_failed, deadline_passed], note: "陈旧结果" }
     - { from: [replan], events: [rescue_decision, rescue_failed, deadline_passed], note: "planner 超时由 Run deadline 产生 planner_failed" }
     - { from: [rescue], events: [planner_ok, planner_failed] }
@@ -233,6 +244,6 @@ reconciler:   # TX-1 的外部动作；每项都必须幂等
   - { when: "waiting(ci) 或 running(merge)，L1 结论为失败", action: "先分类：job 结论 cancelled、退出码 137、没有失败的测试、或同样的失败在 base 最近一次 run 也出现 → 用 OP-09 重跑失败的 job 一次，不发事件；重跑仍失败才发 l1_fail（ACR-10）", idempotency: "每个 head sha 最多重跑一次（记录在 PR 行）" }
   - { when: "running(review)，reviewer 结果为 approve", action: "合回需求分支，再发 review_approve 或 merge_back_conflict", idempotency: "需求分支上已存在 Step-Id trailer 等于本步骤 id 的 commit 则视为已合回" }
   - { when: "waiting(ci)", action: "push 需求分支；按 head 分支查找或创建 PR；轮询 L1", idempotency: "PR 以 head 分支名查找" }
-  - { when: "running(merge)", action: "先向 Gate 申请 local/slots/merge/<repo>（容量 1）与 github/base-health/<repo>；拿到后 update-branch → 等 L1 → 带 head sha 合并，合并或放弃时释放槽。Gate 返回 Wait 时发 lease_wait（S45）（RES-SLOTS、RES-BASE）", idempotency: "PR 已合并则直接发 merged" }
+  - { when: "running(merge)", action: "先向 Gate 申请 local/slots/merge/<repo>（容量 1）与 github/base-health/<repo>；拿到后 update-branch → 等 L1 → 带 head sha 合并，合并槽与 base-health 已在 dispatch 的 lease 中取得（S08），合并或 Run 结束时释放；合并前检查护栏（S47）；update-branch 后 base 新改动与 PR 文件集相交 → needs_rereview（S46），不相交 → 重跑 L1 后合并；L1 或额度等待到 deadline → ci_progress / lease_wait（S48、S45）", idempotency: "PR 已合并则直接发 merged" }
   - { when: "Run 被 kill_run 标记", action: "终止进程组；再扫描 TMPDIR 指向该运行目录的残留进程并终止（会话内 setsid 逃逸的子进程，ACR-28）", idempotency: "无存活进程即完成" }
   - { when: "dropped 且有会话仓库 / 打开的 PR / 远端分支", action: "删除会话仓库；关闭 PR；删除远端分支", idempotency: "资源不存在即完成" }

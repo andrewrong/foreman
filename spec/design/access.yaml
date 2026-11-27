@@ -7,6 +7,8 @@ tiers:
     grant: "自动，无需声明"
     resources:
       - "自己的会话仓库（D-045）与 TMPDIR 读写"
+      - "foremand 镜像的对象目录 ~/.foreman/projects/<p>/repo.git/objects 只读（clone --shared 的 alternates 目标，D-045）"
+      - "模型 API 主机（由 harness 适配器声明，如 claude 的 api.anthropic.com），仅供模型 CLI 使用（C-08 的模型 token 例外）"
       - "GOCACHE / GOMODCACHE：共享只读基础层 + 本任务可写层（该方案来自 agent-crew 的 Linux runner 镜像，macOS 沙箱下未实测，verified: false；退路：每个需求用 APFS 克隆 cp -c 复制一份共享缓存作为可写缓存，秒级、几乎不占额外空间，只影响首次编译性能）"
       - "包仓库按主机族：go（proxy.golang.org、sum.golang.org、*.googleapis.com 下载落点）、npm（registry.npmjs.org、*.npmjs.org）、python（pypi.org、files.pythonhosted.org）、rust（crates.io、static.crates.io、index.crates.io）；GitHub 只读下载落点（objects.githubusercontent.com、codeload.github.com）（ACR-18）"
       - "被拒主机由沙箱代理记日志，按天聚合为一条 H6 询问（同一主机一天一次），不逐次询问"

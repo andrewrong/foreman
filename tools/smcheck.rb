@@ -67,7 +67,7 @@ def guard_dims(g)
   out
 end
 DIM_VALUES = { 'hold' => %w[set none], 'deps' => %w[done pending], 'lease' => %w[ok wait], 'tier' => %w[R1 R2 R3],
-               'single_step' => %w[one many], 'decision' => d['guard_enums']['step_decision'] }
+               'single_step' => %w[one many], 'budget' => %w[ok over], 'decision' => d['guard_enums']['step_decision'] }
 # enums come from the spec, never from the rows themselves (a row-derived enum hides missing values)
 def dim_values(dim, rows_dims)
   return %w[below at_cap] if dim.start_with?('counter:', 'req_counter:')
@@ -177,13 +177,122 @@ all_effects = xrows.flat_map { |r| r['effects'] || [] } + rh_rows.flat_map { |r|
   errors << "counter never incremented: #{name}" unless all_effects.include?("inc:#{name}")
 end
 
-# ---- self-loops (to == from) must increment a capped counter guarded by below ----
+# ---- self-loops (to == from, any state) must increment a capped counter ----
 xrows.each do |r|
   f = r['from']; t = r['to']
-  next unless t['state'] == 'waiting' && as_list(f['state']) == ['waiting'] && t['reason'] == f['reason']
+  next unless as_list(f['state']) == [t['state']] && %w[waiting running].include?(t['state'])
+  next unless t['reason'] == f['reason'] && (t['stage'].nil? || t['stage'] == 'same')
+  next if t['state'] == 'running' && f['stages'] != 'all' && f['stages'].size != 1
   incs = (r['effects'] || []).grep(/^inc:/)
   errors << "unbounded self-loop: #{r['id']}" if incs.empty?
 end
+
+# ---- explicit ignore entries must not overlap a row (a row would be silently shadowed) ----
+configs.each do |c|
+  sm['ignored'].select { |ig| ig['states'] }.each do |ig|
+    next unless ig['states'].include?(c[:state])
+    evs = ig['events'] == 'all' ? events : ig['events']
+    evs.each do |ev|
+      hit = xrows.find { |r| r['event'] == ev && row_matches?(r, c, groups, TYPES) }
+      errors << "ignored overlaps row: #{hit['id']} #{c} event=#{ev}" if hit
+    end
+  end
+end
+(rh['ignored'] || []).each do |ig|
+  ig['from'].each do |v|
+    ig['events'].each do |ev|
+      hit = rh_rows.find { |r| as_list(r['from']).include?(v) && r['event'] == ev }
+      errors << "req ignored overlaps row: #{hit['id']} hold=#{v} event=#{ev}" if hit
+    end
+  end
+end
+
+# ---- multi-step cycles: every strongly connected set of configs must contain an inc of a counter
+#      that no edge inside the set resets. Waits on external clocks (deps, quota, hold) are exempt. ----
+node = ->(c) { [c[:state], c[:stage], c[:type], c[:reason]] }
+edges = Hash.new { |h, k| h[k] = [] }
+configs.each do |c|
+  next unless %w[queued running waiting].include?(c[:state])
+  xrows.select { |r| row_matches?(r, c, groups, TYPES) }.each do |r|
+    next if (r['effects'] || []).include?('alert_starved')   # S09: starvation alarm timer, exit is dispatch
+    t = r['to']
+    next unless %w[queued running waiting].include?(t['state'])
+    stage = case t['stage'] when nil, 'same' then c[:stage] when 'first_stage' then (groups['work'].include?(c[:type]) ? d['first_stage']['work'] : d['first_stage']['integrate']) when 'resume_stage' then next else t['stage'] end
+    edges[node.(c)] << [[t['state'], stage, c[:type], t['reason']], r]
+  end
+end
+EXEMPT_REASONS = %w[deps quota hold]
+# events that are the result of a Run (a counter reset "on any result" happens only on these)
+RESULT_EVENTS = %w[run_ok check_pass check_fail review_approve review_changes merge_back_conflict merged merge_conflict spec_conflict bad_result budget_exceeded access_request l1_pass l1_fail]
+index = {}; low = {}; stack = []; on = {}; sccs = []; i = 0
+strong = lambda do |v|
+  index[v] = low[v] = i; i += 1; stack << v; on[v] = true
+  edges[v].each do |(w, _)|
+    if !index.key?(w) then strong.(w); low[v] = [low[v], low[w]].min
+    elsif on[w] then low[v] = [low[v], index[w]].min end
+  end
+  if low[v] == index[v]
+    comp = []; loop { w = stack.pop; on[w] = false; comp << w; break if w == v }
+    sccs << comp
+  end
+end
+edges.keys.each { |v| strong.(v) unless index.key?(v) }
+counter_reset = d['counters'].transform_values { |v| Array(v['reset']) }
+# A counter bounds a cycle only if no edge of that cycle resets it. Approximation per SCC: an edge is
+# "bounding" if it increments a counter that no edge in the SCC resets. Remove bounding edges and look
+# again: any cycle left (outside exempt external waits) has no bound.
+def resets_of(r)
+  (r['effects'] || []).grep(/^reset:/).flat_map { |e| e.split(':', 2)[1].split(',') }
+end
+def tarjan(nodes, adj)
+  index = {}; low = {}; stack = []; on = {}; out = []; i = 0
+  visit = lambda do |v|
+    index[v] = low[v] = i; i += 1; stack << v; on[v] = true
+    adj[v].each do |(w, _)|
+      next unless nodes[w]
+      if !index.key?(w) then visit.(w); low[v] = [low[v], low[w]].min
+      elsif on[w] then low[v] = [low[v], index[w]].min end
+    end
+    if low[v] == index[v]
+      comp = []; loop { w = stack.pop; on[w] = false; comp << w; break if w == v }
+      out << comp
+    end
+  end
+  nodes.keys.each { |v| visit.(v) unless index.key?(v) }
+  out
+end
+# Sound iterative rule: inside a strongly connected set, an edge that increments a counter which no
+# edge of that set resets lies only on bounded cycles, so drop it and re-examine what remains (the
+# remaining, smaller sets may have lost the edges that used to reset other counters).
+check_scc = lambda do |comp, adj_in|
+  set = comp.to_h { |x| [x, true] }
+  inner = comp.flat_map { |v| adj_in[v].select { |(w, _)| set[w] }.map { |(_, r)| r } }
+  next if inner.empty?
+  inner_events = inner.map { |r| r['event'] }
+  inner_resets = inner.flat_map { |r| resets_of(r) }
+  reset_inside = lambda do |cn|
+    rs = counter_reset[cn] || []
+    (rs & inner_events).any? || inner_resets.include?(cn) ||
+      (rs.include?('any_valid_result') && inner_events.any? { |e| RESULT_EVENTS.include?(e) && e != 'bad_result' }) ||
+      (rs.include?('any_non_infra_result') && inner_events.any? { |e| RESULT_EVENTS.include?(e) })
+  end
+  bounding = ->(r) { (r['effects'] || []).grep(/^inc:/).any? { |e| !reset_inside.(e.split(':')[1]) } }
+  adj = Hash.new { |h, k| h[k] = [] }
+  comp.each { |v| adj_in[v].each { |(w, r)| adj[v] << [w, r] if set[w] && !bounding.(r) } }
+  live = comp.reject { |n| n[0] == 'waiting' && EXEMPT_REASONS.include?(n[3]) }.to_h { |x| [x, true] }
+  removed_any = inner.size != comp.sum { |v| adj[v].count { |(w, _)| set[w] } }
+  tarjan(live, adj).each do |sub|
+    s2 = sub.to_h { |x| [x, true] }
+    loop_rows = sub.flat_map { |v| adj[v].select { |(w, _)| s2[w] }.map { |(_, r)| r['id'] } }.uniq
+    next if loop_rows.empty?
+    if removed_any
+      check_scc.(sub, adj)          # smaller set: re-evaluate resets with only its own edges
+    else
+      errors << "unbounded cycle: #{loop_rows.sort.join(',')}"
+    end
+  end
+end
+sccs.each { |comp| check_scc.(comp, edges) }
 
 # ---- req hold table: full (hold, event) coverage ----
 rh_ign = rh['ignored'] || []

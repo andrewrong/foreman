@@ -1,0 +1,318 @@
+{
+  "model": "gemini-4-neon-high",
+  "effort": "high",
+  "reviewed": "commit 81098a8（第 1 轮修复后）",
+  "duration_seconds": 504.077746,
+  "usage": {
+    "input_tokens": 97059,
+    "output_tokens": 61497,
+    "thinking_tokens": 49724,
+    "cache_read_tokens": 148004,
+    "total_tokens": 158556
+  },
+  "verdict": "changes",
+  "prior": [
+    {
+      "id": "GEM-1",
+      "note": "D-045/D-050/D-056 与 modules.yaml workspace 改为 clone --shared 会话仓库与独立集成目录，C-08 改为明确允许专用可吊销模型 token 经环境变量入沙箱（未建外置代理）。但修复引入新矛盾与缺口：D-045 ① 称模型凭据是“唯一”进入会话的凭据，与 C-08/D-056/access.yaml R1 矛盾；access.yaml R0 未补 clone --shared 所需的 repo.git/objects 只读权限与模型 API 主机；config.yaml secrets 漏列模型 token。",
+      "status": "fix_introduced_problem"
+    },
+    {
+      "id": "GEM-2",
+      "note": "state-machine.yaml 补了 H14（reset:ask.cause_counter）、H21/H22（grant/deny）、H23（drop_step）、H25（owner_retry）及 E-ASK.cause_counter（R2 仍维持整需求 hold）。但修复引入新问题：req_hold.ignored 将 parked 列入 owner_answer，与 H14–H16/H21–H23 冲突；H14 写死 H7→infra 漏掉 S37b/S38b 的 ci_extensions；H21 [仅本次] 无实体字段承载；H22 在需求表增量步骤计数 access_denied 未指明目标。",
+      "status": "fix_introduced_problem"
+    },
+    {
+      "id": "GEM-3",
+      "note": "protocol-run.yaml PF-RESULT.decision 已拆分 step 级与需求级枚举并与 E-RUN.scope 对应；state-machine.yaml dims.guard_enums 固定枚举全集，tools/smcheck.rb L69–75、L199–206 改为读取 spec 并做协议交叉检查。但 smcheck.rb 仍未检查 req_hold 计数守卫（L131–139 仅查 xrows）与两表乘积可达性。",
+      "status": "partially_fixed"
+    },
+    {
+      "id": "GEM-4",
+      "note": "state-machine.yaml H01/H08/H15 改为 create_run_when_drained:planner，replan_effects_on_steps 补了 waiting(ci|fix|rescue) 规则，E-RUN.snapshot_id 与 protocol-plan.yaml PV-9 处理快照后变 done 的步骤。但 drained 仅等无 running 步骤，未等处于 waiting(rescue) 的活跃 rescuer 会话与 waiting(ci)，且批量挂起仍为散文未入 smcheck。",
+      "status": "partially_fixed"
+    },
+    {
+      "id": "GEM-5",
+      "note": "state-machine.yaml S31/S56/S58/S60 均已补 inc:fix_steps；tools/smcheck.rb L173–178 新增“计数从未递增”检查；state-machine.yaml DT-3 已按 head sha 去重并要求不存在非终态 fix 步骤且计入 fix_steps 上限。",
+      "status": "fixed"
+    },
+    {
+      "id": "GEM-6",
+      "note": "state-machine.yaml reconciler 启动会话已改为 O_EXCL launch.lock + 启动器写 pid.json，解决崩溃双开。但新增 S45（running(merge) + lease_wait → waiting(quota)）未在 S08 纳入 merge/<repo>/RES-BASE、无计数上限且不结束 Run，形成多步无界环并在合并中途释放锁；S37/S37b 的 ci_extensions 缺 35m 节流且 H14 未重置。",
+      "status": "fix_introduced_problem"
+    },
+    {
+      "id": "GEM-7",
+      "note": "modules.yaml MD-6 已把 resource/meter 加入白名单，MD-7/MD-8 补了部分 layer 3 边（sched → stage/role/prod，事件定义在 layer 0）。但 MD-7 限定“layer 3 内部边只有 sched → ...”，导致 stage/* 与 role/* 均无法导入 internal/stage/context，MD-8 使 sched/state 无法导入 pipeline/escalate，且 layer 1 缺 config/revision → store 允许边。",
+      "status": "partially_fixed"
+    },
+    {
+      "id": "GEM-8",
+      "note": "entities.yaml 新增 E-PR（D-042/D-054 将拆多 PR 标 phase: v2）、修复 E-REQ.derived_phase integrating 可达性、E-RUN.role 加入 ci_watch/merge、E-STEP.code_role 注明 S04 按 code_role 分发。但 E-RUN.harness 与 prompt_hash 仍写 required_when: role != check（误要求程序 Run ci_watch/merge 填写），S04 字面仍写 create_run:coder。",
+      "status": "partially_fixed"
+    },
+    {
+      "id": "GEM-9",
+      "note": "resources.yaml RES-SLOTS 新增 merge/<repo>、RES-BASE 拦红主干，state-machine.yaml 新增 S46 needs_rereview。但修复引入跨文件矛盾与无界环：E-PR.combination_tested 称 merge-if-disjoint 跳过 L1，S46 称不相交重跑 L1，reconciler running(merge) 未体现两者；S46 ↔ S43 无计数上限且不更新 PR.last_reviewed_sha，单步 S29 也未写该字段。",
+      "status": "fix_introduced_problem"
+    },
+    {
+      "id": "GEM-10",
+      "note": "decisions.yaml D-051 取代 D-029，规定 Gate 对适配器报告的所有窗口（claude 的 five_hour 与 seven_day）检查 floor，配置仅选 pacing 窗口；resources.yaml RES-MODEL 改为按模型分开的 k_model、加权 token（input+output×5+cache_read×0.1）、丢弃 ≤0 增量并在样本 <10 时固定 2 个百分点。（陈旧 D-029 引用另记于 findings。）",
+      "status": "fixed"
+    },
+    {
+      "id": "GEM-11",
+      "note": "decisions.yaml D-046/D-054、protocol-intake.yaml PI-3/single_step、skills.yaml intake 与 state-machine.yaml S29 已为 size=s 需求建立快车道：intake 默认 Sonnet 并直接产单步骤跳过 planner，单步需求经 S29 跳过 integrate review。",
+      "status": "fixed"
+    },
+    {
+      "id": "GEM-12",
+      "note": "新增 format-rules.yaml（定义 F2 EARS）、design/privguard.yaml（P1–P7）、design/protocol-intake.yaml（含 2 示例），diagnoser/improver/prod-access.yaml 标 phase: v2。但三份协议（protocol-run/plan/intake）仍全缺版本兼容规则（D-025），PF-RESULT 示例与 E-DISC 矛盾，prod-access.yaml 的 RPC 鉴权与 PA-1/PA-2 风险未修。",
+      "status": "partially_fixed"
+    },
+    {
+      "id": "GEM-13",
+      "note": "config.yaml CF-08 已改为 secret: false 并将 Telegram token 移至 secrets_dir（D-026）；forge.yaml FG-3 限制 256 KiB/跳过 OP-10/总量 64 MiB 淘汰，FG-7 改为先 list 再按 ETag 查变动或进行中 PR 的 OP-07/OP-03；access.yaml R0 确认 localhost allowLocalBinding。但 R0 的 macOS Go 缓存分层、每任务开发库及 forge OP-07 仍为 verified: false 未实测。",
+      "status": "partially_fixed"
+    },
+    {
+      "id": "ACR-01",
+      "note": "state-machine.yaml S31/S32/S50/S51/S58/S60/S61 均已加 add_findings:check，protocol-run.yaml PF-CTX 新增“上一次失败”小节及 test:check-fail-reaches-next-context。但 entities.yaml E-FIND 缺失被 add_findings:check 与 PF-CTX 引用的 kind 字段。",
+      "status": "partially_fixed"
+    },
+    {
+      "id": "ACR-02",
+      "note": "resources.yaml RES-SLOTS 新增 merge/<repo>、RES-BASE 与 forge.yaml FG-7 轮询 OP-08 拦截红主干。但引入新矛盾与环：E-PR.combination_tested（跳过 L1）与 state-machine.yaml S46（重跑 L1）及 reconciler running(merge) 互相矛盾；S45 造成多步无界环并中途释放合并槽；S46 ↔ S43 无上限。",
+      "status": "fix_introduced_problem"
+    },
+    {
+      "id": "ACR-03",
+      "note": "decisions.yaml D-050（取代 D-038）与 D-056 不再依赖分支保护：接入调 OP-12 记 protection: unavailable 并告知 owner，会话仓库无上游且 push.default=nothing，push 仅由 foremand 用显式 refspec 且禁推默认分支，推后 ls-remote 断言默认分支 sha 未变。",
+      "status": "fixed"
+    },
+    {
+      "id": "ACR-04",
+      "note": "新增 spec/guardrails.yaml（G-01..G-10、GR-1..GR-3）与 D-039/D-053 及对应测试。但 state-machine.yaml 与 reconciler 中完全没有护栏检查转移、E-PR 无 guardrail_approved_sha 字段，且 G-05（.github/**）在 PAT 无 workflows 权限下无推送闭环。",
+      "status": "partially_fixed"
+    },
+    {
+      "id": "ACR-05",
+      "note": "entities.yaml E-REQ.derived_phase 新增 draft、reporting 与兜底 stalled（保证全函数），E-REQ.dropped_reason 规定 drop_all_steps 必须同时写入，D-054 挂 test:derived-phase-total。（integrating/planning 排序与 H16 parked 标志等细节另记于 findings。）",
+      "status": "fixed"
+    },
+    {
+      "id": "ACR-06",
+      "note": "entities.yaml E-ASK 新增 status（open|answered|moot|expired）与唯一视图 v_open_asks（test:ask-counts-single-source），state-machine.yaml 新增 req_hold.ignored 且 smcheck.rb L188–197 检查表 B 覆盖。但修复误将 parked 写入 req_hold.ignored 的 owner_answer，与 H14–H16/H21–H23 冲突且 smcheck 未检出。",
+      "status": "fix_introduced_problem"
+    },
+    {
+      "id": "ACR-07",
+      "note": "entities.yaml E-DISC 新增 evidence、supersedes、rejected_by。但 protocol-run.yaml PF-RESULT.discoveries 未同步增加 evidence/supersedes 且其 coder_ok 示例缺 evidence 直接违反 E-DISC；PF-CTX reviewer 排除 discoveries 且 PF-RESULT 无 rejected_discoveries 字段使 rejected_by 成为死字段；缺 test:context-hides-superseded-discoveries。",
+      "status": "fix_introduced_problem"
+    },
+    {
+      "id": "ACR-08",
+      "note": "entities.yaml E-RUN 新增 spec_version 及入库陈旧验收判 bad_result(stale) 规则；protocol-plan.yaml 新增 PV-8 禁止对被 spec_patch 修改过的 acceptance 所引用步骤执行 keep。",
+      "status": "fixed"
+    },
+    {
+      "id": "ACR-09",
+      "note": "state-machine.yaml reconciler running(check) 与 D-055 已要求程序在沙箱执行 verify∈{test,command} 并比对自报（test:acceptance-executed-in-check），PF-RESULT.acceptance 增加 cannot_check。但未声明只读 argv 白名单与不设独立 verify 会话的决定，且 reconciler“不一致即 check_fail”与 cannot_check 语义未对齐。",
+      "status": "partially_fixed"
+    },
+    {
+      "id": "ACR-10",
+      "note": "D-046 ③ 与 D-055 要求 L0 运行与 L1 相同 lint（test:l0-covers-l1）；state-machine.yaml reconciler 为 waiting(ci)/running(merge) 增加了 L1 失败分类并用 OP-09 每 head sha 最多重跑一次（test:l1-failure-classification）。（E-PR 缺重跑字段另记 minor。）",
+      "status": "fixed"
+    },
+    {
+      "id": "ACR-11",
+      "note": "decisions.yaml D-047 ①②③ 规定启动固定四步（含 PRAGMA integrity_check、失败拒绝启动）、每小时 wal_checkpoint + VACUUM INTO 备份保留 7 份、每分钟心跳并在 foreman status 与 Telegram 每日摘要展示（test:startup-integrity-check、test:backup-rotation）。",
+      "status": "fixed"
+    },
+    {
+      "id": "ACR-12",
+      "note": "decisions.yaml D-047 ④ 明确 v1 由终端或 agent-crew keeper 启动、不用 launchd，且 foreman doctor 从实际启动环境检查 secrets_dir 可达与权限位（不读内容）。",
+      "status": "fixed"
+    },
+    {
+      "id": "ACR-13",
+      "note": "decisions.yaml D-047 ⑤ 完整定义自更新流程：构建至 ~/.foreman/bin/<sha>/、跑 scripted harness 的 foreman selfcheck、原子切符号链接并保留上一版、60s 健康检查不过自动切回、库记录 min_binary_version（test:selfupdate-rollback）。",
+      "status": "fixed"
+    },
+    {
+      "id": "ACR-14",
+      "note": "entities.yaml E-REQ 新增 status（draft|submitted），design/protocol-intake.yaml（PI-1..PI-4、intake_turns、draft.json、submit）规定每草稿一会话、按事件来源记录 speaker、允许草稿不完整、中断从库重建、仅 owner 按钮可提交。",
+      "status": "fixed"
+    },
+    {
+      "id": "ACR-15",
+      "note": "protocol-run.yaml PF-CTX role_overrides 限定 reviewer 只看增量 diff 与未关闭 findings、排除 coder note/evidence/discoveries，并规定 round≥2 delta 外降 minor 与 (path, close_when 哈希) 去重（D-046 ⑤）。但 work 步骤评审时尚无 PR，E-STEP 缺失 last_reviewed_sha 导致 work 步骤第 2 轮无增量起点。",
+      "status": "partially_fixed"
+    },
+    {
+      "id": "ACR-16",
+      "note": "decisions.yaml D-042/D-057（取代 D-016）与 protocol-plan.yaml PV-4 已将需求内并行标 phase: v2，且明确 touches 仅作排序提示、冲突在合回时以 git merge-tree 在真实文件集上判定。",
+      "status": "fixed"
+    },
+    {
+      "id": "ACR-17",
+      "note": "D-045 ②、D-050 与 modules.yaml workspace 明确使用 foremand 自有镜像 ~/.foreman/projects/<p>/repo.git 派生会话仓库，不触碰 owner 检出。但 config.yaml CF-01 仍写“仓库路径”而非远程地址，且缺少 L2 测试 test:project-not-daemon-root。",
+      "status": "partially_fixed"
+    },
+    {
+      "id": "ACR-18",
+      "note": "design/access.yaml R0 已改为按语言主机族放行（含 GitHub 只读落点 objects.githubusercontent.com、codeload.github.com）、被拒主机按天聚合为一条 H6 询问、新依赖由 foremand 在沙箱外预取。",
+      "status": "fixed"
+    },
+    {
+      "id": "ACR-19",
+      "note": "新增 spec/design/privguard.yaml，完整定义 P1–P7（含无目录豁免、文件白名单与魔数、commit 元数据、泄漏表、secrets 目录卫生、会话 GIT_CONFIG_GLOBAL 隔离与 noreply 身份）与对应测试及 release_gate。",
+      "status": "fixed"
+    },
+    {
+      "id": "ACR-20",
+      "note": "design/prod-access.yaml 仅被标为 phase: v2（D-042），未对保留的设计文本做任何修改：PA-2 restart 仍无健康失败条件、PA-3 仍无 foremand 复算行数、线上日志仍无不可信边界且 read_tools 无鉴权 RPC。",
+      "status": "not_fixed"
+    },
+    {
+      "id": "ACR-21",
+      "note": "新增 design/metrics.yaml（M-1..M-5、样本 ≥30 或序贯检验、仅护栏 M-2 自动回退）与 E-RUN.changed_outcome，improver 标 phase: v2。但有效决定 decisions.yaml D-010 未被取代或修订，仍写“再跑 10 个需求对比指标，未达标自动生成回退需求”，与 metrics.yaml 冲突。",
+      "status": "partially_fixed"
+    },
+    {
+      "id": "ACR-30",
+      "note": "D-046 ①②/D-054、protocol-intake.yaml（size=s、single_step、PI-3 Sonnet）与 state-machine.yaml S29 实现了快车道与跳过二次 review。但 protocol-intake.yaml 未声明对 single_step 复用 PV-2/PV-5/PV-7 校验且缺 type 字段（kind=bug），也未补各阶段成本估算表。",
+      "status": "partially_fixed"
+    },
+    {
+      "id": "ACR-31",
+      "note": "entities.yaml E-REQ.budget 定义了 p75 之和预算基线，state-machine.yaml S21 改为 grant_one（D-046 ④/D-053）。但修复引入冲突：dims.counters 仍写 reset: [..., rescue_retry] 与 S21 矛盾，且 S21 语义把所有三项计数设为 cap−1 会抬高未触顶的 0 值计数；H4 2× 预算仍无状态机触发转移，也未明确会话压缩阈值。",
+      "status": "fix_introduced_problem"
+    },
+    {
+      "id": "ACR-32",
+      "note": "decisions.yaml D-037、D-051 与 modules.yaml harness 已限定 v1 仅实现 claude 与 scripted 适配器，codex 与 gemini 标 phase: v2。（D-037 仍引用已取代的 D-029 另记于 findings。）",
+      "status": "fixed"
+    },
+    {
+      "id": "ACR-33",
+      "note": "format-rules.yaml 新增 F8（有效条目 amends 深度 ≤1）、F9（prompts 体积上限 + check:prompts-size）与 foreman decisions --current，并用 D-053–D-057/D-059 合并取代旧决定。但清理过程引入新矛盾：D-059 取代 D-052 却未动 D-049，令 D-049 ⑤（只开两个 skill）与 D-059（全部启用）同时有效；D-048 与 format-rules.yaml 误引 D-018。",
+      "status": "fix_introduced_problem"
+    },
+    {
+      "id": "ACR-34",
+      "note": "format-rules.yaml F4 禁止裸 program:<模块>，decisions.yaml D-058 为早期决定补 coverage，tools/testtrace.rb 生成 spec/tests.yaml（uncovered_active_items 为空）。但 D-058 仍列已取代的 D-019 且把 D-032 错写为 check:module-deps，testtrace.rb 放行了 forge.yaml FG-9 的裸 sandbox 并把 v2 测试混入 tests.yaml。",
+      "status": "partially_fixed"
+    }
+  ],
+  "findings": [
+    {
+      "close_when": "在 state-machine.yaml 为 waiting(ci)（G-05 推前）与 running(merge)（合前）补齐护栏命中事件与转移，在 E-PR 记录 guardrail_approved_sha（head 变更即失效），明确 G-05 批准后推送方式，并补齐 H4 触发与提额转移。",
+      "failure_scenario": "需求改动 prompts/reviewer.md（G-03）或 internal/pipeline/state/**（G-06），按 state-machine.yaml 经 S29/S43 → S08 → reconciler running(merge) → S44 直接合并，全程未触发 H6；若实现者在 reconciler 自行发 owner_trigger，owner 点 H14(resume) 后回到 running(merge)，因未记录已批准 head_sha，同一 diff 再次命中 guardrails.yaml，陷入无限 H6 循环。",
+      "problem": "护栏 H6 与预算 H4 在状态机中无落点：guardrails.yaml（G-01..G-10、GR-1..GR-3）与 D-039 要求按真实 diff 在 merge 前（.github/** 在 push 前）转 H6，但 state-machine.yaml 仅有 S79（access_request）触发 H6，waiting(ci)/running(review)/running(merge) 与 reconciler 均无护栏检查转移；E-REQ/E-PR 无已批准 head_sha 字段；G-05 在 PAT 无 workflows 权限（forge.yaml auth.initial）下即便 owner 批准仍无法推送；H4（2× 预算）同样无状态机触发与提额转移。",
+      "severity": "blocking",
+      "where": "spec/design/state-machine.yaml (step_table, req_hold, reconciler); spec/guardrails.yaml (G-01..G-10, GR-1..GR-3); spec/decisions.yaml (D-039, D-053); spec/design/entities.yaml (E-REQ, E-PR); spec/design/forge.yaml (auth.initial)"
+    },
+    {
+      "close_when": "从 req_hold.ignored 第一行移除 parked；为 H16 补 set:parked=false；tools/smcheck.rb 增加断言 req_hold.table 与 req_hold.ignored 无重叠的 (hold, event)。",
+      "failure_scenario": "OwnerAsk 超 72h 经 H17 进入 hold=parked, parked=true；owner 事后点击按钮回答（owner_answer），若实现先查 ignored 则回答被静默丢弃、需求永久卡死在 parked（违背 D-036）；若校验拒绝重叠则状态表加载即失败。若在 parked 状态下走 H16(drop)，Requirement.parked 仍保持 true 而 hold=none，状态自相矛盾。",
+      "problem": "req_hold.ignored 第一行将 parked 列入 events: [owner_answer]（from: [none, replan, rescue, parked]），与 req_hold.table 中 H14–H16、H21–H23 的 from: [owner, parked], event: owner_answer 直接冲突；tools/smcheck.rb L191–197 只查覆盖不查互斥，漏报该冲突。另 H16（from: [owner, parked], answer: drop）遗漏 set:parked=false，与 H14/H15/H21–H25 不一致。",
+      "severity": "blocking",
+      "where": "spec/design/state-machine.yaml (req_hold.ignored, H14-H16, H21-H23, H25); tools/smcheck.rb (L188-L197)"
+    },
+    {
+      "close_when": "S37b/S38b 创建 OwnerAsk 时将 cause_counter 显式设为 ci_extensions 并修正 H14 规则；限定 ci_progress/lease_wait 仅在临近或到达 35m deadline 时记一次；在 S29–S32 补齐 reset:ci_extensions。",
+      "failure_scenario": "GitHub 额度进入 15 分钟重置等待或 CI 排队 15 分钟，reconciler 按 FG-7 每 60s 轮询发 lease_wait/ci_progress，12 分钟内即打满 ci_extensions=12 触发 S37b/S38b → H7；owner 点击 [立即重试]（H14/H25）按 H14 规则只清零 infra（本为 0），ci_extensions 仍为 12，下一次轮询立即回弹 H7 死循环。",
+      "problem": "waiting(ci) 新增的 ci_extensions 存在三处断裂：(1) S37b/S38b 达上限时发 req_hold:owner:H7，但 H14 注释写死 H7→该步骤 infra，不重置 ci_extensions；(2) S37/S38 未限定仅在 35m deadline 到期时触发，若随 FG-7 60s 轮询触发则 12 分钟即耗尽，与注释 12×35m≈7h 不符；(3) dims.counters.ci_extensions 声明 reset: [l1_pass, l1_fail]，但 S29/S30/S31/S32 均未写 reset:ci_extensions。",
+      "severity": "blocking",
+      "where": "spec/design/state-machine.yaml (dims.counters.ci_extensions, S29-S32, S37, S37b, S38, S38b, H14, H25); spec/design/forge.yaml (FG-7)"
+    },
+    {
+      "close_when": "将 local/slots/merge/<repo> 与 github/base-health/<repo> 纳入 S08 派发前 Gate Demand（未拿到走 S03 不进 running(merge)）；合并期等 L1 拆出显式等待状态或给 S45 加计数上限与 Run 结束/槽保留规则；smcheck.rb 扩展检测任意长度无计数环。",
+      "failure_scenario": "(1) base 变红（RES-BASE=0）或合并槽被占时，S08 放行并 create_run:merge → reconciler 申请 merge/<repo> 与 RES-BASE 遇 Wait → S45 回 waiting(quota) → S12/S13 回 queued(merge) → S08 再次放行，形成无界多步环并持续堆积未关闭的 Run(role=merge)；(2) 若 update-branch 后等 L1 期间遇限额走 S45 释放合并槽，另一 PR 趁机合入 main 使当前 PR 的 L1 作废；(3) update-branch 后 L1 排队且有在线 runner 超过 running(merge) deadline，因 running 忽略 ci_progress 而触发 S73 误扣 infra 并杀 Run。",
+      "problem": "S45（running(merge) + lease_wait → waiting(quota)）引入多步无界环且破坏合并串行化：S08 派发后 reconciler 才向 Gate 申请 merge/<repo> 与 RES-BASE；S45 无计数上限、未结束 Run(role=merge) 且释放合并槽；同时 running(merge) 内部等 L1 无 ci_progress 路径（ignored 忽略了 running 的 ci_progress）。smcheck.rb L180–186 只检单步自环，未检出该多步环。",
+      "severity": "blocking",
+      "where": "spec/design/state-machine.yaml (S08, S12, S13, S45, S73, ignored, reconciler running(merge)); tools/smcheck.rb (L180-L186)"
+    },
+    {
+      "close_when": "H07 按触发原因执行 grant_one（如给 fix_steps/planner_failures 多一轮并触发对应动作）；H23 禁止对 integrate 步骤提供 [放弃该步骤] 选项；S21 改为仅对达到 cap 的计数降为 cap−1，并将 dims.counters.reset 中的 rescue_retry 改为 grant_one。",
+      "failure_scenario": "(1) integrate 因 fix_steps==3 经 S32/S57 进入 hold=rescue，rescuer 选 retry（H07），因未给 fix_steps 额外额度也未建 fix 步骤，integrate 回到 queued(check/review) 原样重跑再失败立即回弹 rescue；(2) integrate 撞 H7 后 owner 点 [放弃该步骤]（H23），DT-2 下一轮见无非终态 integrate 且有未合并改动立即新建 integrate（计数归 0），形成死循环；(3) work 步骤因 check_fail=3 走 S21，grant_one 把原本为 0 的 review_rounds 与 merge_conflict 抬高到 1，剥夺评审轮次并提前触发 Opus 升级。",
+      "problem": "救援与 H7 出口存在三处逻辑错误：(1) 需求级救援 H07（decision: retry）仅有 [inject_guidance, release_steps]，不重置/不 grant_one fix_steps 与 planner_failures；(2) H23（drop_step）丢弃 integrate 步骤后无阻止 DT-2 立即重建的机制；(3) S21 的 grant_one:check_fail,review_rounds,merge_conflict 写明“把计数设为 cap−1”且与 dims.counters 仍写的 reset: [..., rescue_retry] 矛盾，会把 0 值计数器反向上调。",
+      "severity": "blocking",
+      "where": "spec/design/state-machine.yaml (H07, H23, DT-2, S21, dims.counters)"
+    },
+    {
+      "close_when": "统一 E-PR、S46、reconciler 对 merge-if-disjoint 是否跳过 L1 的口径；在 E-STEP 补 last_reviewed_sha，在 S42/S43 写入 last_reviewed_sha；在 reconciler running(merge) 写明 needs_rereview 判定并为 S46 增加计数上限。",
+      "failure_scenario": "单步需求经 S29 跳过 integrate/review 直接进 running(merge)，此时 PR.last_reviewed_sha 为空；update-branch 后触发 S46 → S06 → S43 回到 running(merge)，因 S43 未更新 PR.last_reviewed_sha（或主干持续推进且 S46 无上限），再次触发 S46 在 running(merge) ↔ queued(review) 间无界循环；同时 work 步骤第 2 轮评审时无 PR 可读，无法确定增量 diff 起点。",
+      "problem": "增量评审与 merge-if-disjoint 跨文件矛盾且缺状态与上限：(1) E-PR.combination_tested 称 merge-if-disjoint 跳过重跑 L1，S46 称不相交只重跑 L1，reconciler running(merge) 无条件 update-branch → 等 L1 → 合并且未提 needs_rereview；(2) S46 ↔ S43 环无计数上限，S43 未更新 PR.last_reviewed_sha，单步快车道 S29 也从未写入 PR.last_reviewed_sha；(3) PF-CTX 要求 reviewer 取自 PR.last_reviewed_sha 起的 diff，但 work 步骤评审时尚无 PR，E-STEP 无 last_reviewed_sha 字段。",
+      "severity": "blocking",
+      "where": "spec/design/state-machine.yaml (S29, S43, S46, reconciler running(merge)); spec/design/entities.yaml (E-PR, E-STEP); spec/design/protocol-run.yaml (PF-CTX role_overrides)"
+    },
+    {
+      "close_when": "在 modules.yaml 补充允许边（或将 stage/context 下沉至 layer 2）：允许 stage/* 与 role/* 导入 stage/context、允许 pipeline/sched 导入 pipeline/escalate、允许 layer 1 config/revision 导入 store/sqlite（或经 layer 0 接口注入）。",
+      "failure_scenario": "按 modules.yaml 实现 stage/code 或 role/planner 调用 internal/stage/context 生成 context.md、pipeline/sched 调用 internal/pipeline/escalate、或 config/revision 写入 global.db 时，全部直接违反 allowed_deps 导致 test:module-deps（C-04）失败。",
+      "problem": "modules.yaml 规定同层之间只允许 allowed_deps 列出的边，但新增 MD-7 限定“layer 3 内部的边只有：internal/pipeline/sched → internal/stage/*、internal/role/*、internal/prod/*”，MD-8 仅允许 sched/escalate/recover 导入 state：导致 stage/* 与 role/* 均不能导入同层的 internal/stage/context，pipeline/sched 与 state 均不能导入 internal/pipeline/escalate；此外 layer 1 的 config/revision 需写 global.db（config.yaml）但无 config → store 允许边。",
+      "severity": "blocking",
+      "where": "spec/design/modules.yaml (layer 1, layer 3, MD-7, MD-8); spec/design/config.yaml (头部说明)"
+    },
+    {
+      "close_when": "在 PF-RESULT.discoveries 补 evidence/supersedes 并修正 coder_ok 示例；明确 E-DISC.rejected_by 的输入与输出字段或删去；为 reviewer/rescuer 结果字段补 && status == ok；将 E-RUN.harness/prompt_hash 改为 required_when: role 为 AI 角色；在 E-FIND 补 kind 字段。",
+      "failure_scenario": "(1) coder 按 PF-RESULT schema 提交 answer 类 discovery，因无 evidence 字段全部被 E-DISC 拒绝入库；(2) reviewer 在 running(review) 遇到 spec_conflict（S70）或 access_request（S78–S81）而未填 verdict/findings，被 PF-RESULT 校验失败转 bad_result（S75）无法触发重规划；(3) S07/S08 创建 ci_watch/merge 程序 Run 时因无 harness/prompt_hash 无法通过 E-RUN 校验。",
+      "problem": "协议与实体定义存在五处直接冲突：(1) E-DISC 要求 answer/spec_conflict/extra_file 必填 evidence，但 PF-RESULT.discoveries 仍是 []{kind, ref, text} 且 coder_ok 示例缺 evidence（违背 D-025）；(2) E-DISC.rejected_by 无写入出口（PF-CTX reviewer 排除 discoveries 原文且 PF-RESULT 无 rejected_discoveries 字段）；(3) PF-RESULT 中 reviewer 的 findings/verdict 与 rescuer 的 decision 未限定 && status == ok；(4) E-RUN 新增 ci_watch/merge 后 harness 与 prompt_hash 仍写 required_when: role != check；(5) state-machine.yaml 与 PF-CTX 引用 kind=check 的 Finding，但 E-FIND 无 kind 字段。",
+      "severity": "blocking",
+      "where": "spec/design/protocol-run.yaml (PF-RESULT, PF-CTX); spec/design/entities.yaml (E-DISC, E-RUN, E-FIND); spec/design/state-machine.yaml (S70, S78-S81, add_findings:check)"
+    },
+    {
+      "close_when": "修正 D-045 ① 与 C-08/D-056 一致；在 access.yaml R0 补 repo.git/objects 只读路径与模型 API 主机；在 config.yaml secrets 补列模型 token；明确 fetch 对会话仓库配置的隔离措施或收紧 C-08 表述并由 probe 验证。",
+      "failure_scenario": "沙箱按 access.yaml R0 严格执行后，会话因无权读取 repo.git/objects（git clone --shared 的 alternates 目标）无法执行 git status/diff/commit，或因模型 API 主机未放行导致 claude 无法启动。",
+      "problem": "GEM-1 修复引入跨文件矛盾与 R0 遗漏：(1) D-045 ① 称“模型凭据是唯一进入会话的凭据”，与 C-08、D-056、access.yaml R1（还允许 R1 开发测试凭据）矛盾；(2) D-045 ② 改为 git clone --shared 后，access.yaml R0 既未列 ~/.foreman/projects/<p>/repo.git/objects 的只读权限，也仍未列模型 API 主机，且 config.yaml secrets 漏列专用模型 token；(3) D-045 ③ 仅用 -c core.hooksPath=/dev/null -c core.fsmonitor= fetch <会话仓库>，git-upload-pack 仍会读取 <会话仓库>/.git/config，与 C-08 声称“从不在会话可写目录执行会读取其配置的 git 命令”存在口径差距。",
+      "severity": "major",
+      "where": "spec/decisions.yaml (D-045, D-056); spec/constitution.yaml (C-08); spec/design/access.yaml (R0, R1); spec/design/config.yaml (secrets)"
+    },
+    {
+      "close_when": "修订或取代 D-049（移除⑤）、D-010、D-037；将 D-048 与 format-rules.yaml 的 D-018 改为 D-015；清理 resources.yaml/skills.yaml/D-058 中对 D-019/D-029 的陈旧引用，将 D-058 的 D-032 改为 test:module-deps 并重建 spec/tests.yaml。",
+      "failure_scenario": "运行 foreman decisions --current 同时得到矛盾的有效决定（D-049 ⑤ 仅开两个 skill vs D-059 全部启用；D-010 跑 10 个需求自动回退 vs metrics.yaml ≥30 样本且仅护栏 M-2 回退）；按 tests.yaml 实现时会追查不存在的 check:module-deps。",
+      "problem": "多处有效决定与被取代决定存在矛盾或错引：(1) D-059 取代 D-052（曾撤回 D-049 ⑤）但未动 D-049，导致有效条目 D-049 ⑤ 与 D-059 冲突；(2) 有效条目 D-010 仍写“再跑 10 个需求对比指标自动回退”，与 design/metrics.yaml（≥30 样本、仅 M-2）和 D-042（v2）矛盾；(3) 有效条目 D-037 仍 amends 已取代的 D-029 并称窗口默认值留在 D-029（D-051 未保留 gemini 5h+7d），resources.yaml 头部仍引 D-029，skills.yaml 头部仍引 D-019 且第 2 行仍写“90 天自动开删除需求”；(4) D-048 与 format-rules.yaml 误引 D-018（privguard 仓库）而非 D-015；(5) D-058 仍含已取代的 D-019 且把 D-032 错写为 check:module-deps（其余均为 test:module-deps）。",
+      "severity": "major",
+      "where": "spec/decisions.yaml (D-010, D-037, D-048, D-049, D-052, D-058, D-059); spec/design/skills.yaml; spec/design/metrics.yaml; spec/design/resources.yaml; spec/format-rules.yaml; spec/tests.yaml (L10-L12)"
+    },
+    {
+      "close_when": "将 waiting(rescue) 纳入 replan drained 条件；仅在非首次规划的 H03 中递增 replans；在 E-STEP/E-RUN 定义一次性授权字段；明确 H22 目标步骤并将 req_hold 纳入 smcheck.rb 的 inc: 检查。",
+      "failure_scenario": "(1) 步骤处于 waiting(rescue) 运行 rescuer 时需求进 hold=replan，因无 running 步骤，planner 立即启动并 update/drop 该步骤，rescuer 完成后发 rescue_decision 冲突；(2) size=m/l 需求首次提交走 H01→H03 立即消耗 replans=1，实际只剩 1 次重新规划；(3) owner 对 R2 选 [仅本次]（H21），因 S79 原 Run 已结束且无字段承载一次性授权，新 Run 无法识别授权或退化为永久允许。",
+      "problem": "状态机表 B 与实体存在四处缺口：(1) replan_effects_on_steps 的 create_run_when_drained:planner 只等无 running 步骤，未等处于 waiting(rescue) 的活跃 rescuer 会话与 waiting(ci)；(2) protocol-intake submit 让 size=m/l 首次拆解走 H01→H03，而 H03 执行 inc:replans，使首次规划扣掉 1 次 replans（cap 2）；(3) H21 称 [仅本次] 只对该 Run 生效，但原 Run 已退出且 E-STEP/E-RUN 无字段存一次性授权；(4) H22 在需求级表 B 中执行步骤级 inc:access_denied 未指明目标步骤，且 smcheck.rb L131–139 未检查 req_hold 的 inc: 守卫。",
+      "severity": "major",
+      "where": "spec/design/state-machine.yaml (H01, H03, H21, H22, replan_effects_on_steps); spec/design/protocol-intake.yaml (submit); spec/design/entities.yaml (E-STEP, E-RUN); tools/smcheck.rb (L131-L139)"
+    },
+    {
+      "close_when": "为三份协议补齐版本兼容规则；protocol-intake 将 single_step 改为 required_when: size == s && ready == true、补 type 字段并声明复用 PV-2/PV-5/PV-7 校验；明确 running(check) 遇 cannot_check 时跳过执行比对交由 reviewer 按 reading 判断。",
+      "failure_scenario": "(1) size=s 草稿在 ready=false 未生成 single_step 时被 draft.json 校验拒绝，或 ready=true 提交的 single_step 漏覆盖 outcome/填错模块名绕过校验；(2) coder 对沙箱无法验证的验收项报 cannot_check，却在 running(check) 因与执行结果不一致被判 check_fail。",
+      "problem": "协议规范仍有三处缺口：(1) protocol-run.yaml、protocol-plan.yaml、protocol-intake.yaml 均只有 schema_version: 1，全部缺少 D-025 要求的版本兼容规则（GEM-12 遗留）；(2) protocol-intake.yaml 的 single_step 写 required_when: size == s（未限定 && ready == true，与 PI-4 草稿可不完整矛盾）、缺 type 字段（kind=bug 无法区分 build/find_cause）、未规定复用 PV-2/PV-5/PV-7 校验；(3) reconciler running(check) 要求执行 verify∈{test,command} 并与 coder 自报比对“不一致即 check_fail”，与 PF-RESULT.acceptance 的 cannot_check 语义未对齐。",
+      "severity": "major",
+      "where": "spec/design/protocol-run.yaml (PF-RESULT); spec/design/protocol-plan.yaml; spec/design/protocol-intake.yaml (PI-4, file, submit); spec/design/state-machine.yaml (reconciler running(check)); spec/decisions.yaml (D-025)"
+    },
+    {
+      "close_when": "在 design/prod-access.yaml 中补齐 PA-2 健康失败触发条件、PA-3 的 foremand prod.sql_ro 复算对比、线上日志不可信数据边界与 read_tools 每 Run 鉴权 RPC 约定。",
+      "failure_scenario": "v2 按保留在 spec 中的 prod-access.yaml 实现时，线上日志中的用户输入可经提示注入诱导 diagnoser 提议 PA-2，触发每小时 2 次自动重启；或在 PA-3 H3 询问中展示 AI 编造的 affected_rows。",
+      "problem": "design/prod-access.yaml 虽标 phase: v2（D-042），但保留在 spec 中的设计未修复 ACR-20 与 GEM-12 的安全缺陷：PA-2 restart 仍无健康失败条件、PA-3 data_fix 仍无 foremand 复算行数对比、read_tools 仍无鉴权 RPC 通道、线上日志仍无不可信数据分隔约定。",
+      "severity": "major",
+      "where": "spec/design/prod-access.yaml (read_tools, PA-2, PA-3, incident_flow)"
+    },
+    {
+      "close_when": "FG-9 改为 sandbox + test:sandbox-probe-no-credentials；testtrace.rb 过滤 phase: v2 测试并检查 design/*.yaml 裸 sandbox；在 E-PR 补 l1_rerun_sha 字段、CF-01 改为远程地址、补齐 ACR-07/ACR-17 测试名。",
+      "failure_scenario": "v1 按 spec/tests.yaml 验收时会要求实现 v2 的 test:web-no-github-import 与 test:guardrail-improve-evidence；而 FG-9 因未绑定探针测试在自动化检查中漏检。",
+      "problem": "(1) forge.yaml FG-9 的 enforced_by 仍为裸 sandbox，违反 format-rules.yaml F3 与 D-049 ③，tools/testtrace.rb L33 豁免裸 sandbox 且不校验 design/*.yaml 未覆盖项；(2) spec/tests.yaml 收录了 phase: v2 的 test:web-no-github-import（D-013/web）与 test:guardrail-improve-evidence（GR-3/improve），违反 F10；(3) E-PR 缺少 reconciler 引用的每 head_sha 重跑记录字段，CF-01 仍写“仓库路径”而非远程地址，ACR-07/ACR-17 提出的 test:context-hides-superseded-discoveries 与 test:project-not-daemon-root 未入 spec。",
+      "severity": "minor",
+      "where": "spec/design/forge.yaml (FG-9); spec/tests.yaml (L114-L116, L255-L257); tools/testtrace.rb (L33, L38-L48); spec/format-rules.yaml (F3, F10); spec/design/entities.yaml (E-PR); spec/design/config.yaml (CF-01)"
+    },
+    {
+      "close_when": "调整 E-REQ.derived_phase 使 hold=replan 优先于 integrating 并为 0 Step 且 hold∈{owner,rescue} 指定非 planning 阶段；access.yaml 统一项目配置后缀为 .toml；核实或注明 skills.yaml 中 writing-for-agents 来源。",
+      "failure_scenario": "首次拆解连续失败触发 H5 等待 owner 时（0 Step、hold=owner），derived_phase 仍显示 planning；按 access.yaml 寻找 projects/<p>.yaml 与 config.yaml 的 .toml 冲突。",
+      "problem": "(1) E-REQ.derived_phase 中 integrating 排在 planning 前，导致存在未 drop 的 integrate 步骤且 hold=replan 时显示 integrating；且 planning 条件“尚无 Step 且无进行中的 planner Run”会在 0 Step 的 hold=owner/rescue 状态下误报 planning；(2) access.yaml 头部写 projects/<p>.yaml，与 config.yaml 的 projects/<p>.toml 不一致；(3) skills.yaml 仍声称全部来自 agent-crew 拷贝，但保留了 ACR-37 实测不存在的 writing-for-agents（v2）。",
+      "severity": "minor",
+      "where": "spec/design/entities.yaml (E-REQ.derived_phase); spec/design/access.yaml (头部); spec/design/config.yaml (CF-01, CF-06); spec/design/skills.yaml (improver)"
+    }
+  ]
+}

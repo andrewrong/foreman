@@ -1,5 +1,5 @@
-# 角色 → skills（D-019）。来源：mattpocock/skills v1.3.2（agent-crew 的拷贝，sha256 见其 skills.lock）。
-# 规则：每个 skill 写明要改善的指标；交付 20 次运行调用 0 次，或 90 天指标无变化 → 程序开删除需求。
+# 角色 → skills（D-059）。来源：mattpocock/skills v1.3.2（agent-crew 的拷贝，sha256 见其 skills.lock）。
+# 规则：每个 skill 写明要改善的指标；去留规则见 D-059（v1 由 owner 在周报中决定）。
 # 每次运行只注入该角色的 skills；condition 不满足时不注入。
 # 起步按角色全部启用（D-059）。claude 原生按需加载 skill，未调用时只占描述的上下文。
 # v1：每周摘要列出 20 次运行调用 0 次或 changed_outcome 始终为 0 的 skill，由 owner 决定删除；自动开删除需求为 phase: v2（improver）。

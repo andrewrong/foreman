@@ -1,4 +1,4 @@
-# 资源层（D-027，D-029，D-030）。package 位置：internal/resource（模块 resource = meter + ledger + gate + history 四个 package）。
+# 资源层（D-027，D-030，D-051）。package 位置：internal/resource（模块 resource = meter + ledger + gate + history 四个 package）。
 # 数值是默认值，owner 在配置 runtime.toml [resources]（CF-11）覆盖；结构与算法是代码。
 schema: foreman.resources/2
 

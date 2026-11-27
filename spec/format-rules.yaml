@@ -1,4 +1,4 @@
-# spec 本身的格式规则（D-018、D-025）。由 foreman spec lint 检查（实现前为 tools/ 下脚本）。
+# spec 本身的格式规则（D-015、D-025、D-062）。由 foreman spec lint 检查（实现前为 tools/ 下脚本）。
 # 本文件定义 F1–F10；E-ACC 的 EARS 规则即 F2。
 schema: foreman.format-rules/1
 

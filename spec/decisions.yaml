@@ -71,7 +71,7 @@ decisions:
     date: 2026-11-27
     statement: "foreman 管理自己（dogfooding）。每个需求合并后程序生成结构化反馈报告；改进 stage 每 10 个合并需求或 24h 内 3 个 abnormal 时运行，每周最多 3 个改进需求；改进合并后再跑 10 个需求对比指标，未达标自动生成回退需求；改护栏触发 H6"
     enforced_by: program:improve
-    status: active
+    status: superseded
 
   - id: D-011
     date: 2026-11-27
@@ -319,14 +319,14 @@ decisions:
     statement: "spec 格式规则统一为 spec/format-rules.yaml 的 F1–F10（含 EARS 定义 F2、program: 必须附检查 F4、amends 深度 F8、提示词体积 F9、phase 标签 F10）"
     amends: [D-018, D-025]
     enforced_by: "check:spec-lint；check:prompts-size"
-    status: active
+    status: superseded
 
   - id: D-049
     date: 2026-11-27
     statement: "第 1 轮评审的 minor 项：① C-02 中『每个非终态都有 owner』指 deadline 加出口事件，由 state-machine 与 smcheck 保证（ACR-26）；② C-07 的『测试不得比对提示词或 spec 文本』由 go/ast 检查 check:no-text-pin-tests 执行（ACR-35）；③ sandbox 条目一律写成 sandbox + test:sandbox-probe-<名>，probe 必须包含一次带 hook 的真实 git commit（ACR-29、ACR-35）；④ L0 预算（时长、GOMAXPROCS、内存）按项目配置，默认 120s/2/2GB；RES-DISK 计量每日写入量（ACR-36）；⑤ skills 起步只给 coder 的 tdd 与 reviewer 的 code-review，其余在有对照数据后再加；harness 适配器声明是否上报 Skill 调用（ACR-37）；⑥ owner 的终止与重试由按钮事件 owner_drop、owner_retry 产生，ask id 同时是 Telegram callback 数据（ACR-25）；⑦ C-03 允许 source=prod 且 P0 的修复超出上限 50 行，下一个需求必须收回（GEM-14）"
     amends: [D-007, D-019]
     enforced_by: "check:no-text-pin-tests；test:sandbox-probe-git-commit；check:spec-lint"
-    status: active
+    status: superseded
 
   - id: D-050
     date: 2026-11-27
@@ -420,4 +420,26 @@ decisions:
     statement: "（取代 D-019 与 D-052）skills 按角色分配并起步全部启用（intake、planner、coder、reviewer、rescuer；diagnoser、improver 随 phase: v2），来源 mattpocock/skills，见 design/skills.yaml；每次运行只注入该角色的 skills，condition 不满足不注入；harness 适配器必须上报 Skill 调用；v1 由周报列出 20 次运行调用 0 次或 changed_outcome 始终为 0 的 skill，owner 决定删除，自动开删除需求为 phase: v2"
     supersedes: [D-019, D-052]
     enforced_by: "test:skills-injected-by-role；test:harness-reports-skill-calls"
+    status: active
+
+  - id: D-060
+    date: 2026-11-27
+    statement: "（取代 D-049，去掉已由 D-059 推翻的第 ⑤ 项）第 1 轮评审的 minor 项：① C-02 的出口要求指 deadline（或有界等待说明）加出口事件，由 state-machine 与 smcheck 保证；② C-07 由 check:no-text-pin-tests（go/ast）执行；③ sandbox 条目写成 sandbox + test:sandbox-probe-<名>，probe 包含一次带 hook 的真实 git commit；④ L0 预算按项目配置（CF-12，默认 120s/2/2GB），RES-DISK 计量每日写入量；⑤ owner 的终止与重试由按钮事件 owner_drop、owner_retry 产生（state-machine H24、H25），ask id 同时是 Telegram callback 数据；⑥ C-03 允许 source=prod 且 P0 的修复超出上限 50 行，下一个需求必须收回"
+    supersedes: D-049
+    enforced_by: "check:no-text-pin-tests；test:sandbox-probe-git-commit；test:state-table-exhaustive"
+    status: active
+
+  - id: D-061
+    date: 2026-11-27
+    statement: "（取代 D-010）foreman 管理自己（dogfooding）。v1：每个需求合并或放弃后生成反馈报告，按 design/metrics.yaml 记录指标并发周报。phase: v2：改进触发与改进需求（improver），比较规则按 metrics.yaml（每组 ≥ 30 个合并需求或序贯检验，只有护栏指标 M-2 显著变差才自动回退）；改进需求命中护栏时走 H6（guardrails GR-3）"
+    supersedes: D-010
+    enforced_by: "test:feedback-report-generated；test:guardrail-diff-needs-h6"
+    status: active
+
+  - id: D-062
+    date: 2026-11-27
+    statement: "（取代 D-048，更正误引）spec 格式规则统一为 spec/format-rules.yaml 的 F1–F10（含 EARS 定义 F2、program: 必须附检查 F4、amends 规则 F8、提示词体积 F9、phase 标签 F10）"
+    supersedes: D-048
+    amends: [D-015, D-025]
+    enforced_by: "check:spec-lint；check:prompts-size"
     status: active
