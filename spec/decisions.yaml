@@ -498,3 +498,9 @@ decisions:
     statement: "M1 前补齐的规格缺口：① spec_version 从 1 开始；② 必填列表：change 与 bug.repro 至少 1 项，current 可以为空（新模块），outcome 维持至少 1 项；③ E-REQ.base_fix_sha 承载 D-067 的修复需求标记；④ run id 为 r + base36 序号（≤ 8 字符），保证 runs/<run id>/ 满足 D-068 的 70 字节上限；⑤ 会话仓库路径以 entities.yaml 为准：FOREMAN_HOME/projects/<p>/sessions/<req id>/；⑥ state-machine.yaml 的 effects 清单定义每个 effect 的数据库写入，执行器在 internal/pipeline/state，Transition 的单个事务内执行（C-01、TX-1）"
     enforced_by: "test:spec-validate-requirement；test:effects-all-executed；test:only-transition-writes-state"
     status: active
+
+  - id: D-071
+    date: 2026-11-28
+    statement: "T7b 实现时对齐的实体细节：E-RUN 增加 status（pending|running|killing|killed|ended）与 input，创建后可改 status、pid、prompt_hash；E-REQ.pending_triggers 保存完整触发上下文并在 hold 回到 none 时重放；req_counters 增加 access_requests 与 budget_extensions（H4 resume 每次追加一份原预算）；step 进入 done 或 dropped、hold 离开 owner/parked 时，其未回答的 ask 记为 moot"
+    enforced_by: "test:effects-all-executed；test:ask-counts-single-source"
+    status: active

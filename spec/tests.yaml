@@ -59,6 +59,7 @@ tests:
 - name: test:ask-counts-single-source
   covers:
   - D-012
+  - D-071
   - entities:entities
 - name: test:ask-format-validation
   covers:
@@ -91,6 +92,7 @@ tests:
 - name: test:effects-all-executed
   covers:
   - D-070
+  - D-071
 - name: test:feedback-report-generated
   covers:
   - D-061

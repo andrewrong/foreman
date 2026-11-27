@@ -25,7 +25,7 @@
 | T5 | internal/spec/model 与 validate、ears：Requirement/Spec/Step 类型与入库校验 | entities.yaml；format-rules F2 | test:spec-validate-requirement、test:derived-phase-total | done |
 | T6 | internal/store：sqlite 打开、迁移、单写者 | entities.yaml；D-002 | test:store-single-writer | done |
 | T7a | internal/pipeline/state 的纯决策函数 Decide：由 tablegen 从 state-machine.yaml 生成转移表（含表 B、escalate、HOLD-1、ignored）；不碰数据库 | state-machine.yaml；C-01、C-02 | 生成表与 smcheck 展开结果逐条一致；穷举所有 (配置, 事件, 守卫取值) 有且只有一个结果 | done |
-| T7b | Transition：在 store 的单写事务中读取步骤与需求、调用 Decide、写回状态与 effects（TX-1）；补 T6 的 panic 回滚 | state-machine.yaml TX-1；entities.yaml | test:only-transition-writes-state | 等实体表任务 |
+| T7b | Transition：在 store 的单写事务中读取步骤与需求、调用 Decide、写回状态与 effects（TX-1）；补 T6 的 panic 回滚 | state-machine.yaml TX-1；entities.yaml | test:only-transition-writes-state | done |
 | T8 | internal/harness/api 与 scripted 假模型；里程碑 M1：scripted 模型 + 假 GitHub 跑通一个需求 | protocol-run.yaml；D-037 | M1 端到端测试 | T8a done（harness）；M1 见下 |
 | T11 | internal/resource（meter、ledger、gate、history）：资源注册表、预占与结算、Gate 的 Allow/Wait、窗口与 pacing | resources.yaml；D-027、D-030、D-051 | test:quota-all-windows-gate、test:quota-daily-pacing、test:budget-fallback-default 等 resources.yaml 引用的测试 | done |
 | T9 | internal/forge | forge.yaml | test:forge-* | done |
@@ -43,3 +43,4 @@
 - T10b：sandbox.New 拒绝位于 denyWrite 目录内的会话仓库与运行临时目录，所以 denyWrite 不能是整个 FOREMAN_HOME，只能是其中的 projects/<p>/repo.git、db、config、secrets 等子目录；会话仓库与 runs/ 放在 FOREMAN_HOME 下但不在 denyWrite 内（需在 access.yaml 写明目录布局）。RunTmp 路径 ≤ 70 字节（srt 的 unix socket 路径上限）。srt 让沙箱内 .git/config 与 .git/hooks 只读（有利：会话改不了 hooks）。
 - T9：PRListOpen 不分页（只取 100 条）；ETag 缓存键是完整 URL，不区分 token；JobLogs 最多 32 MiB 不缓存，调用方必须过 privguard；gate.New 在 Ledger 为 nil 时自建内存 ledger（forge 测试用）。
 - T8a：claude 参数含 --permission-mode bypassPermissions（D-056：沙箱内放开），因此 claude 会话必须只经 sandbox/launch 启动——stage/reconciler 任务要加测试：没有沙箱包装的 claude 调用被拒绝。skills 以文本注入提示词（--disable-slash-commands 关闭了原生 skills），M-3「skill 调用次数」指标因此测不到，需要换度量方式或改用原生加载（下次探测确认 Skill 工具在 --disable-slash-commands 下能否工作）。todo.json 校验未实现。真实 CLI 冒烟测试（haiku，1 轮）通过。
+- T7b：包级 Transition 用真实时钟与默认配置，daemon 必须用 NewEngine 注入 clock 与 skills.yaml 的模型配置；LogTail 未经 privguard（privguard 模块未实现，调用方必须先脱敏）；PV-2/5/7/8 留给 planner 校验器；默认 deadline（running 60m、rescue 2h、ask 72h、parked 7d）待 CF-02 配置化。

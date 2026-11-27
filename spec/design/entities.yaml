@@ -18,8 +18,8 @@ entities:
       - { name: branch, type: string, required: true, format: "foreman/<id>" }
       - { name: parked, type: bool, required: true, default: false, note: "见 state-machine 表 B（H17）" }
       - { name: hold, type: "enum none|replan|rescue|owner|parked", required: true, default: none, note: "state-machine 表 B" }
-      - { name: pending_triggers, type: "[]enum replan_trigger|rescue_trigger|owner_trigger", required: true, default: [] }
-      - { name: req_counters, type: "{replans, planner_failures, req_rescues, fix_steps}", required: true, note: "上限见 state-machine dims.req_counters" }
+      - { name: pending_triggers, type: "[]{trigger enum replan_trigger|rescue_trigger|owner_trigger, h_item, subject, causes, detail}", required: true, default: [], note: "hold 已设时被表 B 忽略的触发；hold 回到 none 时依次重放（D-071）" }
+      - { name: req_counters, type: "{replans, planner_failures, req_rescues, fix_steps, access_requests, budget_extensions}", required: true, note: "上限见 state-machine dims.req_counters" }
       - { name: last_l0_sha, type: string, required: false, note: "DT-3" }
       - { name: session_repo, type: string, required: false, note: "~/.foreman/projects/<p>/sessions/<req id>/，由镜像 clone --shared 创建（D-045）" }
       - { name: session_repo_state, type: "enum none|active|releasing|released", required: true, default: none }
@@ -147,9 +147,11 @@ entities:
     name: Run
     db: work.db
     immutable: true
-    note: "一次 AI 会话或一次程序检查。创建后只追加 ended_at / outcome / usage，不修改其他字段"
+    note: "一次 AI 会话或一次程序检查。创建后只修改 status、pid、prompt_hash，并追加 ended_at / outcome / usage；其余字段不变（D-071）"
     fields:
-      - { name: id, type: string, required: true, format: "<step id>/r<n> 或 <req id>/<role>/r<n>" }
+      - { name: id, type: string, required: true, format: "r + base36 序号（D-070 ④）" }
+      - { name: status, type: "enum pending|running|killing|killed|ended", required: true, default: pending }
+      - { name: input, type: string, required: false, note: "planner/rescuer 的触发输入（append_trigger_to_*_input）" }
       - { name: role, type: "enum intake|planner|coder|reviewer|rescuer|diagnoser|improver|check|ci_watch|merge", required: true, note: "check/ci_watch/merge 是程序 Run，无会话" }
       - { name: model, type: string, required_when: "role 为 AI 角色", note: "实际使用的模型；第 3 次重试升级为 Opus 时记录（D-044）" }
       - { name: scope, type: "enum step|requirement", required_when: "role == rescuer" }
