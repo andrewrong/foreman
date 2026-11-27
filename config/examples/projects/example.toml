@@ -1,0 +1,30 @@
+# Example projects/<name>.toml (CF-01, CF-06, CF-07, CF-12). The file name is
+# the project name: lowercase letters, digits and dashes.
+
+repo_path = "/srv/example/projects/example"
+github_repo = "example-owner/example"
+default_branch = "main"
+pii_mask = ['\b\d{11}\b']                  # regular expressions
+l0 = [["go", "vet", "./..."], ["go", "test", "./..."]]
+
+[[service]]
+name = "api"
+log_path = "/srv/example/logs/api.log"
+
+[[database]]
+name = "main"
+kind = "sqlite"
+path = "/srv/example/data/example.db"      # no credentials in locators
+
+[l0_budget]                                # CF-12
+timeout = "120s"
+gomaxprocs = 2
+memory_mb = 2048
+
+[access]                                   # CF-06
+r1_declared = ["dev-db"]
+r2_approved = []
+
+[prod]                                     # CF-07
+sql_ro = false
+rows_max = 500

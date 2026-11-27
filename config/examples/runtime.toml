@@ -1,0 +1,29 @@
+# Example runtime.toml. Copy to $FOREMAN_HOME/config/runtime.toml.
+# Every key is optional: defaults live in the code and only overrides belong here.
+# Secrets never go in this file; only the directory that holds them (D-026).
+
+secrets_dir = "/srv/example/secrets"   # files foreman.<name>, mode 0600; directory 0700
+
+[parallel]                  # CF-04
+workers = 2
+steps_per_requirement = 3
+
+[limits]                    # CF-05
+check_fail = 3
+review_rounds = 2
+merge_conflict = 2
+bad_result = 2
+infra = 6
+pr_split_lines = 400
+h4_budget_multiplier = 2.0
+
+[improve]                   # CF-09
+min_interval_hours = 24
+weekly_cap = 3
+
+[resources]                 # CF-11
+github_rest_per_hour = 5000
+github_write_per_minute = 60
+github_write_per_hour = 400
+l0_slots = 2
+disk_floor_gib = 10
