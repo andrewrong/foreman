@@ -1,0 +1,91 @@
+# AI 会话 ↔ foremand 的文件协议（D-033）：输入 context.md + todo.json，输出 result.json。
+# 位置：运行目录 ~/.foreman/projects/<p>/runs/<run id>/；会话的工作目录是需求的会话仓库（D-045），运行目录以只读+单文件可写方式映射。
+schema: foreman.protocol-run/1
+
+process:
+  - id: PP-1
+    rule: "每个会话是独立的进程组（setsid），stdout/stderr 写入运行目录的 stdout.log / stderr.log，不通过管道连到 foremand；foremand 退出不影响会话"
+  - id: PP-2
+    rule: "会话写 result.json 与 todo.json 必须原子写：写 <name>.tmp 后 rename"
+  - id: PP-3
+    rule: "foremand 读入以 run_id 为幂等键：同一 run_id 的 result 只入库一次；重启后重复读入不产生新事件"
+  - id: PP-4
+    rule: "会话退出码为 0 但 result.json 缺失或校验失败 → Run.outcome = bad_result（T35/T40）"
+  - id: PP-5
+    rule: "token 上限的执行方式由 harness 能力位决定：can_stop_midrun=true 时超限即终止；false 时用 max_turns 与 timeout 兜底，结算时按实际用量判定 budget_exceeded"
+    default: "所有 harness 默认 can_stop_midrun=false，以 max_turns + timeout 兜底；实测通过才置 true（ACR-40；test:budget-fallback-default）"
+    note: "agent-crew 对 Claude 只用过 --max-turns 与超时，未见按 token 中途停止"
+
+files:
+  - id: PF-CTX
+    name: context.md
+    direction: "foremand → 会话（只读）"
+    max_tokens: 30000
+    sections_in_order:
+      - "宪法（项目 constitution 渲染，≤1k token）"
+      - "需求摘要：goal、outcome、boundaries"
+      - "当前步骤：goal、acceptance 全文、todo.json 的当前状态"
+      - "其他步骤：每个一行"
+      - "已有 discoveries 与已回答的 unknowns"
+      - "上一次失败（如有）：kind=check 的未关闭 Finding，失败测试名 + 日志尾部 ≤ 80 行，已脱敏（ACR-01；test:check-fail-reaches-next-context）"
+      - "未关闭的 findings（如有）"
+      - "可用资源（access.yaml context_pack_section）"
+      - "相关文件路径（程序列出）"
+      - "语言 profile 短规则（按改动文件扩展名）"
+      - "触及 package 的行数余量：非测试行、测试行、距 C-03 上限（程序生成，ACR-27）"
+    order_rule: "稳定内容在前（宪法、语言规则、Spec），变化内容在后，便于同一需求连续会话命中提示词缓存"
+    role_overrides:
+      reviewer: "只含：宪法、Spec 的 goal 与 outcome、当前步骤 acceptance、自 PR.last_reviewed_sha（首轮为步骤起点）起的 diff、未关闭 findings。不含 coder 的 note、evidence、discoveries 原文（避免锚定，ACR-15）"
+      reviewer_rules: "round ≥ 2 时 location 不在本轮 delta 内的新 finding 一律存为 minor；去重键 (path, close_when 哈希)，重复的不入库"
+
+  - id: PF-TODO
+    name: todo.json
+    direction: "双向：foremand 生成初始内容；会话随时更新"
+    fields:
+      - { name: schema_version, type: int, required: true, value: 1 }
+      - { name: run_id, type: string, required: true }
+      - { name: step_id, type: string, required: true }
+      - name: items
+        type: array
+        required: true
+        item_fields:
+          - { name: id, type: string, required: true, format: "T<n>" }
+          - { name: text, type: string, required: true, max_len: 200 }
+          - { name: source, type: "acceptance id | 'plan'", required: true }
+          - { name: status, type: "enum todo|doing|done|blocked", required: true }
+          - { name: evidence, type: string, required_when: "status == done && source 为 acceptance id", max_len: 300 }
+    tolerance: "foremand 每次读到合法的 todo.json 就在运行目录保存快照 todo.last-valid.json；读到不合法（半写、JSON 错误、字段缺失）时使用最近快照，不报错"
+    rule: "会话只能修改 status 与 evidence，并可追加 source=plan 的条目；修改 acceptance 来源条目的 text 视为无效"
+    examples:
+      - name: ok
+        value: { schema_version: 1, run_id: "R-foreman-12/S2/r1", step_id: "R-foreman-12/S2", items: [ { id: T1, text: "Gate 在合计超额时只放行一个", source: A3, status: done, evidence: "internal/resource/gate TestConcurrentDemand 通过" }, { id: T2, text: "补 ledger 恢复逻辑", source: plan, status: doing } ] }
+      - name: invalid_missing_evidence
+        value: { schema_version: 1, run_id: "R-foreman-12/S2/r1", step_id: "R-foreman-12/S2", items: [ { id: T1, text: "Gate 在合计超额时只放行一个", source: A3, status: done } ] }
+        expect: "校验失败：T1 status=done 且来源为验收条目，缺 evidence；使用 todo.last-valid.json"
+
+  - id: PF-RESULT
+    name: result.json
+    direction: "会话 → foremand"
+    fields:
+      - { name: schema_version, type: int, required: true, value: 1 }
+      - { name: run_id, type: string, required: true, rule: "必须等于运行目录对应的 run id" }
+      - { name: role, type: string, required: true, rule: "必须等于 Run.role" }
+      - { name: status, type: "enum ok|spec_conflict|access_request", required: true, note: "会话无法继续时必须二选一：spec_conflict（spec 与现实不符）或 access_request（缺资源）；check_failed / infra / budget_exceeded 由 foremand 判定，会话不能自报" }
+      - { name: commits, type: "[]sha", required_when: "role == coder && status == ok", min_items: 1 }
+      - { name: acceptance, type: "[]{id, result: pass|fail|cannot_check, evidence}", required_when: "role == coder && status == ok", rule: "覆盖当前步骤的全部 acceptance；cannot_check 表示沙箱内无法验证，该条目改由 reviewer 按 reading 判断，不算失败（ACR-09）" }
+      - { name: findings, type: "[]Finding 字段（不含 id/status/round）", required_when: "role == reviewer" }
+      - { name: verdict, type: "enum approve|changes", required_when: "role == reviewer", rule: "存在 severity=blocking 的 finding 时必须为 changes" }
+      - { name: closed_findings, type: "[]finding id", required: false, note: "reviewer 第 2 轮起：本轮确认已解决的旧 finding" }
+      - { name: discoveries, type: "[]{kind, ref, text}", required: false }
+      - { name: decision, type: "step 级：enum retry|drop_step|replan|ask_owner；需求级：enum retry|replan|drop_requirement|ask_owner", required_when: "role == rescuer", rule: "Run.scope 为 step 时取前者，为 requirement 时取后者；取值必须与 state-machine dims.guard_enums 一致（smcheck 交叉检查）" }
+      - { name: guidance, type: string, required_when: "role == rescuer && decision == retry", max_len: 1000 }
+      - { name: access, type: "{resource, reason}", required_when: "status == access_request" }
+      - { name: note, type: string, required: false, max_len: 500 }
+    examples:
+      - name: coder_ok
+        value: { schema_version: 1, run_id: "R-foreman-12/S2/r1", role: coder, status: ok, commits: ["3f2a9c1"], acceptance: [ { id: A3, result: pass, evidence: "TestConcurrentDemand 通过" } ], discoveries: [ { kind: answer, ref: U1, text: "GitHub 304 响应不计入 core 限额，已在 forge 测试中验证" } ] }
+      - name: reviewer_changes
+        value: { schema_version: 1, run_id: "R-foreman-12/S2/r2", role: reviewer, status: ok, verdict: changes, findings: [ { scope: "R-foreman-12/S2", severity: blocking, location: { path: "internal/resource/ledger/ledger.go", line: 88 }, problem: "Settle 未处理实际用量大于预留的情况，available 会变成负数", close_when: "实际 > 预留时按实际扣减，并有测试覆盖" } ] }
+      - name: invalid_reviewer_verdict
+        value: { schema_version: 1, run_id: "R-foreman-12/S2/r2", role: reviewer, status: ok, verdict: approve, findings: [ { scope: "R-foreman-12/S2", severity: blocking, location: { path: "a.go", line: 1 }, problem: "x", close_when: "y" } ] }
+        expect: "校验失败：存在 blocking finding 但 verdict=approve → bad_result"

@@ -1,0 +1,45 @@
+# foreman 项目宪法（不变量）。每次 AI 会话都注入本文件的渲染结果，上限 1k token。
+# 修改本文件 = H6（owner 批准）。条目上限 20；enforced_by: none 的条目最多 3 条。
+schema: foreman.constitution/1
+project: foreman
+
+articles:
+  - id: C-01
+    rule: "任务状态只由 internal/pipeline/state 包的 Transition 函数写入"
+    enforced_by: test:only-transition-writes-state
+  - id: C-02
+    rule: "每个非终态（queued, running, waiting）都有 deadline（或有界的等待说明）和至少一个出口事件；自环必须有计数上限"
+    enforced_by: test:state-table-exhaustive
+  - id: C-03
+    rule: "模块可以大，package 必须小：每个 Go package 非测试代码 ≤ 3000 行、测试代码 ≤ 4500 行、单文件 ≤ 600 行；绝对上限，不设渐进上限；唯一例外：source=prod 且 P0 的修复可超出 50 行，下一个需求必须收回（D-049 ⑦）。模块 = 多个 package 的组合，在 design/modules.yaml 定义"
+    enforced_by: check:size-limits
+  - id: C-04
+    rule: "package 依赖方向遵守 design/modules.yaml；不得出现环"
+    enforced_by: test:module-deps
+  - id: C-05
+    rule: "测试中禁止 time.Sleep 和真实时钟；时间通过 clock.Clock 注入"
+    enforced_by: check:no-sleep-in-tests
+  - id: C-06
+    rule: "单个 package 的测试 ≤ 30s；L1 CI 总时长 ≤ 5min"
+    enforced_by: check:test-budget
+  - id: C-07
+    rule: "禁止三类测试：只断言 mock 被调用、grep 源码或文案、断言常量等于自身"
+    enforced_by: "check:no-text-pin-tests（go/ast 拒绝 _test.go 读取 prompts/、spec/、AGENTS.md 并比较内容；其余两类靠 review）"
+  - id: C-08
+    rule: "凭据不进入任何 AI 会话的沙箱，例外只有两类：模型 harness 的凭据（foreman 专用、可吊销，D-045）与 access R1 的开发测试凭据（无任何生产权限）；GitHub、线上与其它凭据一律不进入；push、开 PR、合并只由 foremand 执行；foremand 从不在会话可写的目录里执行会读取其配置的 git 命令"
+    enforced_by: "sandbox + test:sandbox-probe-no-credentials；test:session-git-config-not-executed"
+  - id: C-09
+    rule: "所有 tracked 文件、commit message、PR 文本通过 privguard"
+    enforced_by: check:privguard
+  - id: C-10
+    rule: "外部服务（GitHub、模型 API）只经 internal/forge 和 internal/harness 访问；web 包不得导入它们"
+    enforced_by: test:module-deps
+  - id: C-11
+    rule: "AGENTS.md ≤ 6000 字节、≤ 80 行、每行 ≤ 200 字节"
+    enforced_by: check:agents-md-size
+  - id: C-12
+    rule: "spec/ 下所有文件通过 spec-lint（schema、id 唯一、引用可解析、禁用模糊词、每条需求有 verify）"
+    enforced_by: check:spec-lint
+  - id: C-13
+    rule: "配置文件带 revision；每次 AI 运行开始时把配置和规则复制进运行目录，运行期间只读副本"
+    enforced_by: test:run-config-snapshot

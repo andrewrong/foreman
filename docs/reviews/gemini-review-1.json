@@ -1,0 +1,126 @@
+{
+  "model": "gemini-4-neon-high",
+  "effort": "high",
+  "reviewed": "spec 版本：D-034 之后、D-035 之前（未含 4 条 blocking 修复）",
+  "duration_seconds": 427.397115,
+  "usage": {
+    "input_tokens": 108488,
+    "output_tokens": 41164,
+    "thinking_tokens": 27430,
+    "cache_read_tokens": 429817,
+    "total_tokens": 149652
+  },
+  "verdict": "changes",
+  "answers": [
+    {
+      "answer": "最可能达不到的是“小改动成本与 agent-crew 的 $0.75（无 fix 轮次 PR）同量级”，其次是“无凭据进沙箱”和“手机上只答一个词”。按 design/skills.yaml、design/protocol-plan.yaml 与 design/state-machine.yaml（S04/S06/S30/S42/S43/DT-2），即便单步骤、0 fix 轮次的小改动也强制跑 5 次独立 AI 会话：intake（Opus，交互式 grilling）→ planner（Opus）→ coder（Sonnet）→ 步骤 reviewer（Sonnet）→ integrate 最终 reviewer（Sonnet，单步也对同一 diff 重审）。对照 docs/lessons-from-agent-crew.md §2.2，agent-crew 无 fix PR 均价 $0.75（口径未核实），但单次全量评审会话就达 $1.76–$1.90；foreman 虽取消常驻窗口（decisions.yaml D-002），却给每个需求叠加两次 Opus 与双层 review 且无小改动直通路径，成本必然高出一个量级。此外，constitution.yaml C-08 与 design/access.yaml R1/R2（注入开发凭据与真实数据只读副本）冲突；design/skills.yaml 的交互式 intake 与 design/prod-access.yaml PA-3/PA-4（线上 SQL/回滚审查）也无法靠手机答一个词完成。",
+      "q": 1
+    },
+    {
+      "answer": "最大的未命名风险是沙箱安全边界在两个必经接口上完全悬空，直接击穿 constitution.yaml C-08 与 decisions.yaml D-009：一是模型 CLI 认证凭据，二是 git worktree 的共享 .git 目录。第一，D-009 让沙箱内完全放开（bypass 模式），C-08 要求凭据不进沙箱，design/access.yaml R3 禁读 ~/ 且 R0 未放行模型 API；但 claude CLI 跑在沙箱内必须持 Anthropic OAuth/API 凭据并连外网 API，全规格没有任何由 foremand 在沙箱外代注认证头的本地 LLM 代理。结果要么 claude 无法启动，要么模型凭据裸露在 bypass 沙箱中被提示注入窃取。第二，decisions.yaml D-006/D-016 用 git worktree 且 design/protocol-run.yaml PF-RESULT 要求 coder 产 commits，但 worktree 的 .git 指向主仓库共享 .git/。禁写共享 .git/ 则 coder 无法 commit；放开写权限，则 bypass 沙箱内的 coder 可篡改共享 .git/config（如 core.hooksPath/fsmonitor）或别分支引用，等 foremand 在沙箱外带 GitHub 写 token 执行 squash/push（design/forge.yaml FG-9）时触发沙箱外任意代码执行。",
+      "q": 2
+    },
+    {
+      "answer": "要达到全部成功标准，最简 v1 只需“单需求单独立 git clone --local + 单 PR + 串行执行 + 固定并发槽与限额退避 + Telegram/CLI”：(1) 去掉需求内并行 worktree、squash 合回、>800 行拆多 PR 和独立 integrate 二次 review；单步小改动直接跳过 planner，经 coder → L0 → 单次 reviewer → 仓库级串行合并锁（docs/lessons-from-agent-crew.md §8.5）push/L1/merge；(2) 保留 Gate 做硬并发槽 + GitHub 响应头 floor + 429 退避等待，去掉用滚动窗口估算模型百分比的 Ledger 预留算法；(3) 前期删掉自我迭代、线上诊断/自动止血与 Web 前端，先跑通核心开发闭环。可删条目：decisions.yaml D-006（拆多 PR 部分）、D-008（nightly bisect）、D-010（improver 与 10 需求对比回退）、D-013（React web）、D-016（并行 worktree）、D-021/D-023（线上 broker 与 diagnoser）、D-029/D-030（模型百分比预留与复杂 Ledger）；design/prod-access.yaml 整份延后；design/skills.yaml 去掉 trial/A-B 与自动删除机制；design/state-machine.yaml 去掉 integrate 独立 review 与 DT-3。",
+      "q": 3
+    },
+    {
+      "answer": "最难改的五项锁定及其代价：(1) 三库 SQLite 拆分与无 PR 实体的持久化模型（decisions.yaml D-004、design/entities.yaml、design/config.yaml）：状态分散在 global.db、projects/<p>/work.db、ci.db 和 TOML 文件，Run 不可变且 Requirement 阶段靠派生。一旦上线积累历史数据，要合并单库或补 PR 实体支撑多 PR，需停机迁移所有项目库并重写 store/recover/api。(2) 纯文件批处理会话协议（design/protocol-run.yaml、design/protocol-plan.yaml）：绑定 context.md/todo.json/result.json 与 run_id 目录幂等。若后续需要会话内实时工具调用（如 prod-access.yaml read_tools）或复用长会话续跑（docs/lessons-from-agent-crew.md §4.2 #3336），需推翻协议、reconciler 与 scripted 测试集。(3) Claude 私有流事件依赖（decisions.yaml D-037、design/resources.yaml RES-MODEL）：直接解析 rate_limit_event 的 unifiedWindows 字段，厂商改内部格式或切直连 API 会令 Meter 与 7d 历史数据同时失效。(4) macOS OS 沙箱语义耦合（design/access.yaml）：R0–R3 与缓存分层若在 macOS seatbelt 走不通而改迁容器/VM，需重写 sandbox/workspace/probe。(5) go-github/githubv4（decisions.yaml D-032）：封装在 forge 内，替换代价中等（githubv4 当前维护状况无法判断）。",
+      "q": 4
+    },
+    {
+      "answer": "最可能为假的是 decisions.yaml D-029 与 design/resources.yaml RES-MODEL 的两项断言：“claude 默认只有 7 天窗口”以及“用 7 天百分点增量合计除以 token 合计求比值 k 可做准确预留”。首先，D-029 与同仓证据直接冲突：docs/lessons-from-agent-crew.md §6 明写“Claude 的 5h/周窗口”，RES-MODEL 自身也解析 unifiedWindows.{five_hour,seven_day}，忽略 5h 窗口会让突发并发在 7d 远低于 30% 时直接撞限流。其次，滚动时间窗的 utilization 会随旧用量滑出而下降，单次会话前后差值常为 0 甚至负数；且未区分 Opus/Sonnet 与 input/output/cache_read 的巨大权重差，按裸 token 求得的 k 会趋近于 0 或为负，令 Ledger 预留失效。证伪方法：(1) 在 7d < 30% 时 2 小时内密集跑 10 个混合会话，观察是否触发 5h 限流（直接证伪只需 7d）；(2) 用 agent-crew 真实 7 天会话日志的 (delta_utilization, input/output/cache_read tokens, model) 回测 RES-MODEL 公式，统计 delta ≤ 0 占比及预留误差。此外，design/forge.yaml FG-7 暗示单次 PRListOpen 可拿全量 PR 状态（REST list 不返回 mergeable 与 check-runs，单次请求即可证伪），tools/smcheck.rb 输出 OK 也不代表无死路。",
+      "q": 5
+    },
+    {
+      "answer": "最先出问题并被悄悄绕过的环节是 macOS 沙箱与访问分层（design/access.yaml R0、decisions.yaml D-009、constitution.yaml C-08）。具体失败过程：第 1 步，实现 internal/sandbox/launch 时立刻在三个 verified: false 项上碰壁——macOS 无 overlayfs，做不出 GOCACHE/GOMODCACHE“只读基础层 + 可写层”；worktree 内的 git commit 因不能写主库 .git/ 失败；claude CLI 在沙箱内读不到 ~/.claude 或 Keychain 且连不上未列入 R0 的模型 API；localhost 绑定也失败。第 2 步，为了尽快跑通首个端到端会话，实现者先给沙箱放开了 ~/.claude、Keychain、主库 .git/ 写权限与模型 API 域名，约定“以后补代理”，C-08 至此实质失效。第 3 步，接入真实项目跑测试时频繁命中未预见的重定向 CDN 域名（重演 docs/lessons-from-agent-crew.md §5.2 #1843/#3260），而沙箱代理与 macOS 拒绝日志解析尚未稳定，R0 触发高频失败并撞 H7；为消除阻塞，网络白名单被临时放宽为全开。第 4 步，由于 D-009 已取消沙箱内一切 deny 与分类器，外墙一松便无任何纵深防御，最终在某次 coder 改坏共享 .git/ 或触发沙箱外钩子时酿成安全/主干污染事故。",
+      "q": 6
+    }
+  ],
+  "findings": [
+    {
+      "close_when": "所有模型调用经沙箱外 foremand 本地代理注入认证头；coder 改用无凭据的独立 git clone --local 隔离 .git，foremand 仅以 git fetch/am 拉取提交，不执行或信任工作区 git 配置。",
+      "problem": "C-08 要求凭据不进沙箱且 D-009 取消沙箱内限制，但：(1) claude 跑在沙箱内，全规格无沙箱外模型认证代理，模型凭据被迫暴露于沙箱；(2) git worktree 的 .git 指向主库共享 .git/，coder 提交必写共享 .git/。失败场景：被提示注入的 coder 改写共享 .git/config 的 core.hooksPath，foremand 在沙箱外带 GitHub 写 token 执行 squash/push（FG-9）时执行恶意钩子，窃取写 token 并直推 main。",
+      "severity": "blocking",
+      "where": "constitution.yaml C-08; decisions.yaml D-009, D-016; design/access.yaml R0, R3; design/forge.yaml FG-9"
+    },
+    {
+      "close_when": "H14 按 H 项显式重置对应计数器并修正恢复阶段；R2 改为步骤级 waiting(access) 不冻结整条需求，并在 step_table 补全永久允许/仅本次/拒绝的转移与 access_denied 处理。",
+      "problem": "H14（owner 选 resume）不重置 infra/rescues/fix_steps 计数；且 S79 把单步 R2 申请变成整需求 hold=owner，而 H14–H16 仅有 resume|replan|drop，缺 access.yaml 的 [永久允许][仅本次][拒绝]。失败场景：步骤达 infra=6 触发 H7（D-035），owner 点 [立即重试] 走 H14 恢复，再遇一次超时因 infra 仍为 6 立刻回弹 H7；或 owner 拒绝 R2 时选 resume 令 coder 死循环重申，选 drop（H16）直接丢弃整条需求。",
+      "severity": "blocking",
+      "where": "design/state-machine.yaml S19, S26, S57, S72, S79, H14-H16; decisions.yaml D-035; design/access.yaml R2"
+    },
+    {
+      "close_when": "在单一 schema 中统一步骤级与需求级 rescuer 的 decision 枚举，并在 smcheck 中固定所有守卫枚举全集，补充两表乘积可达性与 req_hold 计数守卫检查。",
+      "problem": "PF-RESULT 定义 rescuer.decision 为 retry|replan|drop_step|ask_owner，不含 drop_requirement；而 req_hold H09 只认 drop_requirement 且未覆盖 drop_step。smcheck.rb L72/L151 从已有行反推枚举全集，导致误报 OK。失败场景：需求级救援（hold=rescue）决定放弃需求时，按协议输出 drop_step 无匹配转移，输出 drop_requirement 被校验为 bad_result 触发 H11 错转人工 H5。",
+      "severity": "blocking",
+      "where": "design/protocol-run.yaml PF-RESULT; design/state-machine.yaml H07-H10; tools/smcheck.rb L72, L151"
+    },
+    {
+      "close_when": "replan 前先冻结并等待同需求所有 running 步骤退出或安全中止再启动 planner；将 replan_effects_on_steps 的批量挂起显式写入 step_table 并由 smcheck 检查。",
+      "problem": "H01 进入 replan 时立即 create_run:planner，未等待同需求其他 running 步骤结束，且 replan_effects_on_steps 漏了 waiting(ci|rescue|fix)。失败场景：并行步骤 S1、S2 同跑，S1 报 spec_conflict 触发 H01 启动 planner（输入中 S2 非终态），期间 S2 跑完 review 合回变 done（S42）；planner 输出 {op:keep, id:S2} 被 PV-1（done 不得出现）拒绝报 planner_failed；若 planner 输出 drop 而 S2 仍在跑，还会出现孤儿进程竞争 worktree。",
+      "severity": "blocking",
+      "where": "design/state-machine.yaml H01, H03, replan_effects_on_steps; design/protocol-plan.yaml PV-1, apply"
+    },
+    {
+      "close_when": "为 S31/S56/S58/S60 显式增加 inc:fix_steps 并纳入 smcheck；将 DT-3 纳入 Step 状态机或记录 last_l0_checked_sha，同一 sha 已有未终态 fix 步骤时禁止重复触发。",
+      "problem": "S31/S56/S58/S60 守卫检查 fix_steps 但效果仅写 add_fix_step，未写 inc:fix_steps（smcheck.rb 未检出）；同时 DT-3 每轮 reconciler 只要 head ≠ last_l0_sha 即触发且无去重条件。失败场景：S1 合回需求分支后 DT-3 跑 L0 失败并追加 fix 步骤 F1；F1 尚未跑完，下一轮 reconciler 见 head 仍不等于 last_l0_sha，连续追加 F2、F3 瞬间打满 fix_steps 上限并误触发 rescue_trigger。",
+      "severity": "blocking",
+      "where": "design/state-machine.yaml S31, S56, S58, S60, DT-3, dims.req_counters"
+    },
+    {
+      "close_when": "为 reconciler 外部调用的配额 Wait 定义非故障退避/转移路径（不扣 infra）；启动会话前用运行目录原子锁文件由外层启动器写入 pid，重启先查锁文件再判存活。",
+      "problem": "RC-2 要求先拿 Lease 再 Transition，但 TX-1 把外部调用放进异步 reconciler。失败场景：(1) running(merge) 在 update-branch 后撞 GitHub 限额返回 Wait，但 running 无 quota 转移，只能耗到 deadline_passed（S73）白扣 infra 计数；(2) foremand 在 setsid 启动会话后、写 Run.pid 入库前崩溃，重启后 reconciler 见 pid 为空，于同一 worktree 双开 coder 并发写文件与 result.json。",
+      "severity": "blocking",
+      "where": "design/state-machine.yaml TX-1, S07, S08, reconciler; design/resources.yaml RC-2; design/modules.yaml MD-3"
+    },
+    {
+      "close_when": "在 design/modules.yaml 明确写出 layer 3 模块间无环依赖边（或将调度/编排移入 layer 4），并将 internal/resource/meter 加入 MD-6 白名单。",
+      "problem": "modules.yaml 规定同层模块仅允许 allowed_deps 列出的边，但 layer 3（pipeline/stage/role/prod）间未列任何允许边，导致 stage/role 无法调用 pipeline/state.Transition（C-01），pipeline 也无法调用 stage/role；同时 MD-6 只允许 forge/harness 导入 resource/gate 而不允许 resource/meter，与 FG-2/FG-5/RES-MODEL 冲突。失败场景：任何按规实现的最小原型都会直接无法通过 test:module-deps。",
+      "severity": "blocking",
+      "where": "design/modules.yaml layer 2, layer 3, MD-6; design/forge.yaml FG-2, FG-5; constitution.yaml C-01, C-04"
+    },
+    {
+      "close_when": "补充 PR 实体及分支/commit 范围（或删去 D-006 拆多 PR）；修正 derived_phase 顺序与条件；将 ci_watch/merge 加入 E-RUN.role 并按 E-STEP.code_role 分发 S04。",
+      "problem": "entities.yaml 无 PR 实体且 E-REQ.branch 仅单分支，无法实现 D-006 diff>800 行按步骤切多个顺序 PR；E-REQ.derived_phase 中 integrating 要求所有非 dropped 步骤为 done 且有打开 PR，但 integrate 步骤自身在 PR 打开期是非终态，单 PR 下永不可达；另 S07/S08 的 ci_watch/merge 不在 E-RUN.role 枚举内，S04 对 find_cause 写死 create_run:coder 违背 E-STEP.code_role 与 D-023。",
+      "severity": "major",
+      "where": "design/entities.yaml E-REQ, E-STEP, E-RUN; decisions.yaml D-006; design/state-machine.yaml S04, S07, S08, DT-2, reconciler"
+    },
+    {
+      "close_when": "按仓库加串行 merge 槽位；base 移动时检查真实 diff 是否不相交（merge-if-disjoint），相交则触发增量 review，不得对新 head 跳过评审或误建 fix。",
+      "problem": "running(merge) 的 reconciler 执行 update-branch → 等 L1 → 合并，丢掉了 docs/lessons-from-agent-crew.md §8.5/§9.2 验证有效的两项保护：(1) 无仓库级串行合并锁，并发需求合并遇 409 会走 S58 白建 fix 步骤；(2) update-branch 生成新 commit 后跳过评审直接合并，破坏“同 head 才算数”门禁且未校验 diff 是否与 base 改动相交。",
+      "severity": "major",
+      "where": "design/state-machine.yaml S43, S44, S58, reconciler; docs/lessons-from-agent-crew.md §8.1, §8.5, §9.2"
+    },
+    {
+      "close_when": "D-029 为 Claude 启用 5h + 7d 双窗口；取消用滚动窗裸 delta 反推 k，改用按模型与 token 类型加权的静态/保守估算加 MarkExhausted 退避。",
+      "problem": "D-029 称 claude 默认只有 7d 窗口，与 RES-MODEL 解析的 five_hour 字段及 docs/lessons-from-agent-crew.md §6（5h/周窗口）直接矛盾，突发流量会绕过 Gate 撞 5h 限流。同时 reservation_estimate 用 7 天百分点增量合计除以 token 合计求 k，未处理滚动窗回落导致的 0/负增量，也未区分 Opus/Sonnet 与 cache_read 的权重差，预留值严重失真。",
+      "severity": "major",
+      "where": "decisions.yaml D-029; design/resources.yaml RES-MODEL; docs/lessons-from-agent-crew.md §6"
+    },
+    {
+      "close_when": "为单步骤/小改动提供直通路径（跳过 planner、单 work 步骤合并 integrate review 避免双审），并避免对常规小需求强制跑 Opus 交互式 intake。",
+      "problem": "成功标准要求小改动成本与 agent-crew $0.75 同量级，但现设计对任意 0 fix 轮次单步改动均强制执行 5 次独立会话：intake(Opus) + planner(Opus) + coder(Sonnet) + 步骤 reviewer(Sonnet) + integrate reviewer(Sonnet)，对照 docs/lessons-from-agent-crew.md §2.2 单次全量评审即 $1.76–$1.90，必然大幅超支。",
+      "severity": "major",
+      "where": "design/skills.yaml; design/state-machine.yaml S04, S06, S30, S42, S43, DT-2; docs/lessons-from-agent-crew.md §2.2"
+    },
+    {
+      "close_when": "补齐缺失协议、示例、兼容规则与 F2/P1–P7 定义（或 v1 删减对应角色）；为 prod 工具定义带每 run 鉴权的 RPC 通道；PA-1/PA-2 改为程序健康探针触发或需确认。",
+      "problem": "违反 D-025/C-12：intake/diagnoser/improver 无结果协议与示例，现有协议缺版本兼容规则，E-ACC 引用未定义的 F2，D-014 引用未定义的 P1–P7。同时 prod-access.yaml 的 read_tools 在全规格中无 MCP/RPC 通道与调用者鉴权，且允许 diagnoser 读不可信线上日志后自动触发 PA-1/PA-2 回滚/重启，面临日志提示注入引发线上抖动的风险。",
+      "severity": "major",
+      "where": "decisions.yaml D-014, D-021, D-025; design/prod-access.yaml read_tools, PA-1, PA-2; design/entities.yaml E-ACC; design/protocol-run.yaml"
+    },
+    {
+      "close_when": "将 Telegram token 移出 notify.toml 按 D-026 存放；先完成 macOS R0 三项与 OP-07 的真机验证再定稿；forge_etags 增设体积上限并跳过大日志，修正 FG-7 轮询口径。",
+      "problem": "(1) CF-08 将带 secret:true 的 notify.toml 留在 ~/.foreman/config/，违背 D-026；(2) access.yaml R0 依赖的 macOS 只读+可写 Go 缓存分层（macOS 无 overlayfs）、localhost 绑定、每任务临时库全为 verified:false；(3) FG-7 称单次 PRListOpen 取全部 PR 状态，但 GitHub REST list 不含 mergeable 与 check-runs，且 FG-3 无限制缓存 GET 正文进 global.db 易被 OP-10 大日志撑爆。",
+      "severity": "major",
+      "where": "decisions.yaml D-026; design/config.yaml CF-08; design/access.yaml R0; design/forge.yaml FG-3, FG-7, OP-07"
+    },
+    {
+      "close_when": "为 C-03 留紧急修复小幅缓冲或显式豁免；v1 删去 D-010 自动对比回退与 D-008 自动 bisect，或补齐 ci.db 表结构、module 归属与执行时长预算证明。",
+      "problem": "(1) docs/lessons-from-agent-crew.md §7.1(4) 已验证死行数上限会卡住三行紧急修复，C-03 仍设 600 行绝对上限；(2) D-010 用 10 个异质需求前后对比指标自动回退 improver PR，噪声远大于信号且无安全自重启/回滚方案；(3) D-008 的 git bisect run 在 modules.yaml/entities.yaml（ci.db）无任何设计落点，且 60min -race 套件下预算可行性未证。",
+      "severity": "minor",
+      "where": "constitution.yaml C-03; decisions.yaml D-008, D-010; docs/lessons-from-agent-crew.md §7.1(4), §7.2"
+    }
+  ]
+}

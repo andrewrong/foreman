@@ -1,0 +1,78 @@
+# planner 的输出协议（D-034）：首次拆解与重新规划共用。planner 会话写 plan.json，foremand 校验后在一个事务里执行 apply_plan_diff。
+schema: foreman.protocol-plan/1
+
+file:
+  name: plan.json
+  direction: "planner 会话 → foremand"
+  write: "原子写（PP-2），以 run_id 幂等（PP-3）"
+
+input_to_planner:   # 写入 context.md
+  - "Spec 全文（当前 spec_version）"
+  - "全部步骤的当前状态：id、type、goal、acceptance、depends_on、touches、state、是否已合回"
+  - "触发原因列表：spec_conflict 的 discovery、dep_dropped 的步骤、DT-1 未覆盖的 outcome、rescuer 或 owner 的指示"
+  - "design/modules.yaml 或项目声明中的模块清单（touches 只能取其中的值）"
+
+fields:
+  - { name: schema_version, type: int, required: true, value: 1 }
+  - { name: run_id, type: string, required: true }
+  - { name: base_spec_version, type: int, required: true, rule: "必须等于输入时的 spec_version，否则整份拒绝（防止基于旧版本规划）" }
+  - { name: spec_patch, type: "Spec 的部分字段", required: false, rule: "出现即 spec_version +1；只允许修改 change、outcome、boundaries、unknowns、hints；不允许修改 goal（goal 变化属于 H1，需 owner）" }
+  - name: steps
+    type: array
+    required: true
+    item_fields:
+      - { name: op, type: "enum keep|update|drop|add", required: true }
+      - { name: id, type: string, required_when: "op ∈ {keep, update, drop}", rule: "必须是现有步骤 id" }
+      - { name: temp_id, type: string, required_when: "op == add", format: "N<n>", note: "foremand 分配正式 id 后替换 depends_on 中的引用" }
+      - { name: type, type: "enum build|find_cause|fix", required_when: "op == add", note: "integrate 步骤不由 planner 创建（DT-2）" }
+      - { name: goal, type: string, required_when: "op ∈ {update, add}", max_len: 300 }
+      - { name: acceptance, type: "[]acceptance id", required_when: "op ∈ {update, add}", min_items: 1 }
+      - { name: depends_on, type: "[]step id | temp_id", required: false }
+      - { name: touches, type: "[]module", required_when: "op ∈ {update, add}", min_items: 1 }
+      - { name: reason, type: string, required_when: "op ∈ {update, drop}", max_len: 200 }
+
+validation:   # 任一失败 → planner_failed（H04/H05）
+  - { id: PV-1, rule: "每个现有的非终态步骤恰好出现一次（keep/update/drop 之一）；done 与 dropped 步骤不得出现" }
+  - { id: PV-2, rule: "Spec.outcome 的每个条目至少被一个（done 或 keep/update/add 后的）步骤覆盖" }
+  - { id: PV-3, rule: "依赖图无环；depends_on 引用的 id 存在且未被 drop" }
+  - { id: PV-4, phase: v2, rule: "touches 只作排序提示；真正的冲突在合回时以 git merge-tree 在真实文件集上判定，冲突才串行重做（ACR-16）。v1 需求内步骤串行（D-042），本条不生效" }
+  - { id: PV-5, rule: "touches 的值都在模块清单中" }
+  - { id: PV-6, rule: "首次拆解（无现有步骤）时 op 只能是 add" }
+  - { id: PV-7, rule: "acceptance 中 verify ∈ {test, command} 的条目 sandbox_ok 必须为 true（E-ACC）" }
+  - { id: PV-8, rule: "被 spec_patch 修改过的 acceptance 所引用的非终态步骤不得 keep，必须 update 或 drop（ACR-08）" }
+  - { id: PV-9, rule: "以 Run.snapshot_id 的步骤快照为准判定 PV-1；快照后已 done 的步骤按 state-machine replan_effects_on_steps 处理（GEM-4）" }
+
+apply:   # apply_plan_diff，在一个事务中（TX-1）
+  keep: "步骤不变；若在 waiting(hold)，随 release_steps 回到 resume_stage"
+  update: "更新 goal/acceptance/depends_on/touches；resume_stage = first_stage；计数不清零"
+  drop: "步骤 → dropped；其提交不合回（v1 串行，无独立会话仓库）"
+  add: "插入新步骤 queued(first_stage)"
+  integrate: "非 done 的 integrate 步骤一律 drop，由 DT-2 重新创建"
+
+examples:
+  - name: initial_split
+    value:
+      schema_version: 1
+      run_id: "R-foreman-12/planner/r1"
+      base_spec_version: 1
+      steps:
+        - { op: add, temp_id: N1, type: build, goal: "实现 resource/ledger：预留、结算、由运行中 Run 重建", acceptance: [A1, A4], touches: [resource] }
+        - { op: add, temp_id: N2, type: build, goal: "实现 resource/gate：Demand → Lease | Wait，多资源原子申请", acceptance: [A2, A3], depends_on: [N1], touches: [resource] }
+        - { op: add, temp_id: N3, type: build, goal: "forge 客户端构造要求 Lease，并按响应头更新 Meter", acceptance: [A5], depends_on: [N2], touches: [forge] }
+  - name: replan_after_conflict
+    value:
+      schema_version: 1
+      run_id: "R-foreman-12/planner/r2"
+      base_spec_version: 1
+      spec_patch: { boundaries: ["不修改 internal/harness/claude 的会话启动逻辑"] }
+      steps:
+        - { op: keep, id: "R-foreman-12/S2" }
+        - { op: update, id: "R-foreman-12/S3", goal: "forge 客户端构造要求 Lease；Meter 更新改为由 client 包装层完成", acceptance: [A5], depends_on: ["R-foreman-12/S2"], touches: [forge], reason: "X3：go-github 的 Response.Rate 在 304 时为空，需在 RoundTripper 层读取头" }
+  - name: invalid_missing_step
+    value:
+      schema_version: 1
+      run_id: "R-foreman-12/planner/r3"
+      base_spec_version: 2
+      steps:
+        - { op: keep, id: "R-foreman-12/S2" }
+    expect: "PV-1 失败：非终态步骤 R-foreman-12/S3 未出现 → planner_failed"

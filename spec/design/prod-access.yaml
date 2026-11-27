@@ -1,0 +1,99 @@
+# 线上访问（D-021）。原则：AI 不拿线上凭据、不登录线上 shell；线上读写都由 foremand 代执行，带限额、脱敏、审计。
+schema: foreman.prod-access/1
+phase: v2   # D-042：v1 不实现线上访问与 diagnoser
+
+roles:
+  diagnoser: "只读诊断：找原因 + 本地复现（写一个失败测试）；修复走正常流水线"
+  foremand: "执行所有线上调用与动作；记录审计日志到 work.db 表 prod_audit"
+
+# 从 agent-crew diagnose 角色保留 / 改动的部分（D-023）
+diagnoser_inputs:
+  - id: DI-1
+    item: "预采集包：会话开始前 foremand 按项目配置采集事发时间窗的日志与数据库只读副本，写明每份的时间范围与行数"
+    from_agent_crew: keep
+  - id: DI-2
+    item: "采集失败的文件标 not_collected，报告第一句必须写明该日志未检查"
+    from_agent_crew: keep
+  - id: DI-3
+    item: "会话仓库检出线上实际运行的 commit（取自部署记录），不是默认分支"
+    from_agent_crew: changed
+    reason: "agent-crew 用默认分支，只能在报告里写'不确定线上跑哪个版本'"
+  - id: DI-4
+    item: "预采集不够时，用 read_tools 按需再取"
+    from_agent_crew: changed
+    reason: "agent-crew 不能再取数据，时间窗外的问题只能报告'数据不够'，成为死路"
+
+diagnoser_outputs:
+  - id: DO-1
+    item: "result.json：cause、proof（log 行 | SQL 结果 | 代码位置）、本地失败测试的路径与运行命令、止血提议"
+    from_agent_crew: changed
+    reason: "agent-crew 只出报告不写测试，回归测试要再开一个 issue"
+  - id: DO-2
+    item: "对外发布（issue/PR 文本）由程序生成并经 privguard 扫描；诊断原始材料只留本机"
+    from_agent_crew: changed
+    reason: "agent-crew 由 dispatcher 手工脱敏后发布"
+
+project_specific:
+  rule: "agent-crew 的 rules/<p>-diagnose.md（每个 1.2–4.9KB 散文）改为项目配置 CF-01/CF-07 的数据：服务、日志位置、数据库、掩码列"
+
+read_tools:     # 以工具调用形式提供给 diagnoser 会话，由 foremand 执行
+  - id: PR-1
+    tool: prod.logs
+    args: [service, query, since, limit]
+    limits: { since_max: 7d, lines_max: 2000 }
+    sanitize: "privguard 文本规则 + 项目声明的字段掩码"
+    grant: auto
+  - id: PR-2
+    tool: prod.metrics
+    args: [service, metric, since, step]
+    grant: auto
+  - id: PR-3
+    tool: prod.health
+    args: [service]
+    grant: auto
+  - id: PR-4
+    tool: prod.sql_ro
+    args: [database, query]
+    limits: { timeout: 10s, rows_max: 500, statement: "仅 SELECT，经 SQL 解析校验" }
+    target: "只读副本或只读账号"
+    sanitize: "项目声明的 PII 列自动掩码"
+    grant: "项目声明 prod.sql_ro: enabled 后自动"
+
+actions:        # 线上写操作，diagnoser 只能"提议"，foremand 按级别执行
+  - id: PA-1
+    action: rollback
+    detail: "回滚到上一个通过健康检查的版本"
+    level: reversible
+    grant: auto
+    limits: { per_service_per_hour: 1 }
+    condition: "最近 24h 内有部署，且健康检查失败"
+    notify: telegram
+  - id: PA-2
+    action: restart
+    level: reversible
+    grant: auto
+    limits: { per_service_per_hour: 2 }
+    notify: telegram
+  - id: PA-3
+    action: data_fix
+    detail: "修改线上数据（UPDATE/DELETE/迁移脚本）"
+    level: irreversible
+    grant: H3
+    required_fields: [sql_or_script, dry_run_output, affected_rows, rollback_plan]
+  - id: PA-4
+    action: prod_config_change
+    level: irreversible
+    grant: H3
+    required_fields: [diff, reason, rollback_plan]
+
+incident_flow:
+  - "告警或 owner 报告 → 程序创建 Requirement(kind=bug, source=prod)"
+  - "第一个步骤固定为 find_cause，由 diagnoser 执行，可用 read_tools"
+  - "产出：原因证明（日志行/SQL 结果/代码位置）+ 本地失败测试"
+  - "diagnoser 可提议 PA-1/PA-2 止血，程序按 grant 执行"
+  - "修复步骤由 coder 在正常流水线完成，合并部署后 prod.health 连续 3 次正常 → 关闭"
+
+never:
+  - "线上凭据进入任何 AI 沙箱"
+  - "AI 会话获得线上 shell"
+  - "未经 H3 的线上数据写入"

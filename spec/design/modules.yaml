@@ -1,0 +1,46 @@
+# 模块与 package（D-024）。模块可以大，package 受 C-03 上限约束。
+# 依赖规则：layer 小的不得导入 layer 大的；同层之间只允许 allowed_deps 中列出的边；test:module-deps 检查。
+schema: foreman.modules/1
+
+binary: "单一可执行文件 foreman；foreman daemon 启动常驻进程，其余子命令通过 Unix socket 调用 daemon 的 API"
+
+modules:
+  - { module: clock,     layer: 0, packages: [internal/clock],                                   duty: "可注入时钟（C-05）" }
+  - { module: spec,      layer: 0, packages: [internal/spec/model, internal/spec/validate, internal/spec/ears], duty: "Requirement/Spec/Step 的类型与入库校验（entities.yaml）" }
+
+  - { module: store,     layer: 1, packages: [internal/store/sqlite, internal/store/migrate],    duty: "global.db / work.db / ci.db 的打开、迁移、单写者" }
+  - { module: config,    layer: 1, packages: [internal/config/schema, internal/config/revision], duty: "配置读取、校验、revision、回退（config.yaml）" }
+  - { module: secrets,   layer: 1, packages: [internal/secrets],                                 duty: "密钥文件检查与读取（D-026）" }
+
+  - { module: resource,  layer: 2, packages: [internal/resource/meter, internal/resource/ledger, internal/resource/gate, internal/resource/history], duty: "资源层（resources.yaml）" }
+  - { module: forge,     layer: 2, packages: [internal/forge/client, internal/forge/cache, internal/forge/ops], duty: "GitHub 访问（forge.yaml）；唯一导入 go-github 的模块" }
+  - { module: harness,   layer: 2, packages: [internal/harness/api, internal/harness/claude, internal/harness/scripted], duty: "模型适配；scripted 为测试用的脚本化假模型（真实进程）；codex、gemini 适配器 phase: v2（D-037）" }
+  - { module: sandbox,   layer: 2, packages: [internal/sandbox/policy, internal/sandbox/launch, internal/sandbox/probe], duty: "OS 级沙箱策略、启动、探测（access.yaml）" }
+  - { module: workspace, layer: 2, packages: [internal/workspace/git, internal/workspace/session, internal/workspace/integrate], duty: "foremand 自有镜像 repo.git；每个需求一个会话仓库（clone --shared）；以禁用钩子的 fetch 取回提交；在 foremand 自有的集成目录做 squash 合回与 rebase（D-045）" }
+  - { module: notify,    layer: 2, packages: [internal/notify/telegram, internal/notify/ask],    duty: "OwnerAsk 发送与回答接收（D-012）" }
+
+  - { module: pipeline,  layer: 3, packages: [internal/pipeline/state, internal/pipeline/sched, internal/pipeline/escalate, internal/pipeline/recover], duty: "状态机（唯一写者在 state）、调度、上限与救援路由、重启恢复" }
+  - { module: stage,     layer: 3, packages: [internal/stage/context, internal/stage/code, internal/stage/check, internal/stage/review, internal/stage/integrate, internal/stage/merge], duty: "各阶段执行；context 生成上下文包（protocol-run.yaml PF-CTX）" }
+  - { module: role,      layer: 3, packages: [internal/role/intake, internal/role/planner, internal/role/rescuer, internal/role/improver], phase_v2_packages: [internal/role/improver], duty: "非步骤类角色的会话与结果处理" }
+  - { module: prod,      layer: 3, packages: [internal/prod/tools, internal/prod/actions, internal/prod/audit], duty: "线上只读工具与动作（prod-access.yaml）；diagnoser 会话经此访问线上", phase: v2 }
+
+  - { module: report,    layer: 4, packages: [internal/report/feedback, internal/report/metrics, internal/report/improve], duty: "反馈报告（v1）、指标定义（v1）、改进触发（improve 为 phase: v2，D-010）" }
+  - { module: api,       layer: 4, packages: [internal/api/server, internal/api/client],         duty: "Unix socket HTTP API；CLI 与 web 的唯一入口" }
+
+  - { module: web,       layer: 5, packages: [internal/web],                                     duty: "web 页面的 Go 侧（静态资源服务 + 代理到 api）；前端源码在 web/", phase: v2 }
+  - { module: cli,       layer: 5, packages: [cmd/foreman],                                      duty: "命令行入口与 daemon 组装（composition root）" }
+
+allowed_deps:   # 除"低层可被高层导入"之外的额外限制
+  - { rule: "internal/web 只能导入 internal/api/client 与 layer 0", id: MD-1 }
+  - { rule: "github.com/google/go-github 与 githubv4 只能被 internal/forge/* 导入", id: MD-2 }
+  - { rule: "internal/forge/* 与 internal/harness/* 的客户端构造必须接收 internal/resource/gate 的 Lease 类型", id: MD-3 }
+  - { rule: "只有 internal/pipeline/state 写 Step.state/stage/reason（C-01）", id: MD-4 }
+  - { rule: "只有 internal/secrets 打开密钥目录下的文件", id: MD-5 }
+  - { rule: "layer 2 内部模块之间不得互相导入（resource 除外：forge、harness 可导入 resource/gate 与 resource/meter）", id: MD-6 }
+  - { rule: "layer 3 内部的边只有：internal/pipeline/sched → internal/stage/*、internal/role/*、internal/prod/*。stage、role、prod 不导入 pipeline：它们执行后返回事件值（类型定义在 layer 0 的 internal/spec/model），由 sched 交给 state.Transition（C-01）", id: MD-7 }
+  - { rule: "internal/pipeline 内部：sched、escalate、recover 可导入 state；state 不导入同模块其它 package", id: MD-8 }
+
+package_limits:   # C-03
+  non_test_lines: 3000
+  test_lines: 4500
+  file_lines: 600

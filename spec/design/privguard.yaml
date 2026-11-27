@@ -1,0 +1,41 @@
+# privguard：可复用的隐私与防泄漏工具（D-014）。独立仓库，所有项目共用；foreman 的 C-09 与 forge 推送前检查调用它。
+# 来源：docs/lessons-privacy-from-optdesk.md §1（三个真实泄漏）与 §6（五条硬规则），agent-crew-review-1 ACR-19。
+schema: foreman.privguard/1
+
+invocation:
+  - "foreman：每次 push 前对 base..head 运行（diff、commit 元数据、PR 标题与正文）；会话日志进入 context.md 前运行 redact 模式（ACR-01）"
+  - "CI：PR 作业扫 base..head；nightly 扫全历史"
+  - "独立 CLI：privguard scan [--range A..B] | redact | history"
+
+rules:
+  - id: P1
+    name: secrets
+    rule: "密钥扫描：gitleaks（固定版本 + 校验和，--redact）作用于 PR 范围与全历史；豁免只允许『规则 + 具体指纹』，不允许路径通配"
+    test: test:privguard-no-path-exemption
+  - id: P2
+    name: local-identity
+    rule: "文本扫描作用于全部 tracked 文件（含 docs/，无目录级豁免）：用户目录与外接卷前缀（/Users/、/home/、/Volumes/、C:\\Users\\）、IPv4 与 host:port、非 noreply 邮箱、长十六进制或 base64、项目声明的业务账号形状、聊天 id 形状"   # privguard:allow rule-definition（本行是规则定义，不是泄漏）
+    exemption: "只能用行内标记 privguard:allow <原因 id>，原因登记在 .privguard/allow.yaml；测试中的违规输入在运行时拼接，不写入文件（不得为过扫描把测试数据改成不像，optdesk §1.2）"
+    test: test:privguard-no-dir-exemption
+  - id: P3
+    name: file-allowlist
+    rule: "git ls-files 只允许白名单扩展名与目录；魔数拒绝 ELF、Mach-O、PE；拒绝 .db、.env*、*.pem、*.key、截图、归档；单文件 ≤ 1 MiB，大小检查作用于 PR 范围（optdesk §1.1 的 38 MB 二进制）"
+    test: test:privguard-binary-rejected
+  - id: P4
+    name: commit-metadata
+    rule: "base..head 的每个提交作者与提交者必须是 noreply 地址；commit message、PR 标题与正文过 P2 扫描"
+    test: test:privguard-commit-metadata
+  - id: P5
+    name: runtime-secrets
+    rule: "程序只从仓库外（secrets_dir，D-026）读取秘密；泄漏表测试：所有读取秘密的命令登记在表中，以哨兵值注入失败，断言 stdout、stderr、日志不含哨兵；表遗漏命令即失败"
+    test: test:leak-table-covers-commands
+  - id: P6
+    name: secrets-dir-hygiene
+    rule: "secrets_dir 检查：权限 0700/0600；无 *.bak*、无同一键名的第二份来源（只比较文件名，不读内容）（lessons-secrets-deploy §4.2–4.3）"
+    test: test:secrets-dir-hygiene
+  - id: P7
+    name: session-git-identity
+    rule: "会话进程固定 GIT_CONFIG_GLOBAL=/dev/null、GIT_CONFIG_NOSYSTEM=1，以 -c user.name/-c user.email 注入项目声明的 noreply 身份；会话无法使用 owner 的 git 身份"
+    test: test:session-git-identity
+
+release_gate: "首次公开前：在新克隆上跑 privguard history（全历史 P1 + P2）；有命中即阻塞发布，用 filter-repo 重写后再发布（optdesk §6 补充建议）"

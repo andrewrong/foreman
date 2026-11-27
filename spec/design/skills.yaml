@@ -1,0 +1,78 @@
+# 角色 → skills（D-019）。来源：mattpocock/skills v1.3.2（agent-crew 的拷贝，sha256 见其 skills.lock）。
+# 规则：每个 skill 写明要改善的指标；交付 20 次运行调用 0 次，或 90 天指标无变化 → 程序开删除需求。
+# 每次运行只注入该角色的 skills；condition 不满足时不注入。
+# 起步按角色全部启用（D-059）。claude 原生按需加载 skill，未调用时只占描述的上下文。
+# v1：每周摘要列出 20 次运行调用 0 次或 changed_outcome 始终为 0 的 skill，由 owner 决定删除；自动开删除需求为 phase: v2（improver）。
+# harness 适配器必须上报 Skill 调用（metrics M-3）。
+schema: foreman.skills/2
+
+roles:
+  - role: intake        # 需求细化（交互窗口）
+    model: sonnet      # protocol-intake PI-3：size=l 或 owner 要求时 opus
+    skills:
+      - name: grilling
+        metric: "入库后因 spec_conflict 触发重新规划的比例"
+      - name: domain-modeling
+        metric: "同上"
+
+  - role: planner       # 拆解：步骤依赖图 + touches
+    model: opus
+    skills:
+      - name: codebase-design
+        metric: "并行步骤实际改动重叠率"
+      - name: domain-modeling
+        metric: "review 中命名类问题数"
+
+  - role: coder         # 写代码：一次会话一个步骤
+    model: sonnet      # D-040
+    retry_upgrade: { model: opus, when: "check_fail 或 review_rounds 达到 cap − 1 后的下一次 Run" }   # D-044 ①
+    advisor: { model: opus, default: on, note: "D-044：会话内拿不准时咨询 Opus；每次调用记录成本与是否改变结果；harness 能力位 can_advise；claude 适配器以 --settings {'advisorModel': '<model>'} 按 Run 传入（与交互式 /advisor 写入的 settings 键相同），不修改 owner 的个人配置；headless 会话中 advisor 工具是否出现由 probe 确认一次" }
+    skills:
+      - name: tdd
+        metric: "L1/L2 失败中由本步骤引入的比例"
+      - name: diagnosing-bugs
+        condition: "requirement.kind == bug && step.type == find_cause"
+        metric: "原因证明一次通过率"
+
+  - role: reviewer      # review：结构化 findings
+    model: opus        # D-040：写与审用不同模型；默认值，CF-02 可改
+    skills:
+      - name: codebase-design
+        metric: "review 架构类问题被采纳比例"
+      - name: code-review
+        status: trial
+        trial: "A/B 各 20 次，比较 findings 被修复比例与漏判（L2 失败归因到已 review 步骤）"
+
+  - role: rescuer       # 救援：读完整任务记录，决定修 spec / 换方案 / 放弃
+    model: opus
+    advisor: true
+    skills:
+      - name: diagnosing-bugs
+        metric: "救援后任务完成率"
+
+  - role: diagnoser     # 线上诊断（见 design/prod-access.yaml）
+    phase: v2
+    model: opus
+    skills:
+      - name: diagnosing-bugs
+        metric: "原因证明一次通过率；诊断到修复合并的耗时"
+
+  - role: improver      # 自我迭代
+    phase: v2
+    model: opus
+    advisor: true
+    skills:
+      - name: writing-for-agents
+        condition: "改进需求修改 prompts/、profiles/ 或 AGENTS.md"
+        metric: "prompts 总字节趋势；改进达标率"
+      - name: improve-codebase-architecture
+        status: trial
+        metric: "改进需求达标率"
+
+dropped:
+  - name: pr
+    reason: "PR 正文由程序从结构化数据生成"
+  - name: to-spec
+    reason: "被 Requirement 模板 + submit 校验取代"
+  - name: prototype
+    reason: "流水线无原型阶段"

@@ -1,0 +1,90 @@
+# GitHub 访问层（D-031）。模块 forge = client + cache + ops 三个 package，位于 internal/forge/。
+schema: foreman.forge/1
+
+# agent-crew 的做法与问题（来源：internal/crew/*.go，Machine.GitHub 包装 gh 子进程）
+from_agent_crew:
+  facts:
+    - "24 个非测试文件、35 处通过 gh CLI 调用 GitHub；最多的是 gh pr view（11 处）"
+    - "限额读数靠定时执行 gh api rate_limit（resources.go readRateLimit）"
+    - "GitHub 额度两次耗尽：2026-10-30 REST，2026-11-02 GraphQL；看板刷新器 1 小时用掉 1177 次 REST、595 次 GraphQL"
+  problems:
+    - id: GHP-1
+      what: "每次调用一个子进程，看不到响应头，拿不到每次调用后的 X-RateLimit-Remaining，只能定时轮询估算"
+    - id: GHP-2
+      what: "gh 不支持条件请求缓存（ETag/If-None-Match），重复查询同一个未变化的 PR 每次都计数"
+    - id: GHP-3
+      what: "gh pr view / pr list 内部走 GraphQL，调用方看不出成本"
+    - id: GHP-4
+      what: "错误是命令输出的文本，靠字符串解析判断限额错误、404、冲突"
+    - id: GHP-5
+      what: "调用散落在 24 个文件，任何代码都能调用，无法统一预算"
+
+design:
+  - id: FG-1
+    rule: "不调用 gh CLI。foremand 用 Go 的 HTTP 客户端直接调用 GitHub REST API；internal/forge/client 是全进程唯一持有 token 的地方"
+    enforced_by: "test:module-deps；check:no-gh-exec（扫描 exec.Command(\"gh\"...)）"
+  - id: FG-2
+    rule: "每个响应都读取 X-RateLimit-Limit / Remaining / Reset / Resource 头，更新 resource Meter；GET /rate_limit 只在启动时和读数过期（10m）时调用"
+    enforced_by: test:forge-updates-meter-from-headers
+  - id: FG-3
+    rule: "所有 GET 使用条件请求：ETag 存 global.db 表 forge_etags(url, etag, body, fetched_at)；304 直接返回缓存，不计入主限额。正文 > 256 KiB 的响应与 OP-10 日志不缓存；表总量上限 64 MiB，按 fetched_at 淘汰（GEM-13）"
+    enforced_by: test:forge-conditional-get
+  - id: FG-4
+    rule: "每次调用前经 resource Gate 申请（RES-GH-REST / RES-GH-GRAPHQL / RES-GH-WRITE）；写操作同时计入 RES-GH-WRITE"
+    enforced_by: test:forge-requires-lease
+  - id: FG-5
+    rule: "错误类型化：RateLimited{reset}、SecondaryLimited{retry_after}、NotFound、Conflict、Unprocessable、Unauthorized、Transient；RateLimited 与 SecondaryLimited 调用 Meter.MarkExhausted"
+    enforced_by: test:forge-error-mapping
+  - id: FG-6
+    rule: "只暴露固定的操作集合（下表 ops），其他代码不能拼任意 API 路径"
+    enforced_by: test:module-deps
+  - id: FG-7
+    rule: "轮询按仓库批量：一次 OP-02 list 取所有打开 PR 的 state 与 head sha（list 不含 mergeable 与 check 结果）；只对 head sha 变化或处于 waiting(ci)/running(merge) 的 PR 再以 ETag 查 OP-07 与 OP-03（GEM-13）；间隔默认 60s，CF-11 可改；同一轮询顺带取 base 分支最近一次 push run（OP-08）更新 RES-BASE；仓库无进行中需求时停止轮询"
+    enforced_by: test:forge-batch-poll
+  - id: FG-8
+    rule: "GraphQL 只用于一条查询能替代 3 次以上 REST 的场景；每条查询带 rateLimit { cost remaining } 字段，用返回的 cost 结算"
+    enforced_by: test:forge-graphql-cost
+  - id: FG-9
+    rule: "git push / fetch 走 git 协议（不计入 API 限额），凭据经 foremand 的一次性 credential helper 注入，不进沙箱"
+    enforced_by: sandbox
+
+libraries:   # D-032：不自己写 HTTP 协议层
+  - id: LIB-1
+    name: github.com/google/go-github
+    use: "REST 客户端：类型化的请求/响应；Response.Rate 直接给出限额头；RateLimitError、AbuseRateLimitError 已是类型化错误（覆盖 FG-2、FG-5 的大部分）"
+    version: "go.mod 固定一个大版本，升级走 PR"
+  - id: LIB-2
+    name: github.com/shurcooL/githubv4
+    use: "GraphQL 客户端（仅 FG-8 场景）"
+  - id: LIB-3
+    name: "自写 http.RoundTripper（约 150 行）"
+    use: "ETag 条件请求缓存，存 global.db 表 forge_etags（FG-3）；不用通用 httpcache 库，因为它不区分 304 与限额、也不存 sqlite"
+  - id: LIB-4
+    name: "自写 Gate 包装（约 100 行）"
+    use: "每次请求前申请 Lease、响应后结算（FG-4）"
+
+own_code_estimate: "internal/forge 自写代码约 600–900 行（client 包装 + RoundTripper + 12 个 ops + 错误映射）"
+
+ops:   # 初始操作集合；新增一个操作 = 改代码 + 测试
+  - { id: OP-01, name: PRCreate,        method: "POST /repos/{o}/{r}/pulls",                        resource: [rest, write] }
+  - { id: OP-02, name: PRListOpen,      method: "GET /repos/{o}/{r}/pulls?state=open",               resource: [rest] }
+  - { id: OP-03, name: PRGet,           method: "GET /repos/{o}/{r}/pulls/{n}",                      resource: [rest] }
+  - { id: OP-04, name: PRMerge,         method: "PUT /repos/{o}/{r}/pulls/{n}/merge",                resource: [rest, write], note: "带 sha 参数，head 变化时 GitHub 返回 409" }
+  - { id: OP-05, name: PRUpdateBranch,  method: "PUT /repos/{o}/{r}/pulls/{n}/update-branch",        resource: [rest, write] }
+  - { id: OP-06, name: PRComment,       method: "POST /repos/{o}/{r}/issues/{n}/comments",           resource: [rest, write] }
+  - { id: OP-07, name: ChecksForRef,    method: "GET /repos/{o}/{r}/commits/{ref}/check-runs",       resource: [rest], verified: false, note: "细粒度 PAT 能否读取 check-runs 待核实；不能时改用 GET /repos/{o}/{r}/commits/{ref}/status 与 actions runs" }
+  - { id: OP-08, name: RunsList,        method: "GET /repos/{o}/{r}/actions/runs",                   resource: [rest] }
+  - { id: OP-09, name: RunRerunFailed,  method: "POST /repos/{o}/{r}/actions/runs/{id}/rerun-failed-jobs", resource: [rest, write] }
+  - { id: OP-10, name: JobLogs,         method: "GET /repos/{o}/{r}/actions/jobs/{id}/logs",         resource: [rest], note: "302 跳转到 blob 存储，由 foremand 下载，日志经 privguard 后交给会话" }
+  - { id: OP-11, name: RateLimit,       method: "GET /rate_limit",                                   resource: [], note: "不计入限额" }
+  - { id: OP-13, name: PRClose,         method: "PATCH /repos/{o}/{r}/pulls/{n} (state=closed)",      resource: [rest, write], note: "需求 dropped 时" }
+  - { id: OP-14, name: RefDelete,       method: "DELETE /repos/{o}/{r}/git/refs/heads/{branch}",      resource: [rest, write], note: "需求 dropped 或合并后删除远端分支" }
+  - { id: OP-12, name: BranchProtectionGet, method: "GET /repos/{o}/{r}/branches/{b}/protection",   resource: [rest] }
+
+auth:
+  initial: "细粒度 PAT（fine-grained），权限：contents rw、pull_requests rw、actions rw、checks r、metadata r；不授予 workflows（D-039）；文件 foreman.github.token（D-026）"
+  later: "GitHub App 作为可选项（每个安装独立限额；具体上限数值待核实，verified: false），需要时另立决定"
+
+tests_integration:
+  - "用 httptest 起一个记录型假 GitHub：校验每个 op 的路径、条件请求头、限额头处理、错误映射"
+  - "契约测试（手动/nightly，不进 L1）：对一个测试仓库真实执行 OP-01..OP-10"

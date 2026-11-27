@@ -1,0 +1,37 @@
+# intake 的协议（GEM-12、ACR-14、ACR-30）。intake 把 owner 的口述变成 Requirement 草稿；草稿存在库里，不存在会话记忆里。
+schema: foreman.protocol-intake/1
+
+session:
+  - id: PI-1
+    rule: "每份草稿一个 intake 会话；submit 后会话结束。会话中断后从库中的草稿与 intake_turns 重建上下文，不从 transcript 重建"
+  - id: PI-2
+    rule: "owner 的每一轮话由 harness 的 user message 事件写入 intake_turns(req_id, seq, speaker=owner, text, at)；speaker 只能来自事件来源，不靠文本猜测"
+  - id: PI-3
+    rule: "模型：默认 Sonnet；草稿 size=l 或 owner 要求时用 Opus（CF-02）"
+  - id: PI-4
+    rule: "intake 每轮结束时写 draft.json（原子写）；foremand 校验后更新草稿；草稿允许不完整（Requirement.status=draft）"
+
+tables:
+  - { table: intake_turns, db: work.db, fields: "req_id, seq, speaker enum owner|intake, text, at" }
+
+file:
+  name: draft.json
+  fields:
+    - { name: schema_version, type: int, required: true, value: 1 }
+    - { name: req_id, type: string, required: true }
+    - { name: spec, type: "Spec 的部分字段（E-SPEC）", required: true, note: "draft 阶段字段可缺" }
+    - { name: size, type: "enum s|m|l", required: true, rule: "s：预计改动 ≤ 150 行且只触及一个模块" }
+    - { name: single_step, type: "{goal, acceptance, touches}", required_when: "size == s", note: "快车道：直接作为唯一步骤，跳过 planner（D-046）" }
+    - { name: open_questions, type: "[]string", required: false, note: "还需要 owner 回答的问题；非空时不得 submit" }
+    - { name: ready, type: bool, required: true, rule: "true 时 foremand 用 E-SPEC 完整校验；通过才向 owner 发 [提交] 按钮" }
+
+submit:
+  - "只有 owner 点 [提交]（web 卡片或 Telegram 按钮）才把 status 改为 submitted；intake 不能自行提交"
+  - "submitted 时：size=s → 直接创建单个 Step；否则 → hold=replan 触发 planner（state-machine H01）"
+
+examples:
+  - name: small_ready
+    value: { schema_version: 1, req_id: "R-foreman-20", size: s, ready: true, spec: { title: "forge 轮询间隔可配置", goal: "owner 需要在额度紧张时调慢 GitHub 轮询", current: [ { module: forge, path: "internal/forge/ops" } ], change: ["轮询间隔从常量改为读取 runtime.toml"], outcome: [ { id: A1, ears: "当 runtime.toml 的 forge.poll_interval 改变时，系统应当在下一轮轮询使用新值", verify: test, verify_detail: "改配置后下一次轮询的间隔等于新值", sandbox_ok: true } ] }, single_step: { goal: "forge 轮询间隔读取配置", acceptance: [A1], touches: [forge] } }
+  - name: invalid_small_without_step
+    value: { schema_version: 1, req_id: "R-foreman-21", size: s, ready: true, spec: { title: "x", goal: "y", current: [], change: ["z"], outcome: [] } }
+    expect: "校验失败：size=s 缺 single_step，且 outcome 为空（min_items 1）→ 不发 [提交] 按钮，intake 下一轮收到错误说明"

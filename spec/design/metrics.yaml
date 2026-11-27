@@ -1,0 +1,30 @@
+# 反馈报告与指标（D-010 的 v1 部分；ACR-21）。package：internal/report/feedback、internal/report/metrics。
+# v1 只记录与展示；按指标自动改进与回退（improver）为 phase: v2，但数据从第一天开始记。
+schema: foreman.metrics/1
+
+feedback_report:   # 每个需求合并后生成一份，存 work.db，Telegram 发摘要
+  fields:
+    - { name: req_id, type: string }
+    - { name: outcome, type: "enum merged|dropped" }
+    - { name: wall_time, type: duration, note: "submit 到合并" }
+    - { name: active_time, type: duration, note: "有 Run 在跑的时间合计" }
+    - { name: cost, type: "{weighted_tokens, quota_pct, usd_estimate}", note: "usd 为按价格表折算的估算值，标明口径" }
+    - { name: cost_vs_budget, type: float, note: "cost / Requirement.budget" }
+    - { name: runs_by_role, type: "map role → {count, weighted_tokens, changed_outcome_count}" }
+    - { name: fix_rounds, type: int, note: "check_fail + review_rounds + fix 步骤数" }
+    - { name: escalations, type: "[]{kind: model_upgrade|rescuer|owner, h_item}" }
+    - { name: infra_failures, type: int }
+    - { name: anomalies, type: "[]string", note: "超出基线 p90 的项；stalled 阶段、planner_overlap 等" }
+
+metrics:   # 定义固定在代码中，数值来自 Run 与报告
+  - { id: M-1, name: cost_per_merged_req, def: "合并需求的 weighted_tokens 中位数与 p90，按 size 分组" }
+  - { id: M-2, name: zero_fix_ratio, def: "fix_rounds = 0 的合并需求占比", guardrail: true }
+  - { id: M-3, name: stage_changed_outcome, def: "每个角色的 changed_outcome_count / count；advisor 调用与模型升级单独统计（D-044）" }
+  - { id: M-4, name: owner_asks_per_req, def: "每个需求的 OwnerAsk 数，按 h_item 分组" }
+  - { id: M-5, name: escaped_defects, def: "合并后 30 天内 nightly 或 source=prod 指向该需求 commit 的 bug 数" }
+
+comparison_rule:   # 供 v2 improver 使用；v1 只在周报中展示
+  - "比较前后两组时每组样本 ≥ 30 个合并需求，或使用序贯检验；不足则只展示不下结论"
+  - "只有 guardrail 指标（M-2）显著变差才允许自动回退"
+
+weekly_summary: "每周一条 Telegram：M-1..M-5、本周 changed_outcome=0 的角色/阶段（候选删除）、advisor 是否值得保留（D-044）"

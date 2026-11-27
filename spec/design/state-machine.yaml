@@ -1,0 +1,238 @@
+# 状态机（D-033，D-034）。两张表：
+#   A. Step 表：每个步骤的状态。唯一写入者 internal/pipeline/state.Transition（C-01）。
+#   B. Requirement hold 表：需求级的暂停（重新规划、需求级救援、等 owner、搁置）。写入者同一个包。
+# 规则 TX-1：Transition 的事务只写数据库（含插入 fix 步骤、创建 Run 记录）。一切外部动作（启动会话、跑检查、
+#   合回、push、开 PR、合并、删除会话仓库）由 reconciler 根据当前状态执行，必须幂等，结果再以事件送回 Transition。
+# 规则 HOLD-1：Requirement.hold ≠ none 时，Step 表算出的目标若是 queued(X)，改为 waiting(hold) 并记 resume_stage=X。
+# 本文件由 tools/smcheck（暂为 scratchpad 脚本，后续改为 Go 测试 test:state-table-exhaustive）穷举检查。
+schema: foreman.state-machine/2
+
+dims:
+  states: [queued, running, waiting, done, dropped]
+  terminal: [done, dropped]
+  types:
+    build:      { stages: [code, check, review] }
+    find_cause: { stages: [code, check, review] }
+    fix:        { stages: [code, check, review] }
+    integrate:  { stages: [check, review, merge] }
+  type_groups:
+    work: [build, find_cause, fix]
+    all:  [build, find_cause, fix, integrate]
+  first_stage: { work: code, integrate: check }
+  waiting_reasons:
+    deps:   { types: all,       stages: all,                 deadline: none_bounded,  note: "依赖步骤终会到终态" }
+    quota:  { types: all,       stages: all,                 deadline: "resets_at + 5m；未知时 30m" }
+    infra:  { types: all,       stages: all,                 deadline: "退避 1m,5m,30m,2h,2h,2h（按 infra 计数取）" }
+    access: { types: work,      stages: [code, review],      deadline: "10m" }
+    rescue: { types: all,       stages: all,                 deadline: "rescuer 超时（CF-02）" }
+    hold:   { types: all,       stages: all,                 deadline: none_bounded,  note: "由表 B 保证终止" }
+    ci:     { types: [integrate], stages: [check],           deadline: "35m" }
+    fix:    { types: [integrate], stages: [check, review, merge], deadline: none_bounded, note: "fix 步骤终会到终态（fix_done / fix_dropped）" }
+  running_stages:
+    work: [code, check, review]
+    integrate: [review, merge]
+  counters:   # 步骤级
+    check_fail:      { cap: 3, reset: [check_pass, rescue_retry] }
+    review_rounds:   { cap: 2, reset: [rescue_retry] }
+    merge_conflict:  { cap: 2, reset: [rescue_retry] }
+    bad_result:      { cap: 2, reset: [any_valid_result] }
+    infra:           { cap: 6, reset: [any_non_infra_result] }
+    access_denied:   { cap: 1, reset: [never] }
+    rescues:         { cap: 2, reset: [never] }
+    ci_extensions:   { cap: 12, reset: [l1_pass, l1_fail], note: "waiting(ci) 延长 deadline 的次数；12 × 35m ≈ 7h" }
+  guard_enums:   # 守卫取值全集；smcheck 用它判断穷尽，不从已有行反推
+    step_decision: [retry, drop_step, replan, ask_owner]
+    req_decision:  [retry, replan, drop_requirement, ask_owner]
+    answer:        [resume, replan, drop, drop_step, grant, deny]
+  req_counters:       # 需求级
+    replans:          { cap: 2 }
+    planner_failures: { cap: 2, reset: [planner_ok] }
+    req_rescues:      { cap: 2 }
+    fix_steps:        { cap: 3 }
+
+# 守卫词汇（结构化）：
+#   hold: set|none        —— Requirement.hold
+#   deps: done|pending
+#   lease: ok|wait
+#   counter: {name, is: below|at_cap}
+#   req_counter: {name, is: below|at_cap}
+#   tier: R1|R2|R3
+#   single_step: one|many—— 需求只有一个 done 的 work 步骤且无 fix 步骤
+#   decision: 步骤表取 guard_enums.step_decision，表 B 取 guard_enums.req_decision（与 protocol-run PF-RESULT 一致，smcheck 交叉检查）
+#   answer: guard_enums.answer
+# 一组 (from, event) 下的多行，其守卫必须穷尽对应取值（smcheck 检查）。
+#
+# 效果词汇（只写数据库，TX-1）：
+#   inc:<counter>  reset:<counter,...>  create_run:<role>  add_findings  add_findings:check  add_fix_step
+#   add_findings:check = 写一条 kind=check 的 Finding：失败测试名 + 日志尾部（≤ 80 行，经 privguard 脱敏）；下一次 Run 的 context.md 渲染于"上一次失败"小节（PF-CTX）
+#   req_hold:<replan|rescue|owner>[:<H 项>]  record_resume_stage  alert_starved  extend_deadline  kill_run(标记)
+#   inject_denial  inject_guidance  grant_one:<counter,...>
+#   create_run:<role> 的模型选择：步骤的 check_fail 或 review_rounds 达到 cap − 1 后的下一次 coder Run 使用 skills.yaml coder.retry_upgrade 的模型（默认 opus，D-044）；Run.model 记录实际模型
+
+step_table:
+  # ---- 派发（queued）----
+  - { id: S01, from: { state: queued, stages: all, types: all }, event: dispatch, guard: { hold: set },                                  to: { state: waiting, reason: hold }, effects: [record_resume_stage] }
+  - { id: S02, from: { state: queued, stages: all, types: all }, event: dispatch, guard: { hold: none, deps: pending },                  to: { state: waiting, reason: deps } }
+  - { id: S03, from: { state: queued, stages: all, types: all }, event: dispatch, guard: { hold: none, deps: done, lease: wait },        to: { state: waiting, reason: quota } }
+  - { id: S04, from: { state: queued, stages: [code], types: work }, event: dispatch, guard: { hold: none, deps: done, lease: ok },      to: { state: running, stage: same }, effects: ["create_run:coder"] }
+  - { id: S05, from: { state: queued, stages: [check], types: work }, event: dispatch, guard: { hold: none, deps: done, lease: ok },     to: { state: running, stage: same }, effects: ["create_run:check"] }
+  - { id: S06, from: { state: queued, stages: [review], types: all }, event: dispatch, guard: { hold: none, deps: done, lease: ok },     to: { state: running, stage: same }, effects: ["create_run:reviewer"] }
+  - { id: S07, from: { state: queued, stages: [check], types: [integrate] }, event: dispatch, guard: { hold: none, deps: done, lease: ok }, to: { state: waiting, reason: ci }, effects: ["create_run:ci_watch"] }
+  - { id: S08, from: { state: queued, stages: [merge], types: [integrate] }, event: dispatch, guard: { hold: none, deps: done, lease: ok }, to: { state: running, stage: same }, effects: ["create_run:merge"] }
+  - { id: S09, from: { state: queued, stages: all, types: all }, event: deadline_passed,                                                to: { state: queued, stage: same }, effects: [alert_starved, extend_deadline], note: "排队超过 24h：告警并计入改进指标；出口仍是 dispatch" }
+
+  # ---- 等待的出口 ----
+  - { id: S10, from: { state: waiting, reason: deps, stages: all, types: all }, event: deps_done,     to: { state: queued, stage: same } }
+  - { id: S11, from: { state: waiting, reason: deps, stages: all, types: all }, event: dep_dropped,   to: { state: waiting, reason: hold }, effects: ["req_hold:replan", record_resume_stage] }
+  - { id: S12, from: { state: waiting, reason: quota, stages: all, types: all }, event: lease_granted, to: { state: queued, stage: same } }
+  - { id: S13, from: { state: waiting, reason: quota, stages: all, types: all }, event: deadline_passed, to: { state: queued, stage: same } }
+  - { id: S14, from: { state: waiting, reason: infra, stages: all, types: all }, event: deadline_passed, to: { state: queued, stage: same } }
+  - { id: S15, from: { state: waiting, reason: access, stages: [code, review], types: work }, event: access_granted, to: { state: queued, stage: same } }
+  - { id: S16, from: { state: waiting, reason: access, stages: [code, review], types: work }, event: access_denied,  to: { state: queued, stage: same }, effects: ["inc:access_denied", inject_denial] }
+  - { id: S17, from: { state: waiting, reason: access, stages: [code, review], types: work }, event: deadline_passed, guard: { counter: { name: infra, is: below } },  to: { state: waiting, reason: infra }, effects: ["inc:infra"] }
+  - { id: S18, from: { state: waiting, reason: access, stages: [code, review], types: work }, event: deadline_passed, guard: { counter: { name: infra, is: at_cap } }, to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H7", record_resume_stage] }
+  - { id: S19, from: { state: waiting, reason: hold, stages: all, types: all }, event: hold_released, to: { state: queued, stage: resume_stage } }
+  - { id: S20, from: { state: waiting, reason: hold, stages: all, types: all }, event: hold_drop,     to: { state: dropped } }
+  - { id: S21, from: { state: waiting, reason: rescue, stages: all, types: all }, event: rescue_decision, guard: { decision: retry },     to: { state: queued, stage: first_stage }, effects: ["grant_one:check_fail,review_rounds,merge_conflict", inject_guidance], note: "grant_one：把计数设为 cap − 1，只多给一轮（ACR-31）" }
+  - { id: S22, from: { state: waiting, reason: rescue, stages: all, types: all }, event: rescue_decision, guard: { decision: drop_step }, to: { state: dropped } }
+  - { id: S23, from: { state: waiting, reason: rescue, stages: all, types: all }, event: rescue_decision, guard: { decision: replan },    to: { state: waiting, reason: hold }, effects: ["req_hold:replan", record_resume_stage] }
+  - { id: S24, from: { state: waiting, reason: rescue, stages: all, types: all }, event: rescue_decision, guard: { decision: ask_owner }, to: { state: waiting, reason: hold }, effects: ["req_hold:owner", record_resume_stage] }
+  - { id: S25, from: { state: waiting, reason: rescue, stages: all, types: all }, event: deadline_passed,                               to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H5", record_resume_stage] }
+  - { id: S26, from: { state: waiting, reason: rescue, stages: all, types: all }, event: rescue_failed,                                 to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H5", record_resume_stage], note: "rescuer 会话 bad_result 或 infra" }
+
+  # ---- integrate 的 CI 与 fix ----
+  - { id: S30, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: l1_pass, guard: { single_step: many }, to: { state: queued, stage: review } }
+  - { id: S29, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: l1_pass, guard: { single_step: one },  to: { state: queued, stage: merge }, note: "需求只有一个 done 的 work 步骤且无 fix 步骤：步骤 review 即最终 review（ACR-30）" }
+  - { id: S31, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: l1_fail, guard: { req_counter: { name: fix_steps, is: below } },  to: { state: waiting, reason: fix }, effects: ["add_findings:check", add_fix_step, "inc:fix_steps"] }
+  - { id: S32, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: l1_fail, guard: { req_counter: { name: fix_steps, is: at_cap } }, to: { state: waiting, reason: hold }, effects: ["add_findings:check", "req_hold:rescue", record_resume_stage] }
+  - { id: S33, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: deadline_passed, guard: { counter: { name: infra, is: below } },  to: { state: waiting, reason: infra }, effects: ["inc:infra"] }
+  - { id: S34, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: deadline_passed, guard: { counter: { name: infra, is: at_cap } }, to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H7", record_resume_stage] }
+  - { id: S35, from: { state: waiting, reason: fix, stages: [check, review, merge], types: [integrate] }, event: fix_done,    to: { state: queued, stage: check } }
+  - { id: S36, from: { state: waiting, reason: fix, stages: [check, review, merge], types: [integrate] }, event: fix_dropped, to: { state: waiting, reason: hold }, effects: ["req_hold:replan", record_resume_stage] }
+
+  # ---- 运行中：正常推进 ----
+  - { id: S40, from: { state: running, stages: [code], types: work },   event: run_ok,          to: { state: queued, stage: check } }
+  - { id: S41, from: { state: running, stages: [check], types: work },  event: check_pass,      to: { state: queued, stage: review }, effects: ["reset:check_fail"] }
+  - { id: S42, from: { state: running, stages: [review], types: work }, event: review_approve,  to: { state: done }, note: "reconciler 先合回需求分支（squash 为一个 commit、rebase、快进）；成功才发本事件" }
+  - { id: S43, from: { state: running, stages: [review], types: [integrate] }, event: review_approve, to: { state: queued, stage: merge } }
+  - { id: S44, from: { state: running, stages: [merge], types: [integrate] },  event: merged,         to: { state: done } }
+  - { id: S46, from: { state: running, stages: [merge], types: [integrate] },  event: needs_rereview, to: { state: queued, stage: review }, note: "update-branch 后 base 自 last_reviewed_sha 以来的改动与 PR 文件集相交：增量 review（只看新 delta）；不相交只重跑 L1（GEM-9、ACR-02）" }
+  - { id: S45, from: { state: running, stages: [merge], types: [integrate] },  event: lease_wait,     to: { state: waiting, reason: quota }, note: "merge 路径上 Gate 返回 Wait（合并槽被占、base 红、GitHub 额度）：不计 infra，释放已占的部分，到点重新 dispatch" }
+  - { id: S38, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: ci_progress, guard: { counter: { name: ci_extensions, is: below } }, to: { state: waiting, reason: ci }, effects: [extend_deadline, "inc:ci_extensions"], note: "run 为 in_progress，或 queued 且有在线 runner：延长 deadline、不计 infra；只有找不到 run 或 queued 且无 runner 才会到 deadline（ACR-24）" }
+  - { id: S38b, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: ci_progress, guard: { counter: { name: ci_extensions, is: at_cap } }, to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H7", record_resume_stage], note: "CI 或额度等待累计过长，视为持续基础设施问题" }
+  - { id: S37, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: lease_wait, guard: { counter: { name: ci_extensions, is: below } }, to: { state: waiting, reason: ci }, effects: [extend_deadline, "inc:ci_extensions"], note: "push/开 PR/轮询撞额度：延长 deadline，不计 infra" }
+  - { id: S37b, from: { state: waiting, reason: ci, stages: [check], types: [integrate] }, event: lease_wait, guard: { counter: { name: ci_extensions, is: at_cap } }, to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H7", record_resume_stage], note: "CI 或额度等待累计过长，视为持续基础设施问题" }
+
+  # ---- 运行中：失败分流（带上限）----
+  - { id: S50, from: { state: running, stages: [check], types: work },  event: check_fail,          guard: { counter: { name: check_fail, is: below } },     to: { state: queued, stage: code }, effects: ["inc:check_fail", "add_findings:check"] }
+  - { id: S51, from: { state: running, stages: [check], types: work },  event: check_fail,          guard: { counter: { name: check_fail, is: at_cap } },    to: { state: escalate }, effects: ["add_findings:check"] }
+  - { id: S52, from: { state: running, stages: [review], types: work }, event: review_changes,      guard: { counter: { name: review_rounds, is: below } },  to: { state: queued, stage: code }, effects: ["inc:review_rounds", add_findings] }
+  - { id: S53, from: { state: running, stages: [review], types: work }, event: review_changes,      guard: { counter: { name: review_rounds, is: at_cap } }, to: { state: escalate }, effects: [add_findings] }
+  - { id: S54, from: { state: running, stages: [review], types: work }, event: merge_back_conflict, guard: { counter: { name: merge_conflict, is: below } }, to: { state: queued, stage: code }, effects: ["inc:merge_conflict"] }
+  - { id: S55, from: { state: running, stages: [review], types: work }, event: merge_back_conflict, guard: { counter: { name: merge_conflict, is: at_cap } }, to: { state: escalate } }
+  - { id: S56, from: { state: running, stages: [review], types: [integrate] }, event: review_changes, guard: { req_counter: { name: fix_steps, is: below } },  to: { state: waiting, reason: fix }, effects: [add_findings, add_fix_step, "inc:fix_steps"] }
+  - { id: S57, from: { state: running, stages: [review], types: [integrate] }, event: review_changes, guard: { req_counter: { name: fix_steps, is: at_cap } }, to: { state: waiting, reason: hold }, effects: [add_findings, "req_hold:rescue", record_resume_stage] }
+  - { id: S58, from: { state: running, stages: [merge], types: [integrate] },  event: merge_conflict, guard: { req_counter: { name: fix_steps, is: below } },  to: { state: waiting, reason: fix }, effects: ["add_findings:check", add_fix_step, "inc:fix_steps"] }
+  - { id: S59, from: { state: running, stages: [merge], types: [integrate] },  event: merge_conflict, guard: { req_counter: { name: fix_steps, is: at_cap } }, to: { state: waiting, reason: hold }, effects: ["req_hold:rescue", record_resume_stage] }
+  - { id: S60, from: { state: running, stages: [merge], types: [integrate] },  event: l1_fail,        guard: { req_counter: { name: fix_steps, is: below } },  to: { state: waiting, reason: fix }, effects: ["add_findings:check", add_fix_step, "inc:fix_steps"] }
+  - { id: S61, from: { state: running, stages: [merge], types: [integrate] },  event: l1_fail,        guard: { req_counter: { name: fix_steps, is: at_cap } }, to: { state: waiting, reason: hold }, effects: ["add_findings:check", "req_hold:rescue", record_resume_stage] }
+
+  # ---- 运行中：任意阶段的通用事件 ----
+  - { id: S70, from: { state: running, stages: all, types: all }, event: spec_conflict,                                                        to: { state: waiting, reason: hold }, effects: ["req_hold:replan", record_resume_stage] }
+  - { id: S71, from: { state: running, stages: all, types: all }, event: infra,           guard: { counter: { name: infra, is: below } },      to: { state: waiting, reason: infra }, effects: ["inc:infra"] }
+  - { id: S72, from: { state: running, stages: all, types: all }, event: infra,           guard: { counter: { name: infra, is: at_cap } },     to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H7", record_resume_stage] }
+  - { id: S73, from: { state: running, stages: all, types: all }, event: deadline_passed, guard: { counter: { name: infra, is: below } },      to: { state: waiting, reason: infra }, effects: ["inc:infra", kill_run] }
+  - { id: S74, from: { state: running, stages: all, types: all }, event: deadline_passed, guard: { counter: { name: infra, is: at_cap } },     to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H7", kill_run, record_resume_stage] }
+  - { id: S75, from: { state: running, stages: all, types: all }, event: bad_result,      guard: { counter: { name: bad_result, is: below } }, to: { state: queued, stage: same }, effects: ["inc:bad_result"] }
+  - { id: S76, from: { state: running, stages: all, types: all }, event: bad_result,      guard: { counter: { name: bad_result, is: at_cap } }, to: { state: escalate } }
+  - { id: S77, from: { state: running, stages: all, types: all }, event: budget_exceeded,                                                      to: { state: escalate }, note: "budget_exceeded 上限为 1，第一次即升级" }
+  - { id: S78, from: { state: running, stages: [code, review], types: work }, event: access_request, guard: { tier: R1, counter: { name: access_denied, is: below } }, to: { state: waiting, reason: access } }
+  - { id: S79, from: { state: running, stages: [code, review], types: work }, event: access_request, guard: { tier: R2, counter: { name: access_denied, is: below } }, to: { state: waiting, reason: hold }, effects: ["req_hold:owner:H6", record_resume_stage] }
+  - { id: S80, from: { state: running, stages: [code, review], types: work }, event: access_request, guard: { tier: R3, counter: { name: access_denied, is: below } }, to: { state: queued, stage: same }, effects: ["inc:access_denied", inject_denial] }
+  - { id: S81, from: { state: running, stages: [code, review], types: work }, event: access_request, guard: { counter: { name: access_denied, is: at_cap } },           to: { state: waiting, reason: hold }, effects: ["req_hold:replan", record_resume_stage], note: "被拒后再次申请 → 视为 spec 与环境冲突，重新规划" }
+
+  # ---- 取消 ----
+  - { id: S90, from: { state: [queued, running, waiting], stages: all, types: all }, event: drop, to: { state: dropped }, effects: [kill_run] }
+
+# escalate 是伪目标，展开为以下两行（smcheck 把每个 to: escalate 替换后检查）
+escalate:
+  - { guard: { counter: { name: rescues, is: below } },  to: { state: waiting, reason: rescue }, effects: ["inc:rescues", "create_run:rescuer"] }
+  - { guard: { counter: { name: rescues, is: at_cap } }, to: { state: waiting, reason: hold },   effects: ["req_hold:owner:H5", record_resume_stage] }
+
+# 明确忽略的组合（只记日志）。smcheck：任何未命中行且未被忽略的组合都报错。
+ignored:
+  - { states: [done, dropped], events: all }
+  - { states: [queued], events: [ci_progress, needs_rereview, lease_wait, deps_done, dep_dropped, lease_granted, access_granted, access_denied, hold_released, hold_drop, fix_done, fix_dropped, rescue_decision, rescue_failed, l1_pass, l1_fail, run_ok, check_pass, check_fail, review_approve, review_changes, merge_back_conflict, merged, merge_conflict, spec_conflict, infra, bad_result, budget_exceeded, access_request] }
+  - { states: [waiting], events: [needs_rereview, dispatch, run_ok, check_pass, check_fail, review_approve, review_changes, merge_back_conflict, merged, merge_conflict, spec_conflict, infra, bad_result, budget_exceeded, access_request] }
+  - { states: [running], events: [ci_progress, dispatch, deps_done, dep_dropped, lease_granted, access_granted, access_denied, hold_released, hold_drop, fix_done, fix_dropped, rescue_decision, rescue_failed, l1_pass], note: "lease_wait 只在 running(merge) 有行，其它 running 配置按 running_foreign_result 忽略；running(merge) 内部等待 L1 由 reconciler 处理，l1_pass 不触发转移" }
+  - { note: "waiting 下不属于该 reason 的出口事件（如 waiting(quota) 收到 deps_done）忽略", rule: waiting_foreign_exit }
+  - { note: "running 下不适用于该阶段/类型的结果事件（如 running(code) 收到 review_approve）记为 bad_result 由 reconciler 处理，表中忽略", rule: running_foreign_result }
+
+# ---------------------------------------------------------------------------
+# B. Requirement hold 表
+# ---------------------------------------------------------------------------
+req_hold:
+  values: [none, replan, rescue, owner, parked]
+  precedence: "owner > rescue > replan：hold 已非 none 时到来的触发，若优先级更高则立即切换，否则记入 pending_triggers，hold 回到 none 时按优先级处理"
+  table:
+    - { id: H01, from: none,   event: replan_trigger,  guard: { req_counter: { name: replans, is: below } },           to: replan, effects: ["create_run_when_drained:planner"] }
+    - { id: H02, from: none,   event: replan_trigger,  guard: { req_counter: { name: replans, is: at_cap } },          to: rescue_or_owner }
+    - { id: H03, from: replan, event: planner_ok,                                                                     to: none,   effects: [apply_plan_diff, "inc:replans", "reset:planner_failures", release_steps] }
+    - { id: H04, from: replan, event: planner_failed,  guard: { req_counter: { name: planner_failures, is: below } },  to: replan, effects: ["inc:planner_failures", "create_run:planner"] }
+    - { id: H05, from: replan, event: planner_failed,  guard: { req_counter: { name: planner_failures, is: at_cap } }, to: rescue_or_owner }
+    - { id: H06, from: [none, replan], event: rescue_trigger,                                                         to: rescue_or_owner }
+    - { id: H07, from: rescue, event: rescue_decision, guard: { decision: retry },            to: none,   effects: [inject_guidance, release_steps] }
+    - { id: H08, from: rescue, event: rescue_decision, guard: { decision: replan },           to: replan, effects: ["create_run_when_drained:planner"], note: "不检查 replans 上限；循环由 req_rescues 上限约束" }
+    - { id: H09, from: rescue, event: rescue_decision, guard: { decision: drop_requirement }, to: none,   effects: [drop_all_steps] }
+    - { id: H10, from: rescue, event: rescue_decision, guard: { decision: ask_owner },        to: owner,  effects: [create_owner_ask] }
+    - { id: H11, from: rescue, event: rescue_failed,                                          to: owner,  effects: ["create_owner_ask:H5"] }
+    - { id: H12, from: rescue, event: deadline_passed,                                        to: owner,  effects: ["create_owner_ask:H5"] }
+    - { id: H13, from: [none, replan, rescue], event: owner_trigger,                          to: owner,  effects: [create_owner_ask] }
+    - { id: H14, from: [owner, parked], event: owner_answer, guard: { answer: resume }, to: none,   effects: ["reset:ask.cause_counter", release_steps, "set:parked=false"], note: "OwnerAsk 创建时记录 cause_counter（H7→该步骤 infra；H5→rescues 或 req_rescues；fix_steps/replans 到上限时为对应计数）；resume 只把该计数清零一次" }
+    - { id: H15, from: [owner, parked], event: owner_answer, guard: { answer: replan }, to: replan, effects: ["create_run_when_drained:planner", "set:parked=false"] }
+    - { id: H16, from: [owner, parked], event: owner_answer, guard: { answer: drop },   to: none,   effects: [drop_all_steps] }
+    - { id: H21, from: [owner, parked], event: owner_answer, guard: { answer: grant },  to: none,   effects: [grant_access, release_steps, "set:parked=false"], note: "H6 访问申请：[永久允许] 写入项目配置，[仅本次] 只对该 Run 生效（ask.options 区分，事件相同）" }
+    - { id: H22, from: [owner, parked], event: owner_answer, guard: { answer: deny },   to: none,   effects: ["inc:access_denied", inject_denial, release_steps, "set:parked=false"], note: "再次申请同一资源走 S81（重新规划），不会循环" }
+    - { id: H23, from: [owner, parked], event: owner_answer, guard: { answer: drop_step }, to: none, effects: [drop_held_step, release_steps, "set:parked=false"], note: "H7 的 [放弃该步骤]：只放弃引发 ask 的步骤（ask.subject），需求继续；之后 DT-1 检查 outcome 覆盖" }
+    - { id: H24, from: [none, replan, rescue, owner, parked], event: owner_drop, to: none, effects: [kill_runs, drop_all_steps, "set:parked=false"], note: "web/Telegram 的 [终止需求] 按钮（ACR-25）；drop_all_steps 同时写 dropped_reason" }
+    - { id: H25, from: [owner, parked], event: owner_retry, to: none, effects: ["reset:ask.cause_counter", release_steps, "set:parked=false"], note: "[重试] 按钮，等同 resume" }
+    - { id: H17, from: owner,  event: deadline_passed,                                        to: parked, effects: ["set:parked=true", release_session_repo, notify], note: "D-036" }
+    - { id: H18, from: parked, event: deadline_passed,                                        to: parked, effects: [notify, "extend_deadline:7d"] }
+    - { id: H19, from: replan, event: replan_trigger,                                         to: replan, effects: [append_trigger_to_planner_input], note: "同一需求只有一个 planner 运行；新触发的原因并入其输入，若已启动则在 planner_ok 后再触发一次" }
+    - { id: H20, from: rescue, event: rescue_trigger,                                         to: rescue, effects: [append_trigger_to_rescuer_input] }
+  ignored:   # (hold, event) 组合中明确忽略的（只记日志）；smcheck 检查表 B 全覆盖
+    - { from: [none, replan, rescue, parked], events: [owner_answer], note: "ask 已 moot 或已回答后的陈旧点按" }
+    - { from: [none], events: [planner_ok, planner_failed, rescue_decision, rescue_failed, deadline_passed], note: "陈旧结果" }
+    - { from: [replan], events: [rescue_decision, rescue_failed, deadline_passed], note: "planner 超时由 Run deadline 产生 planner_failed" }
+    - { from: [rescue], events: [planner_ok, planner_failed] }
+    - { from: [owner], events: [planner_ok, planner_failed, rescue_decision, rescue_failed, replan_trigger, rescue_trigger, owner_trigger], note: "低优先级触发记入 pending_triggers（precedence）" }
+    - { from: [parked], events: [planner_ok, planner_failed, rescue_decision, rescue_failed, replan_trigger, rescue_trigger, owner_trigger] }
+    - { from: [none, replan, rescue], events: [owner_retry], note: "无等待 owner 的事项时重试按钮不显示；陈旧点按忽略" }
+    - { from: [rescue], events: [replan_trigger], note: "precedence：rescue 高于 replan，记入 pending_triggers" }
+  rescue_or_owner:
+    - { guard: { req_counter: { name: req_rescues, is: below } },  to: rescue, effects: ["inc:req_rescues", "create_run:rescuer"] }
+    - { guard: { req_counter: { name: req_rescues, is: at_cap } }, to: owner,  effects: ["create_owner_ask:H5"] }
+  triggers:   # 步骤表效果 req_hold:<x> 映射为本表事件
+    "req_hold:replan": replan_trigger
+    "req_hold:rescue": rescue_trigger
+    "req_hold:owner":  owner_trigger
+  derived_triggers:   # reconciler 每轮检查
+    - { id: DT-1, when: "所有 work 步骤都是终态，且存在 Spec.outcome 条目没有被任何 done 步骤覆盖", fire: replan_trigger }
+    - { id: DT-2, when: "所有 work 步骤都是终态、全部 outcome 已覆盖、没有非终态的 integrate 步骤、且尚有未合并的改动", fire: create_integrate_steps }
+    - { id: DT-3, when: "需求分支 head ≠ last_l0_sha，且该 head 未运行过需求分支 L0，且不存在非终态 fix 步骤", fire: "运行需求分支 L0；失败则追加 fix 步骤（受 fix_steps 上限并 inc:fix_steps，超出则 rescue_trigger）；无论成败都记录该 head 已运行，同一 head 只触发一次" }
+  replan_effects_on_steps:
+    - "hold 进入 replan 时：queued 与 waiting(deps|quota|infra|access) 的步骤 → waiting(hold)；running 步骤跑完当前 Run 后经 HOLD-1 进入 waiting(hold)；waiting(ci|fix|rescue) 保持，其后续结果的目标 queued 经 HOLD-1 变为 waiting(hold)；done 步骤保留"
+    - "create_run_when_drained:planner（GEM-4）：reconciler 只在该需求没有 running 步骤时才创建 planner Run；planner 的输入是创建时的步骤快照（snapshot_id 写入 Run）"
+    - "planner_ok 时若某步骤在快照中非终态、现在已 done：planner 对它的 keep/update 视为 keep，drop 视为无效并记入反馈报告（PV-1 以快照为准）"
+    - "apply_plan_diff：planner 输出 keep / update / drop / add（见 protocol-plan.yaml）；update 的步骤 resume_stage 设为 first_stage；非 done 的 integrate 步骤一律 drop，由 DT-2 重新创建"
+
+reconciler:   # TX-1 的外部动作；每项都必须幂等
+  - { when: "running(code|review)，Run 无存活进程且无结果", action: "启动会话：foremand 先在运行目录以 O_EXCL 创建 launch.lock，再 fork 启动器（foreman run-session，setsid）；启动器在 exec 会话前写 pid.json（pid、start_time），之后 foremand 才把 pid 写入 Run", idempotency: "恢复时：有 pid.json → 以 pid + start_time 判存活；有 launch.lock 无 pid.json 且 lock 早于 60s → 视为启动失败，删除 lock 后重启；lock 在 60s 内 → 等待。同一运行目录永远只有一个会话（GEM-6）" }
+  - { when: "running(*)，进程已退出且有 result.json", action: "校验并读入，发出对应事件", idempotency: "run_id（PP-3）" }
+  - { when: "running(check)", action: "在集成目录中检出会话仓库 head（经禁钩子 fetch，D-045）后于沙箱内跑 L0（lint 命令与 L1 workflow 相同，test:l0-covers-l1）；再执行当前步骤 verify ∈ {test, command} 的验收条目（argv 须在只读白名单内），与 coder 自报结果比对，不一致即 check_fail（ACR-09、ACR-10）", idempotency: "run_id + head sha" }
+  - { when: "waiting(ci) 或 running(merge)，L1 结论为失败", action: "先分类：job 结论 cancelled、退出码 137、没有失败的测试、或同样的失败在 base 最近一次 run 也出现 → 用 OP-09 重跑失败的 job 一次，不发事件；重跑仍失败才发 l1_fail（ACR-10）", idempotency: "每个 head sha 最多重跑一次（记录在 PR 行）" }
+  - { when: "running(review)，reviewer 结果为 approve", action: "合回需求分支，再发 review_approve 或 merge_back_conflict", idempotency: "需求分支上已存在 Step-Id trailer 等于本步骤 id 的 commit 则视为已合回" }
+  - { when: "waiting(ci)", action: "push 需求分支；按 head 分支查找或创建 PR；轮询 L1", idempotency: "PR 以 head 分支名查找" }
+  - { when: "running(merge)", action: "先向 Gate 申请 local/slots/merge/<repo>（容量 1）与 github/base-health/<repo>；拿到后 update-branch → 等 L1 → 带 head sha 合并，合并或放弃时释放槽。Gate 返回 Wait 时发 lease_wait（S45）（RES-SLOTS、RES-BASE）", idempotency: "PR 已合并则直接发 merged" }
+  - { when: "Run 被 kill_run 标记", action: "终止进程组；再扫描 TMPDIR 指向该运行目录的残留进程并终止（会话内 setsid 逃逸的子进程，ACR-28）", idempotency: "无存活进程即完成" }
+  - { when: "dropped 且有会话仓库 / 打开的 PR / 远端分支", action: "删除会话仓库；关闭 PR；删除远端分支", idempotency: "资源不存在即完成" }

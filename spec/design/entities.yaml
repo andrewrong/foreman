@@ -1,0 +1,215 @@
+# 实体模型（D-033）。状态机只在 Step 上；Run 是不可变的尝试记录；Requirement 的阶段由 Step 与 PR 推导。
+# 存储：project 级实体在 ~/.foreman/projects/<p>/work.db；全局实体在 ~/.foreman/global.db。
+schema: foreman.entities/1
+
+entities:
+  - id: E-REQ
+    name: Requirement
+    db: work.db
+    owns_state: false
+    phase: "推导值，见 derived_phase"
+    fields:
+      - { name: id, type: string, required: true, format: "R-<project>-<n>" }
+      - { name: kind, type: "enum feature|bug|chore", required: true }
+      - { name: source, type: "enum owner|nightly|prod|improve", required: true }
+      - { name: priority, type: "enum P0|P1|P2|P3", required: true, default_by_source: { prod: P0, nightly: P0, owner: P2, improve: P3 } }
+      - { name: spec_version, type: int, required: true, rule: "spec 任一字段变化必须 +1；旧版本保存在 req_spec_versions 表" }
+      - { name: spec, type: Spec, required: true }
+      - { name: branch, type: string, required: true, format: "foreman/<id>" }
+      - { name: parked, type: bool, required: true, default: false, note: "见 state-machine 表 B（H17）" }
+      - { name: hold, type: "enum none|replan|rescue|owner|parked", required: true, default: none, note: "state-machine 表 B" }
+      - { name: pending_triggers, type: "[]enum replan_trigger|rescue_trigger|owner_trigger", required: true, default: [] }
+      - { name: req_counters, type: "{replans, planner_failures, req_rescues, fix_steps}", required: true, note: "上限见 state-machine dims.req_counters" }
+      - { name: last_l0_sha, type: string, required: false, note: "DT-3" }
+      - { name: session_repo, type: string, required: false, note: "~/.foreman/projects/<p>/sessions/<req id>/，由镜像 clone --shared 创建（D-045）" }
+      - { name: dropped_reason, type: string, required: false, rule: "drop_all_steps 必须同时写入（ACR-05）" }
+      - { name: status, type: "enum draft|submitted", required: true, default: draft, note: "draft 时 spec 可不完整、不校验；submit 时整体校验（ACR-14）" }
+      - { name: size, type: "enum s|m|l", required: true, note: "s：intake 直接产出单个步骤，跳过 planner（快车道，ACR-30）" }
+      - { name: budget, type: "{tokens, quota_pct}", required: true, note: "= 各步骤所用角色近 20 次运行的 p75 之和；H4 以 2 倍为线（ACR-31）" }
+    derived_phase:
+      # 按顺序取第一个成立的；最后一行无条件成立，保证全函数（test:derived-phase-total 对 Step 状态组合 × PR 状态 × 报告状态穷举）
+      - { phase: draft,       when: "status = draft" }
+      - { phase: dropped,     when: "dropped_reason 非空" }
+      - { phase: parked,      when: "parked = true" }
+      - { phase: done,        when: "存在 PR、所有 PR 已合并、反馈报告已生成" }
+      - { phase: reporting,   when: "存在 PR、所有 PR 已合并、反馈报告未生成" }
+      - { phase: integrating, when: "存在非终态的 integrate 步骤" }
+      - { phase: planning,    when: "hold = replan，或尚无 Step 且无进行中的 planner Run" }
+      - { phase: building,    when: "存在非终态的 work 步骤" }
+      - { phase: stalled,     when: "其它情况（如所有步骤终态但 DT-1/DT-2 尚未触发）；reconciler 下一轮必触发 DT-1 或 DT-2，持续超过 1 轮则告警" }
+
+  - id: E-SPEC
+    name: Spec
+    embedded_in: Requirement
+    fields:
+      - { name: title, type: string, required: true, max_len: 80 }
+      - { name: goal, type: string, required: true, max_len: 500, note: "谁需要、为什么" }
+      - { name: current, type: "[]Ref", required: true, note: "系统现有什么；每项引用程序收集的模块/文件，不允许无引用的描述" }
+      - { name: change, type: "[]string", required: true, note: "要改什么，只写做什么" }
+      - { name: outcome, type: "[]Acceptance", required: true, min_items: 1 }
+      - { name: boundaries, type: "[]string", required: false, note: "不许碰的地方；不得写成文件白名单" }
+      - { name: unknowns, type: "[]Unknown", required: false }
+      - { name: hints, type: "[]string", required: false, note: "预计改动的文件，无约束力" }
+      - { name: bug, type: BugInfo, required_when: "kind == bug" }
+
+  - id: E-ACC
+    name: Acceptance
+    fields:
+      - { name: id, type: string, required: true, format: "A<n>" }
+      - { name: ears, type: string, required: true, rule: "匹配 EARS 句式（F2）" }
+      - { name: verify, type: "enum test|command|reading", required: true }
+      - { name: verify_detail, type: string, required: true, note: "test：被测行为（不写测试名）；command：argv；reading：判断依据" }
+      - { name: sandbox_ok, type: bool, required: true, rule: "verify ∈ {test, command} 时必须为 true，否则入库拒绝" }
+
+  - id: E-UNK
+    name: Unknown
+    fields:
+      - { name: id, type: string, required: true, format: "U<n>" }
+      - { name: question, type: string, required: true }
+      - { name: answered_by, type: "discovery id", required: false }
+
+  - id: E-BUG
+    name: BugInfo
+    fields:
+      - { name: observed, type: string, required: true }
+      - { name: expected, type: string, required: true }
+      - { name: repro, type: "[]string", required: true, note: "步骤或命令" }
+      - { name: cause, type: string, required: false }
+      - { name: cause_status, type: "enum suspected|proven", required: true, rule: "proven 必须有 cause_proof" }
+      - { name: cause_proof, type: Proof, required_when: "cause_status == proven" }
+
+  - id: E-PROOF
+    name: Proof
+    fields:
+      - { name: kind, type: "enum repro|code", required: true }
+      - { name: cmd, type: string, required_when: "kind == repro", note: "可在沙箱中重放的 argv" }
+      - { name: output_line, type: string, required_when: "kind == repro", note: "证明原因的输出行原文" }
+      - { name: path, type: string, required_when: "kind == code" }
+      - { name: line, type: int, required_when: "kind == code" }
+
+  - id: E-REF
+    name: Ref
+    fields:
+      - { name: module, type: string, required: true, note: "modules.yaml 或项目声明的模块名" }
+      - { name: path, type: string, required: false }
+      - { name: symbol, type: string, required: false }
+
+  - id: E-STEP
+    name: Step
+    db: work.db
+    owns_state: true
+    fields:
+      - { name: id, type: string, required: true, format: "<req id>/S<n>" }
+      - { name: req_id, type: string, required: true }
+      - { name: type, type: "enum build|find_cause|fix|integrate", required: true, note: "fix = Requirement 级失败追加；integrate = PR/L1/最终 review/合并，由 DT-2 创建" }
+      - { name: code_role, type: "enum coder|diagnoser", required: true, rule: "type == find_cause && Requirement.source == prod 时为 diagnoser，否则 coder（D-023；diagnoser 为 phase: v2）；state-machine S04 的 create_run:coder 指 create_run:<code_role>" }
+      - { name: goal, type: string, required: true, max_len: 300 }
+      - { name: acceptance, type: "[]acceptance id", required: true, min_items: 1, note: "引用 Spec.outcome；fix 步骤可引用 Finding id" }
+      - { name: depends_on, type: "[]step id", required: false }
+      - { name: touches, type: "[]module", required: true, min_items: 1, note: "取自 design/modules.yaml 的模块名或项目声明的模块名" }
+      - { name: state, type: "enum queued|running|waiting|done|dropped", required: true }
+      - { name: stage, type: "enum code|check|review|merge", required: true, note: "合法组合见 state-machine dims" }
+      - { name: resume_stage, type: "enum code|check|review|merge", required_when: "state == waiting && reason == hold" }
+      - { name: reason, type: "waiting：enum deps|quota|infra|access|rescue|hold|ci|fix；dropped：自由文本", required_when: "state ∈ {waiting, dropped}" }
+      - { name: deadline, type: time, required_when: "state ∈ {queued, running, waiting}" }
+      - { name: counters, type: Counters, required: true }
+      - { name: session_repo, type: string, required: false, note: "v1 为空（使用需求的会话仓库）；phase: v2 并行时为步骤的临时会话仓库" }
+      - { name: commit, type: string, required: false, note: "done 时为合回需求分支后的单个 commit sha" }
+
+  - id: E-PR
+    name: PullRequest
+    db: work.db
+    note: "v1 每个需求一个 PR（D-042）；多 PR 拆分为 phase: v2"
+    fields:
+      - { name: req_id, type: string, required: true }
+      - { name: number, type: int, required: false, note: "开 PR 前为空" }
+      - { name: head_branch, type: string, required: true, format: "foreman/<req id>" }
+      - { name: head_sha, type: string, required: false }
+      - { name: state, type: "enum unopened|open|merged|closed", required: true }
+      - { name: last_reviewed_sha, type: string, required: false, note: "增量 review 的起点（ACR-15）" }
+      - { name: combination_tested, type: bool, required: false, note: "merge-if-disjoint 跳过重跑 L1 时为 false" }
+
+  - id: E-CNT
+    name: Counters
+    embedded_in: Step
+    fields:
+      - { name: note, value: "字段、上限与清零规则以 state-machine.yaml dims.counters 为准，此处不重复" }
+
+  - id: E-RUN
+    name: Run
+    db: work.db
+    immutable: true
+    note: "一次 AI 会话或一次程序检查。创建后只追加 ended_at / outcome / usage，不修改其他字段"
+    fields:
+      - { name: id, type: string, required: true, format: "<step id>/r<n> 或 <req id>/<role>/r<n>" }
+      - { name: role, type: "enum intake|planner|coder|reviewer|rescuer|diagnoser|improver|check|ci_watch|merge", required: true, note: "check/ci_watch/merge 是程序 Run，无会话" }
+      - { name: model, type: string, required_when: "role 为 AI 角色", note: "实际使用的模型；第 3 次重试升级为 Opus 时记录（D-044）" }
+      - { name: scope, type: "enum step|requirement", required_when: "role == rescuer" }
+      - { name: spec_version, type: int, required: true, note: "Run 基于的 spec 版本；入库时若所引用 acceptance 在此后变过 → bad_result(stale)（ACR-08）" }
+      - { name: snapshot_id, type: string, required_when: "role == planner", note: "planner 输入的步骤快照（GEM-4）" }
+      - { name: changed_outcome, type: bool, required: false, note: "该 Run 是否改变了结论（review 提出被采纳的 finding、advisor 建议被采用、救援改变路径）；改进指标用（ACR-21）" }
+      - { name: harness, type: string, required_when: "role != check" }
+      - { name: pid, type: int, required: false }
+      - { name: pid_start, type: time, required: false, note: "与 pid 一起判断进程是否仍是同一个" }
+      - { name: dir, type: string, required: true, note: "~/.foreman/projects/<p>/runs/<run id>/" }
+      - { name: config_rev, type: int, required: true }
+      - { name: prompt_hash, type: string, required_when: "role != check" }
+      - { name: reserved, type: "[]{resource, amount}", required: true, note: "Ledger 重启时由运行中 Run 的 reserved 重建" }
+      - { name: started_at, type: time, required: true }
+      - { name: ended_at, type: time, required: false }
+      - { name: outcome, type: "enum ok|check_failed|review_changes|spec_conflict|infra|bad_result|budget_exceeded|access_request", required: false }
+      - { name: usage, type: "{input_tokens, output_tokens, cache_read_tokens, quota_pct_delta}", required: false }
+
+  - id: E-FIND
+    name: Finding
+    db: work.db
+    fields:
+      - { name: id, type: string, required: true, format: "F<n>" }
+      - { name: scope, type: "step id | req id", required: true }
+      - { name: severity, type: "enum blocking|minor", required: true }
+      - { name: location, type: "{path, line}", required: true }
+      - { name: problem, type: string, required: true, max_len: 300 }
+      - { name: close_when, type: string, required: true, max_len: 200, note: "怎样算解决" }
+      - { name: status, type: "enum open|closed|rejected", required: true }
+      - { name: round, type: int, required: true }
+
+  - id: E-DISC
+    name: Discovery
+    db: work.db
+    append_only: true
+    fields:
+      - { name: id, type: string, required: true, format: "X<n>" }
+      - { name: req_id, type: string, required: true }
+      - { name: run_id, type: string, required: true }
+      - { name: kind, type: "enum answer|extra_file|spec_conflict|cause_proof|access_request|note", required: true }
+      - { name: ref, type: string, required: false, note: "answer → Unknown id；access_request → resource" }
+      - { name: text, type: string, required: true, max_len: 500 }
+      - { name: evidence, type: "{path, line} | {cmd, output_line}", required_when: "kind ∈ {answer, spec_conflict, extra_file}", note: "无证据的断言不入库（ACR-07）" }
+      - { name: supersedes, type: "discovery id", required: false, note: "context.md 只渲染未被取代、未被 reviewer 标 rejected 的条目" }
+      - { name: rejected_by, type: "run id", required: false }
+
+  - id: E-ASK
+    name: OwnerAsk
+    db: work.db
+    fields:
+      - { name: id, type: string, required: true, format: "Q-<project>-<n>" }
+      - { name: h_item, type: "enum H1|H2|H3|H4|H5|H6|H7", required: true, note: "H7 见 D-035；H6 由 spec/guardrails.yaml 或访问申请触发（D-039）" }
+      - { name: subject, type: "step id | req id | config", required: true }
+      - { name: what, type: string, required: true }
+      - { name: changes, type: string, required: true }
+      - { name: checked, type: string, required: true }
+      - { name: options, type: "[]{id, label}", required: true, min_items: 2, max_items: 3 }
+      - { name: recommended, type: "option id", required: true }
+      - { name: answer, type: "option id", required: false }
+      - { name: status, type: "enum open|answered|moot|expired", required: true, rule: "只由 Transition 写；subject 进入终态或 hold 被其它路径解除时置 moot（ACR-06）" }
+      - { name: cause_counter, type: string, required: false, note: "H14 resume 时清零的计数（GEM-2）" }
+      - { name: sent_at, type: time, required: true }
+      - { name: deadline, type: time, required: true, default: "sent_at + 72h" }
+
+views:
+  - { name: v_open_asks, db: work.db, note: "status = open 的 ask；web、Telegram、CLI 的待处理数只读此视图（test:ask-counts-single-source）" }
+
+global:
+  - { table: resource_usage, db: global.db, note: "见 design/resources.yaml RC-4" }
+  - { table: forge_etags, db: global.db, note: "键为完整 URL，跨项目共享" }
+  - { table: config_revisions, db: global.db }

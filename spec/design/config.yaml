@@ -1,0 +1,64 @@
+# 配置 vs 代码（D-022）。
+# 配置：不进仓库、不走 PR；存 ~/.foreman/config/，通过 `foreman config` 或 web 设置页修改。
+#       保存前做 schema 校验（不合法拒绝保存）；每次保存生成 revision（global.db 表 config_revisions：rev, diff, actor, time），
+#       `foreman config rollback <rev>` 一条命令回退；新任务开始时生效，运行中的任务继续用自己的快照（C-13）。
+#       actor=owner 的修改直接生效；actor=AI（improver/rescuer）只能提交"配置提议"，以按钮发给 owner（H6），不走 PR。
+# 代码：在 foreman 仓库，走 PR + 流水线。仓库内只放 config.example.toml。
+schema: foreman.config-split/1
+
+config:   # owner 直接改
+  - id: CF-01
+    item: "项目列表与项目声明：仓库路径、默认分支、服务、日志位置、数据库、PII 掩码、L0 命令"
+    file: projects/<p>.toml
+  - id: CF-02
+    item: "每个角色的模型、effort、token 上限、超时"
+    file: roles.toml
+  - id: CF-03
+    item: "每个角色的 skills 分配"
+    file: skills.toml
+  - id: CF-04
+    item: "并行度：全局 worker 数、单需求并行步骤数"
+    file: runtime.toml
+  - id: CF-05
+    item: "重试次数、review 轮数、PR 切分行数、H4 预算倍数等阈值"
+    file: runtime.toml
+  - id: CF-06
+    item: "资源授予：R1 声明、R2 已批准项（access.yaml 的 tier 定义本身是代码）"
+    file: projects/<p>.toml
+  - id: CF-07
+    item: "线上只读工具开关与限额（prod.sql_ro 启用、行数上限）"
+    file: projects/<p>.toml
+  - id: CF-12
+    item: "每个项目的 L0 预算：时长、GOMAXPROCS、内存（默认 120s / 2 / 2GB，D-049 ④）"
+    file: "projects/<p>.toml"
+    secret: false
+  - id: CF-08
+    item: "通知：Telegram chat、免打扰时段（bot token 不在此文件，按 D-026 存于 secrets_dir 的 foreman.telegram.token）"
+    file: notify.toml
+    secret: false
+  - id: CF-09
+    item: "改进 stage 的触发频率与每周上限"
+    file: runtime.toml
+  - id: CF-10
+    item: "privguard 项目追加模式"
+    file: "项目仓库内 .privguard.toml（属于该项目的代码，随该项目 PR）"
+  - id: CF-11
+    item: "资源层的限额、阈值、保留量、磁盘上限（design/resources.yaml 中的数值）"
+    file: runtime.toml
+
+code:     # foreman 仓库，走 PR
+  - id: CD-01
+    item: "Go 源码"
+  - id: CD-02
+    item: "stage 提示词 prompts/<role>.md（行为的一部分，需要和代码一起测试）"
+  - id: CD-03
+    item: "语言 profile profiles/<lang>/（工具配置模板 + 短规则）"
+  - id: CD-04
+    item: "foreman 的 constitution.yaml、spec/ 下的设计与决定"
+  - id: CD-05
+    item: "配置的 schema 与默认值（default 值在代码里，配置文件只写覆盖项）"
+  - id: CD-06
+    item: "资源分级与线上工具的语义定义（access.yaml、prod-access.yaml 的结构部分）"
+
+secrets:  # 见 D-026：services.toml 的 secrets 目录，foreman.<名称>，0600；不进 config_revisions 的 diff（只记录"已修改"）
+  - "GitHub token、Telegram bot token、线上只读账号、开发凭据"

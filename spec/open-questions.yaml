@@ -1,0 +1,16 @@
+schema: foreman.open-questions/1
+
+questions:
+  - id: Q-006
+    question: "是否加入 panel 阶段（多个独立会话并行给意见 → 程序合并 → 单轮仲裁），用于护栏命中、大需求拆解、二次救援前、设计评审？"
+    options: ["加入，按触发条件启用，记录是否改变结论，连续 30 次无改变自动关闭", "不加入"]
+    recommended: "v1 运行后依据数据决定"
+    reason: "纯增量功能；需要先有单 reviewer 漏检的真实数据才能定触发条件"
+    revisit: "v1 稳定运行 30 个需求后"
+
+resolved:
+  - { id: Q-001, by: D-018 }
+  - { id: Q-002, by: D-019 }
+  - { id: Q-003, by: D-020 }
+  - { id: Q-004, by: D-035 }
+  - { id: Q-005, by: D-036 }

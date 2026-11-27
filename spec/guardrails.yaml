@@ -1,0 +1,27 @@
+# 护栏路径清单（D-039）。按 PR 的真实 diff 判定（git diff --name-only <merge-base>..<head>），不按需求字段判定。
+# 命中任一条 → 该需求在 integrate 的 merge 前必须经 H6（owner 批准）。清单要短：宁可窄而强（ACR-04）。
+# 本文件自身在清单内，修改它也走 H6。项目可在其声明中追加 extra，不能删除 base。
+schema: foreman.guardrails/1
+
+base:   # foreman 自己仓库，以及所有接入项目都适用的部分
+  - { id: G-01, glob: "spec/constitution.yaml",      why: "宪法" }
+  - { id: G-02, glob: "spec/guardrails.yaml",        why: "本清单" }
+  - { id: G-03, glob: "prompts/reviewer*.md",        why: "reviewer 的独立性：被度量者不能改度量者" }
+  - { id: G-04, glob: "prompts/rescuer*.md",         why: "兜底判断" }
+  - { id: G-05, glob: ".github/**",                  why: "CI 与 workflow；PAT 不授予 workflows 权限（ACR-22），触及它的 push 在 foremand 推送前就被拒并转 H6" }
+  - { id: G-06, glob: "internal/pipeline/state/**",  why: "状态转移（C-01）", scope: foreman }
+  - { id: G-07, glob: "internal/stage/review/**",    why: "评审阶段", scope: foreman }
+  - { id: G-08, glob: "internal/sandbox/policy/**",  why: "沙箱策略", scope: foreman }
+  - { id: G-09, glob: "internal/workspace/**",       why: "推送规则与会话仓库隔离（D-045、D-050）", scope: foreman }
+  - { id: G-10, glob: ".privguard*",                 why: "隐私扫描配置" }
+
+rules:
+  - id: GR-1
+    rule: "判定输入只有真实 diff 的文件列表；planner 声明的 touches、Spec.hints 不参与判定"
+    enforced_by: test:guardrail-diff-needs-h6
+  - id: GR-2
+    rule: "同一需求的 diff 不得同时命中 G-03（reviewer 提示词）与 report 指标定义（internal/report/metrics/**）；命中则直接 H6 并在 ask 中标明"
+    enforced_by: test:guardrail-reviewer-metric-split
+  - id: GR-3
+    rule: "source=improve 的需求命中护栏时，ask 的 checked 字段必须附上改进前后的指标对比（D-010）"
+    enforced_by: test:guardrail-improve-evidence

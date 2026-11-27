@@ -1,0 +1,49 @@
+# 开发资源访问分级（D-017）。程序读取本文件 + 项目声明 projects/<p>.yaml 的 resources 段。
+schema: foreman.access/1
+
+tiers:
+  - id: R0
+    name: always
+    grant: "自动，无需声明"
+    resources:
+      - "自己的会话仓库（D-045）与 TMPDIR 读写"
+      - "GOCACHE / GOMODCACHE：共享只读基础层 + 本任务可写层（该方案来自 agent-crew 的 Linux runner 镜像，macOS 沙箱下未实测，verified: false；退路：每个需求用 APFS 克隆 cp -c 复制一份共享缓存作为可写缓存，秒级、几乎不占额外空间，只影响首次编译性能）"
+      - "包仓库按主机族：go（proxy.golang.org、sum.golang.org、*.googleapis.com 下载落点）、npm（registry.npmjs.org、*.npmjs.org）、python（pypi.org、files.pythonhosted.org）、rust（crates.io、static.crates.io、index.crates.io）；GitHub 只读下载落点（objects.githubusercontent.com、codeload.github.com）（ACR-18）"
+      - "被拒主机由沙箱代理记日志，按天聚合为一条 H6 询问（同一主机一天一次），不逐次询问"
+      - "新增依赖（go.mod/package.json/Cargo.toml 变化）由 foremand 在沙箱外预取到共享缓存（只下载，不执行构建脚本）"
+      - "localhost 端口绑定：按角色声明，默认关；srt 的 allowLocalBinding 已在 agent-crew 中可用（ACR-39），由 probe 验证"
+      - "本任务专属开发数据库（由程序在任务开始时创建、结束时销毁；实现方式未实测，verified: false）"
+  - id: R1
+    name: declared
+    grant: "项目声明里写了就自动授予"
+    resources:
+      - "开发专用凭据（测试账号、sandbox API key），以环境变量注入"
+      - "脱敏数据快照（只读）"
+      - "项目声明列出的外部主机"
+  - id: R2
+    name: owner-once
+    grant: "owner 通过按钮批准一次，程序写入项目声明后永久生效（H6）"
+    resources:
+      - "新的外部主机"
+      - "真实数据的只读副本"
+      - "新增开发凭据"
+  - id: R3
+    name: never
+    grant: "永不进入沙箱"
+    resources:
+      - "GitHub 写权限 token"
+      - "生产环境写凭据"
+      - "owner 个人目录（~/ 下除 R0 所列之外的路径）"
+
+access_request:
+  trigger: "沙箱代理或文件系统拒绝记录；或会话在 result.json 中写入 kind: access_request"
+  fields: [resource, reason, step_id]
+  routing:
+    R0: "程序视为基础设施故障：修正沙箱配置后重试，不扣重试次数"
+    R1: "已声明 → 自动授予并重试；未声明 → 按 R2 处理"
+    R2: "发 Telegram/web 按钮：[永久允许] [仅本次] [拒绝]；等待期间任务 waiting，不占 worker 名额"
+    R3: "直接拒绝；会话收到固定说明，按 spec 的替代方案继续或报告 spec_conflict"
+
+context_pack_section:
+  rule: "每次会话的上下文包包含'可用资源'一节，列出本任务实际可用的数据库 DSN 环境变量名、数据快照路径、已放行主机"
+  enforced_by: test:context-pack-lists-resources

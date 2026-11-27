@@ -1,0 +1,423 @@
+# foreman 决定记录。唯一事实来源：方案文档由本文件 + constitution.yaml + design/*.yaml 渲染生成。
+# 规则：只追加。链接字段只有三种，都写在新条目上：supersedes（旧条目整体作废，其 status 改为 superseded）、
+#       amends（旧条目仍有效，与新条目合读）、resolves（解决的 open question id）。status: active | superseded。
+# 每条必须有 enforced_by（test:<名> | check:<名> | sandbox | program:<模块> | none）。
+schema: foreman.decisions/1
+
+decisions:
+  - id: D-001
+    date: 2026-11-27
+    statement: "实现语言为 Go"
+    enforced_by: none
+    status: active
+
+  - id: D-002
+    date: 2026-11-27
+    statement: "流水线由程序驱动；AI 只产出结构化结果文件，程序校验后推进状态；不设常驻 AI 协调窗口"
+    rationale: "agent-crew 14 天内 dispatcher+advisor 窗口占花费约 57%，worker 占 14%（口径未核实）"
+    enforced_by: program:pipeline
+    status: active
+
+  - id: D-003
+    date: 2026-11-27
+    statement: "需求实体为单一类型 Requirement，kind ∈ {feature, bug, chore}；内容分三层：spec（版本化）、discoveries（只追加）、derived（程序由真实 diff 计算）"
+    enforced_by: program:spec
+    status: active
+
+  - id: D-004
+    date: 2026-11-27
+    statement: "权威记录为 sqlite：~/.foreman/global.db、~/.foreman/projects/<p>/work.db、~/.foreman/projects/<p>/ci.db；只有 foremand 写"
+    enforced_by: program:store
+    status: active
+
+  - id: D-005
+    date: 2026-11-27
+    statement: "兜底顺序：同 stage 重试 3 次 → 救援 stage（Opus + advisor）→ 救援失败 2 次 → 人工收件箱。人工只处理 H1–H6"
+    params:
+      H1: "需求意图歧义，属于产品决策"
+      H2: "需要凭据或密钥，或修改外部账号配置"
+      H3: "不可逆操作：生产数据迁移、删数据、改公开 API"
+      H4: "单需求 token 累计超过预算 2 倍"
+      H5: "救援 stage 连续失败 2 次"
+      H6: "任何权限扩大：沙箱新增放行、提高 token 上限、角色新增工具或能力、修改 H1–H6、修改隐私扫描配置"
+    enforced_by: program:pipeline
+    status: superseded
+
+  - id: D-006
+    date: 2026-11-27
+    statement: "工作单位是需求：一个需求 = 一个分支 + 一个主 worktree；需求内拆成多个有依赖的步骤；默认一个需求一个 PR，结束时 diff > 800 行则按步骤切成多个顺序合并的 PR"
+    enforced_by: program:pipeline
+    status: superseded
+
+  - id: D-007
+    date: 2026-11-27
+    statement: "检查分三层：L0 本地沙箱（build+vet+gofmt+改动 package 的 -short 单测，≤120s，GOMAXPROCS=2，2GB）；L1 PR 上的 GitHub CI（lint+build+全部单测，≤5min）；L2 nightly GitHub CI（集成、-race、scripted-harness 端到端，≤60min）"
+    enforced_by: program:stage/check
+    status: superseded
+
+  - id: D-008
+    date: 2026-11-27
+    statement: "nightly 失败：失败测试重跑 3 次判定 flaky；真失败用 git bisect run 定位 commit，程序自动创建 bug 需求进入同一流水线"
+    enforced_by: program:ci
+    status: active
+
+  - id: D-009
+    date: 2026-11-27
+    statement: "沙箱内放开（bypass 模式，无命令白名单/分类器/deny 规则），沙箱外锁死（无凭据、不能 push/merge、main 分支保护）"
+    enforced_by: sandbox
+    status: superseded
+
+  - id: D-010
+    date: 2026-11-27
+    statement: "foreman 管理自己（dogfooding）。每个需求合并后程序生成结构化反馈报告；改进 stage 每 10 个合并需求或 24h 内 3 个 abnormal 时运行，每周最多 3 个改进需求；改进合并后再跑 10 个需求对比指标，未达标自动生成回退需求；改护栏触发 H6"
+    enforced_by: program:improve
+    status: active
+
+  - id: D-011
+    date: 2026-11-27
+    statement: "部署：单个常驻进程 foremand，在进程内推进；重启可恢复；前期不做开机自启；keeper 后期从 agent-crew 迁移"
+    enforced_by: program:daemon
+    status: active
+
+  - id: D-012
+    date: 2026-11-27
+    statement: "反馈与提问的通道：Telegram + web 收件箱。提问格式唯一：一个 id、2–3 个按钮、一个推荐，必须有'做什么/改变什么/检查了什么'字段；点按即回答"
+    enforced_by: program:notify
+    status: active
+
+  - id: D-013
+    date: 2026-11-27
+    statement: "web 复用 agent-crew 的栈（React + Vite + Tailwind + shadcn），构建产物不提交；手机优先；第一版 3 个页面：现在、等我处理、需求详情；web 层拿不到 GitHub 客户端"
+    enforced_by: test:web-no-github-import
+    status: active
+
+  - id: D-014
+    date: 2026-11-27
+    statement: "隐私做成可复用工具 privguard，所有项目共用；规则 P1–P7 为默认策略，项目可追加模式"
+    enforced_by: check:privguard
+    status: active
+
+  - id: D-015
+    date: 2026-11-27
+    statement: "设计与规格文档用可校验的结构化格式（YAML + EARS），方案文档由数据渲染，禁用模糊词"
+    enforced_by: check:spec-lint
+    status: active
+
+  - id: D-016
+    date: 2026-11-27
+    statement: "需求内无依赖的步骤可并行：并行步骤各用一个从需求分支派生的临时 worktree，完成后由程序合回需求分支；单需求并行度默认 2"
+    enforced_by: program:pipeline
+    status: superseded
+
+  - id: D-017
+    date: 2026-11-27
+    statement: "开发资源分级 R0–R3（见 design/access.yaml）；被拒的访问变成结构化 access_request，R1 自动授予，R2 由 owner 一次批准后写入项目声明永久生效，R3 永不进入沙箱"
+    enforced_by: program:sandbox
+    status: active
+
+  - id: D-018
+    date: 2026-11-27
+    statement: "privguard 放在独立仓库；foreman 接入项目时自动安装"
+    resolves: Q-001
+    enforced_by: check:privguard
+    status: active
+
+  - id: D-019
+    date: 2026-11-27
+    statement: "skills 按角色分配（intake, planner, coder, reviewer, rescuer, diagnoser, improver），见 design/skills.yaml；每次运行只注入该角色的 skills"
+    resolves: Q-002
+    enforced_by: program:harness
+    status: superseded
+
+  - id: D-020
+    date: 2026-11-27
+    statement: "语言 profile 首批 Go、TypeScript；之后 Python、Rust。profile = 工具配置（L0/L1 强制）+ ≤1.5k token 短规则 + 生成的 review 清单；按步骤改动的文件扩展名注入"
+    resolves: Q-003
+    enforced_by: program:context
+    status: active
+
+  - id: D-021
+    date: 2026-11-27
+    statement: "线上访问：AI 不拿线上凭据、无线上 shell；只读诊断工具由 foremand 代执行（限额、脱敏、审计）；可逆动作（回滚、重启）限频自动执行；不可逆动作走 H3。见 design/prod-access.yaml"
+    enforced_by: program:prodbroker
+    status: active
+
+  - id: D-022
+    date: 2026-11-27
+    statement: "配置与代码分离：配置在 ~/.foreman/config/，owner 用 foreman config 或 web 设置页直接改，schema 校验 + revision + 一键回退，不走 PR；AI 改配置只能发配置提议按钮（H6）。代码与提示词走 PR。清单见 design/config.yaml"
+    enforced_by: program:config
+    status: active
+
+  - id: D-023
+    date: 2026-11-27
+    statement: "diagnoser 继承 agent-crew diagnose 的预采集包、not_collected 标记、只读、原始材料不外发；改为检出线上实际 commit、可按需再取数据、产出本地失败测试、发布由程序经 privguard 完成。见 design/prod-access.yaml"
+    enforced_by: program:prodbroker
+    status: active
+
+  - id: D-024
+    date: 2026-11-27
+    statement: "模块与 package 分开：模块是功能单元，可以大，由多个 package 组成（如 pipeline = state + queue + lease + escalate）；package 受 C-03 上限约束。依赖方向在模块级和 package 级都检查"
+    enforced_by: check:size-limits
+    status: active
+
+  - id: D-025
+    date: 2026-11-27
+    statement: "设计方案与协议的交付流程：1) 协议必须写全字段（名称、类型、必填/可选、取值范围、默认值）、错误情况、版本号与兼容规则；2) 每个协议附至少 2 个示例（正常 + 出错），示例必须通过 schema 校验；3) 交付前通过 spec lint，并由一个未参与编写的独立会话（advisor）审查；4) 审查发现的问题修完才交付"
+    enforced_by: check:spec-lint
+    status: active
+
+  - id: D-026
+    date: 2026-11-27
+    statement: "密钥复用现有服务部署约定：目录由 foreman 配置项 secrets_dir 指定（默认值取 agent-crew services.toml 的 secrets 目录），目录 0700，文件名 foreman.<名称>（0600）；foreman 读自己的密钥前检查普通文件、perm&0o077==0、非符号链接，token 类文件另要求长度≥32，错误文本不含值；业务服务的 env 文件 foreman 不打开，只传目录；一个密钥只有一份来源，备份不放在该目录；所有 AI 沙箱对该目录 deny 并有探针证明。取代 design/config.yaml 中 ~/.foreman/secrets/ 的写法"
+    amends: D-022
+    enforced_by: test:secret-file-check
+    status: active
+
+  - id: D-027
+    date: 2026-11-27
+    statement: "资源层 internal/resource：模型 token、GitHub REST/GraphQL/写操作/Actions 分钟、本地 CPU、会话数、磁盘统一预留-结算；预留失败任务进 waiting(quota)，不扣重试；按优先级 P0–P3 派发。见 design/resources.yaml"
+    enforced_by: test:module-deps
+    status: active
+
+  - id: D-028
+    date: 2026-11-27
+    statement: "方案交付前的外部审查：1) 与 agent-crew dispatcher 逐条讨论；2) 用 Gemini 做对抗审查（调用方式问 agent-crew dispatcher）；两轮的意见与处理结果记入 docs/reviews/"
+    enforced_by: none
+    status: active
+
+  - id: D-029
+    date: 2026-11-27
+    statement: "模型额度窗口由各 harness 适配器声明：claude、codex 默认只有 7 天窗口，gemini 为 5 小时 + 7 天；7 天窗口按剩余天数平摊每日可用量，当日用完只派发 P0"
+    amends: D-027
+    enforced_by: test:quota-daily-pacing
+    status: superseded
+
+  - id: D-030
+    date: 2026-11-27
+    statement: "资源层抽象为 Meter（测量真实剩余）、Ledger（进程内预留，持久化可恢复）、Gate（唯一放行点，Demand → Lease | Wait）、History（逐小时归因）。借鉴 agent-crew 的资源行模型、floor/warn、调用方归因、额度错误等待；改掉其只轮询无预留、只在启动时检查、定义写两处。见 design/resources.yaml"
+    amends: D-027
+    enforced_by: test:module-deps
+    status: active
+
+  - id: D-031
+    date: 2026-11-27
+    statement: "GitHub 访问不用 gh CLI：foremand 用 Go HTTP 客户端直接调 REST；每个响应读限额头更新 Meter；GET 走 ETag 条件请求（304 不计数）；错误类型化；只暴露固定操作集合；按仓库批量轮询；GraphQL 仅在替代 ≥3 次 REST 时使用并按返回 cost 结算；push 走 git 协议。见 design/forge.yaml"
+    enforced_by: check:no-gh-exec
+    status: active
+
+  - id: D-032
+    date: 2026-11-27
+    statement: "GitHub REST 用 github.com/google/go-github，GraphQL 用 github.com/shurcooL/githubv4；自写部分只有 ETag 缓存 RoundTripper 与 Gate 包装，internal/forge 自写代码约 600–900 行"
+    amends: D-031
+    enforced_by: none
+    status: active
+
+  - id: D-033
+    date: 2026-11-27
+    statement: "核心设计：状态机只在 Step 上（5 状态 × 4 阶段，integrate 步骤承担 PR/L1/最终 review/合并）；Run 不可变；Requirement 阶段由 Step 与 PR 推导；会话协议为 context.md + todo.json + result.json（原子写、run_id 幂等、独立进程组）。见 design/entities.yaml、state-machine.yaml、protocol-run.yaml、modules.yaml"
+    enforced_by: test:state-table-exhaustive
+    status: active
+
+  - id: D-034
+    date: 2026-11-27
+    statement: "状态机改为结构化两表（Step 表 + Requirement hold 表），并由穷举脚本检查（覆盖、守卫穷尽、出口、计数上限）；事务只写数据库，外部动作由幂等 reconciler 执行；重新规划是需求级的单一 planner 运行；integrate 步骤由覆盖关系推导创建。改变了兜底阶梯（review 到上限也进入救援）、新增 squash 合回与 integrate 步骤"
+    amends: [D-005, D-006, D-016, D-033]
+    enforced_by: test:state-table-exhaustive
+    status: active
+
+  - id: D-035
+    date: 2026-11-27
+    statement: "新增兜底项 H7：同一步骤基础设施故障达到 dims.counters.infra 上限（6 次）后发 OwnerAsk，选项 [立即重试] [放弃该步骤]"
+    amends: D-005
+    resolves: Q-004
+    enforced_by: test:state-table-exhaustive
+    status: active
+
+  - id: D-036
+    date: 2026-11-27
+    statement: "OwnerAsk 超过 deadline（72h）无回答：需求 hold=parked（state-machine H17），释放 worktree、保留分支，每 7 天提醒一次；owner 可随时恢复或放弃"
+    resolves: Q-005
+    enforced_by: test:state-table-exhaustive
+    status: active
+
+  - id: D-037
+    date: 2026-11-27
+    statement: "harness 保留统一接口，v1 只实现 claude 与 scripted 两个适配器；codex、gemini 适配器在有实际需要时另立决定再加；它们的额度窗口默认值保留在 D-029 但不实现"
+    amends: D-029
+    enforced_by: test:module-deps
+    status: active
+
+  - id: D-038
+    date: 2026-11-27
+    statement: "不依赖分支保护防止直接推 main（私有仓库在免费套餐下取不到保护，agent-crew 实测 403）：接入项目时调用 OP-12，403/404 记为 protection: unavailable 并在 web 与首次通知中告知 owner；无论保护是否可用，workspace 强制：所有 worktree 以 --no-track 创建、克隆中设 push.default=nothing、foremand 只用显式 refspec HEAD:refs/heads/foreman/<req id> 推送且目标不得是默认分支、推送后以 ls-remote 断言默认分支 sha 未变（变化则停止该项目所有推送并发 H6）。worktree 来自 foremand 自有的镜像 ~/.foreman/projects/<p>/repo.git，不触碰 owner 的工作检出（ACR-03、ACR-17）"
+    amends: D-009
+    enforced_by: "test:push-refspec-only；test:worktree-no-track；test:push-asserts-default-unchanged"
+    status: superseded
+
+  - id: D-039
+    date: 2026-11-27
+    statement: "H6 的触发由 spec/guardrails.yaml 的路径清单按 PR 真实 diff 判定；细粒度 PAT 不授予 workflows 权限，触及 .github/** 的 diff 在推送前拒绝并转 H6（ACR-04、ACR-22）"
+    amends: D-005
+    enforced_by: "test:guardrail-diff-needs-h6"
+    status: active
+
+  - id: D-040
+    date: 2026-11-27
+    statement: "默认模型：coder 用 Sonnet，reviewer 用 Opus（claude-opus-5-5）；写与审用不同模型以减少同源盲点。模型是配置（CF-02），owner 改配置不走 PR"
+    enforced_by: test:config-role-model-defaults
+    status: active
+
+  - id: D-041
+    date: 2026-11-27
+    statement: "多 agent 编排：编排者只能是 foremand（程序），不设 AI 协调窗口；agent 之间不互发消息，只通过黑板（Discovery、Finding、步骤依赖图）间接交流；会话内 sub-agent 默认关闭，按角色在配置中开启。多视角 panel 阶段延后到 v1 之后依据数据决定（Q-006），现有 Run 模型（同一阶段可有多个不可变 Run）已为其留口"
+    enforced_by: "test:module-deps；test:harness-subagent-default-off"
+    status: active
+
+  - id: D-042
+    date: 2026-11-27
+    statement: "v1 范围：核心闭环（intake → planner/快车道 → code → check → review → integrate → merge）+ 每次合并后的反馈报告 + Telegram 与 CLI 通知。web、improver、diagnoser 与线上访问、nightly 自动 bisect、需求内多步骤并行、超过 800 行拆多 PR 的设计保留在 spec 中，标 phase: v2，v1 不实现；v1 中需求内步骤串行执行、一个需求一个 PR"
+    enforced_by: "check:spec-phase-tags"
+    status: active
+
+  - id: D-043
+    date: 2026-11-27
+    statement: "借鉴 Gemini Orchestrator（大模型规划/审查、小模型执行）：① 同一 stage 的第 3 次重试由 coder 默认模型升级为 Opus，仍失败才进入 rescuer；② coder 会话可配置 Opus advisor（CF-02，默认关闭），开启与否以 A/B 数据决定；③ 每次升级或 advisor 调用记录成本与是否改变结果。不接入 Antigravity 本身（D-037）"
+    amends: D-005
+    enforced_by: "test:retry-model-escalation"
+    status: superseded
+
+  - id: D-044
+    date: 2026-11-27
+    statement: "（取代 D-043 全文）借鉴 Gemini Orchestrator：① 同一 stage 的第 3 次重试由 coder 默认模型升级为 Opus，仍失败才进入 rescuer；② coder 会话默认配 Opus advisor（CF-02 可关）；③ 每次升级或 advisor 调用记录成本与是否改变结果，反馈报告按周汇总；若 30 个需求内 advisor 调用从未改变结果，在报告中提示关闭。不接入 Antigravity 本身（D-037）"
+    supersedes: D-043
+    enforced_by: "test:retry-model-escalation；test:config-role-model-defaults"
+    status: active
+
+  - id: D-045
+    date: 2026-11-27
+    statement: "沙箱与 git 隔离（GEM-1）：① 模型凭据是唯一进入会话的凭据，使用 foreman 专用、可吊销的 token，由 internal/secrets 读取后以环境变量传给会话进程，不落盘到会话可读目录；② 不再用 git worktree（其 .git 指向共享仓库，会话可改 core.hooksPath 等配置，foremand 在沙箱外执行 git 时会触发）：每个需求一个会话仓库，由 foremand 自有镜像 ~/.foreman/projects/<p>/repo.git 以 clone --shared 创建，会话只能写它自己的仓库；③ foremand 取回提交只用 git -c core.hooksPath=/dev/null -c core.fsmonitor= fetch <会话仓库> <分支>（GIT_CONFIG_NOSYSTEM=1、GIT_CONFIG_GLOBAL=/dev/null），squash 合回、rebase、push 都在 foremand 自有的集成目录进行，从不以会话仓库为工作目录执行 git"
+    amends: [D-009, D-016]
+    enforced_by: "test:session-git-config-not-executed；test:sandbox-probe-no-credentials"
+    status: active
+
+  - id: D-046
+    date: 2026-11-27
+    statement: "降低每需求固定成本（ACR-30、ACR-10、ACR-31、ACR-15）：① size=s 的需求由 intake 直接产出单个步骤，跳过 planner；② 单 work 步骤的需求不做 integrate review（state-machine S29）；③ L0 运行与 L1 相同的 lint；L1 失败先分类，runner 被杀或基线本身红时重跑一次而不建 fix 步骤；④ rescuer 的 retry 只多给一轮（grant_one），不清零；⑤ reviewer 只看增量 diff 与未关闭 findings"
+    amends: [D-006, D-007]
+    enforced_by: "test:state-table-exhaustive；test:l0-covers-l1；test:reviewer-context-delta-only"
+    status: active
+
+  - id: D-047
+    date: 2026-11-27
+    statement: "运行可靠性（ACR-11、ACR-12、ACR-13）：① foremand 启动固定四步：取锁、PRAGMA integrity_check、孤儿进程回收、配置 revision 检查，每步一行日志，foreman status 可打印；失败则拒绝启动并打印原因；② 每小时 wal_checkpoint 与 VACUUM INTO 到 ~/.foreman/backups（保留 7 份）；③ foremand 每分钟写心跳，foreman status 与 Telegram 每日摘要显示最近心跳；④ 启动方式：v1 由终端或 agent-crew 的 keeper 启动，不用 launchd（launchd 程序不能打开数据卷，agent-crew rules/service.md）；foreman doctor 从实际启动环境检查 secrets_dir 可达与权限位（不读内容）；⑤ 自更新：从合并后的 commit 构建到 ~/.foreman/bin/<sha>/，运行 foreman selfcheck（scripted harness 跑一个最小需求），原子切换符号链接并保留上一个；新进程 60 秒内健康检查不过则切回；数据库记录 min_binary_version，旧二进制遇更高版本只读并报错"
+    amends: D-011
+    enforced_by: "test:startup-integrity-check；test:selfupdate-rollback；test:backup-rotation"
+    status: active
+
+  - id: D-048
+    date: 2026-11-27
+    statement: "spec 格式规则统一为 spec/format-rules.yaml 的 F1–F10（含 EARS 定义 F2、program: 必须附检查 F4、amends 深度 F8、提示词体积 F9、phase 标签 F10）"
+    amends: [D-018, D-025]
+    enforced_by: "check:spec-lint；check:prompts-size"
+    status: active
+
+  - id: D-049
+    date: 2026-11-27
+    statement: "第 1 轮评审的 minor 项：① C-02 中『每个非终态都有 owner』指 deadline 加出口事件，由 state-machine 与 smcheck 保证（ACR-26）；② C-07 的『测试不得比对提示词或 spec 文本』由 go/ast 检查 check:no-text-pin-tests 执行（ACR-35）；③ sandbox 条目一律写成 sandbox + test:sandbox-probe-<名>，probe 必须包含一次带 hook 的真实 git commit（ACR-29、ACR-35）；④ L0 预算（时长、GOMAXPROCS、内存）按项目配置，默认 120s/2/2GB；RES-DISK 计量每日写入量（ACR-36）；⑤ skills 起步只给 coder 的 tdd 与 reviewer 的 code-review，其余在有对照数据后再加；harness 适配器声明是否上报 Skill 调用（ACR-37）；⑥ owner 的终止与重试由按钮事件 owner_drop、owner_retry 产生，ask id 同时是 Telegram callback 数据（ACR-25）；⑦ C-03 允许 source=prod 且 P0 的修复超出上限 50 行，下一个需求必须收回（GEM-14）"
+    amends: [D-007, D-019]
+    enforced_by: "check:no-text-pin-tests；test:sandbox-probe-git-commit；check:spec-lint"
+    status: active
+
+  - id: D-050
+    date: 2026-11-27
+    statement: "（取代 D-038 全文，与 D-045 一致）不依赖分支保护防止直接推 main：接入项目时调用 OP-12，403/404 记为 protection: unavailable 并告知 owner；无论保护是否可用：会话仓库由 foremand 自有镜像 clone --shared 创建，不设上游跟踪，push.default=nothing；push 只由 foremand 在集成目录执行，只用显式 refspec HEAD:refs/heads/foreman/<req id>，目标不得是默认分支；推送后以 ls-remote 断言默认分支 sha 未变，变化则停止该项目所有推送并发 H6；不触碰 owner 的工作检出"
+    supersedes: D-038
+    enforced_by: "test:push-refspec-only；test:session-repo-no-upstream；test:push-asserts-default-unchanged"
+    status: active
+
+  - id: D-051
+    date: 2026-11-27
+    statement: "（取代 D-029 全文）模型额度窗口：Gate 对 harness 适配器报告的每个窗口都检查 floor（claude 解析 five_hour 与 seven_day）；配置只决定 pacing 用哪个窗口，默认 7d，按剩余天数平摊每日可用量，当日用完只派发 P0；codex、gemini 适配器为 phase: v2（D-037）（GEM-10）"
+    supersedes: D-029
+    enforced_by: "test:quota-all-windows-gate；test:quota-daily-pacing"
+    status: active
+
+  - id: D-052
+    date: 2026-11-27
+    statement: "撤回 D-049 ⑤：skills 起步按 skills.yaml 的角色分配全部启用（来源 mattpocock/skills），不只开两个。理由：claude 原生按需加载 skill，未调用时成本只是描述；以调用次数与 changed_outcome 判断去留，v1 由 owner 在周报中决定删除"
+    amends: D-049
+    enforced_by: "test:harness-reports-skill-calls"
+    status: superseded
+
+  - id: D-053
+    date: 2026-11-27
+    statement: "（取代 D-005，合并 D-034、D-035、D-039、D-044 ①、D-046 ④ 中有关部分）兜底阶梯：步骤级按计数上限重试（check_fail 3、review_rounds 2、merge_conflict 2、bad_result 2、infra 6）；check_fail 或 review_rounds 达到 cap − 1 后的下一次 coder Run 使用 Opus；仍失败进入 rescuer（Opus + advisor），每个步骤最多 2 次，rescuer 的 retry 只多给一轮；需求级上限 replans 2、planner_failures 2、req_rescues 2、fix_steps 3。超出上限即发 OwnerAsk。owner 只处理 H1–H7，H 清单本身的修改属于 H6。具体转移以 design/state-machine.yaml 为准"
+    params:
+      H1: "需求意图歧义，属于产品决策"
+      H2: "需要凭据或密钥，或修改外部账号配置"
+      H3: "不可逆操作：生产数据迁移、删数据、改公开 API"
+      H4: "单需求成本超过 Requirement.budget 的 2 倍"
+      H5: "救援失败（rescues 或 req_rescues 到上限、rescuer 会话失败或超时）"
+      H6: "权限扩大或护栏改动：沙箱新增放行、R2 访问申请、提高 token 上限、角色新增工具或能力、diff 命中 spec/guardrails.yaml、修改 H 清单"
+      H7: "同一步骤基础设施故障或 CI 等待达到上限（infra 6、ci_extensions 12）"
+    supersedes: D-005
+    enforced_by: "test:state-table-exhaustive；test:retry-model-escalation；test:guardrail-diff-needs-h6"
+    status: active
+
+  - id: D-054
+    date: 2026-11-27
+    statement: "（取代 D-006，合并 D-034、D-042、D-045、D-046 ①②）工作单位是需求：一个需求 = 一个分支 foreman/<req id> + 一个会话仓库（D-045）；需求内拆成有依赖的步骤，size=s 的需求由 intake 直接产出单个步骤；工作步骤 review 通过后 squash 合回需求分支；全部 outcome 覆盖后由 integrate 步骤开 PR、跑 L1、做最终 review（单步骤需求跳过）并合并。v1 一个需求一个 PR；diff > 800 行按步骤切成多个顺序 PR 为 phase: v2"
+    supersedes: D-006
+    enforced_by: "test:state-table-exhaustive；test:derived-phase-total"
+    status: active
+
+  - id: D-055
+    date: 2026-11-27
+    statement: "（取代 D-007，合并 D-046 ③、D-049 ④）检查分三层：L0 在沙箱内跑 build、vet、gofmt、与 L1 相同的 lint、改动 package 的 -short 单测，并执行步骤的 verify ∈ {test, command} 验收条目；预算按项目配置（默认 120s、GOMAXPROCS=2、2GB，CF-12）。L1 为 PR 上的 GitHub CI（lint、build、全部单测，≤5min）；失败先分类，runner 被杀或基线本身红时重跑一次。L2 为 nightly GitHub CI（集成、-race、scripted harness 端到端，≤60min）；自动 bisect 为 phase: v2"
+    supersedes: D-007
+    enforced_by: "test:l0-covers-l1；test:l1-failure-classification；test:acceptance-executed-in-check"
+    status: active
+
+  - id: D-056
+    date: 2026-11-27
+    statement: "（取代 D-009，合并 D-045 ①③、D-050）沙箱内放开（bypass 模式，无命令白名单、分类器、deny 规则），沙箱外锁死：进入会话的凭据只有模型 token 与 R1 测试凭据（C-08）；会话不能 push、开 PR、合并；foremand 从不以会话仓库为工作目录执行 git；不依赖分支保护，推送规则见 D-050"
+    supersedes: D-009
+    enforced_by: "sandbox + test:sandbox-probe-no-credentials；test:session-git-config-not-executed；test:push-refspec-only"
+    status: active
+
+  - id: D-057
+    date: 2026-11-27
+    statement: "（取代 D-016，合并 D-042、D-045 ②、ACR-16）需求内并行为 phase: v2：v1 需求内步骤串行。v2 时无依赖的步骤各用一个从需求分支派生的临时会话仓库，单需求并行度默认 2；是否冲突以 git merge-tree 在真实文件集上判定，planner 的 touches 只作排序提示"
+    supersedes: D-016
+    enforced_by: "test:state-table-exhaustive"
+    status: active
+
+  - id: D-058
+    date: 2026-11-27
+    statement: "为只写了 program:<模块> 或 none 的早期决定补充检查项（F4、ACR-34）。coverage 中每项为：测试/检查名 | none: 理由（选择或流程类，无法机器检查）| phase: v2。tools/testtrace.rb 读取本条并据此生成 spec/tests.yaml"
+    coverage:
+      D-001: "none: 语言选择"
+      D-002: "test:module-deps；test:session-output-only-result-files"
+      D-003: "test:spec-validate-requirement"
+      D-004: "test:store-single-writer"
+      D-008: "test:nightly-flaky-rerun；bisect 部分 phase: v2"
+      D-010: "test:feedback-report-generated；改进触发部分 phase: v2"
+      D-011: "test:restart-recovery"
+      D-012: "test:ask-format-validation；test:ask-counts-single-source"
+      D-017: "test:access-request-routing"
+      D-019: "test:skills-injected-by-role；test:harness-reports-skill-calls"
+      D-020: "test:profile-selected-by-extension；check:prompts-size"
+      D-021: "phase: v2"
+      D-022: "test:config-revision-rollback"
+      D-023: "phase: v2"
+      D-028: "none: 交付流程，记录在 docs/reviews/"
+      D-032: "check:module-deps（MD-2）"
+    enforced_by: "check:spec-lint"
+    status: active
+
+  - id: D-059
+    date: 2026-11-27
+    statement: "（取代 D-019 与 D-052）skills 按角色分配并起步全部启用（intake、planner、coder、reviewer、rescuer；diagnoser、improver 随 phase: v2），来源 mattpocock/skills，见 design/skills.yaml；每次运行只注入该角色的 skills，condition 不满足不注入；harness 适配器必须上报 Skill 调用；v1 由周报列出 20 次运行调用 0 次或 changed_outcome 始终为 0 的 skill，owner 决定删除，自动开删除需求为 phase: v2"
+    supersedes: [D-019, D-052]
+    enforced_by: "test:skills-injected-by-role；test:harness-reports-skill-calls"
+    status: active

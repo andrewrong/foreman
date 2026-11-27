@@ -1,0 +1,185 @@
+# 资源层（D-027，D-029，D-030）。package 位置：internal/resource（模块 resource = meter + ledger + gate + history 四个 package）。
+# 数值是默认值，owner 在配置 runtime.toml [resources]（CF-11）覆盖；结构与算法是代码。
+schema: foreman.resources/2
+
+# ---------------------------------------------------------------------------
+# 0. 从 agent-crew 借鉴 / 改动
+# ---------------------------------------------------------------------------
+from_agent_crew:
+  - id: AC-1
+    what: "统一的资源行模型：name、class、capacity、used、resets_at、source、at（schema_resources.sql 的 resources 表）"
+    verdict: keep
+  - id: AC-2
+    what: "每个资源两条线：floor（低于即拒绝派发）、warn（低于即通知）；百分比或绝对值（admit_resources.go 的 resourceLimits）"
+    verdict: keep
+  - id: AC-3
+    what: "按调用方归因的 GitHub 用量（gh_usage 表：minute、resource、caller、project、calls）与逐小时历史（resource_history）"
+    verdict: keep
+  - id: AC-4
+    what: "识别模型的额度错误，读出重置时间，等待到重置后继续（limitwait.go）"
+    verdict: keep
+  - id: AC-5
+    what: "只靠轮询测量、没有预留：同一时刻多个任务都看到'还够'，一起派发后超限"
+    verdict: change
+    to: "测量 + 进程内预留：可用量 = capacity − used(测量) − 未结算的预留"
+  - id: AC-6
+    what: "门槛只在 drive 启动时检查一次；模型额度只告警不拒绝（usage 窗口 floorPct 0，拒绝靠单独的 admissionOf）"
+    verdict: change
+    to: "所有资源走同一个 Gate；每次会话、每次 GitHub 调用都经过 Gate"
+  - id: AC-7
+    what: "同一资源的定义写两处：resources.toml 的说明文字 + Go 里的 resourceLimits 表"
+    verdict: change
+    to: "资源种类注册在代码里一处；数值只在配置里；`foreman resources` 由两者生成说明，不手写"
+
+# ---------------------------------------------------------------------------
+# 1. 抽象：四个部件
+# ---------------------------------------------------------------------------
+components:
+  - id: RC-1
+    name: Meter
+    package: internal/resource/meter
+    duty: "测量一个资源的真实剩余；每种资源一个实现，注册到 registry"
+    contract:
+      read: "Read(ctx) → Reading；不得消耗被测资源（例：GitHub 用 GET /rate_limit，该请求不计入限额）"
+      mark_exhausted: "MarkExhausted(resetsAt)：harness/forge 收到额度错误时调用，立即把该资源置为耗尽到 resetsAt"
+    reading_fields:
+      - { name: resource, type: string, required: true, example: "model/claude/max-1/7d" }
+      - { name: capacity, type: int64, required: true, note: "未知时为 0，见 unknown_capacity" }
+      - { name: used, type: int64, required: true }
+      - { name: resets_at, type: time, required: false }
+      - { name: measured_at, type: time, required: true }
+      - { name: source, type: string, required: true, example: "github:/rate_limit" }
+    stale_after: 10m          # 超过即视为未知，Gate 按 unknown 策略处理（AC-1 同值）
+
+  - id: RC-2
+    name: Ledger
+    package: internal/resource/ledger
+    duty: "进程内预留账本（全局，跨项目）；不单独建表：每个运行中的 Run 记录自己的 reserved，foremand 启动时扫描所有项目的运行中 Run 重建账本"
+    order: "先向 Gate 申请 Lease，成功后再执行 queued→running 的 Transition；Transition 失败则 Release。Transition 不跨两个 sqlite 文件"
+    formula: "available = capacity − used − Σ(未结算预留)"
+
+  - id: RC-3
+    name: Gate
+    package: internal/resource/gate
+    duty: "唯一放行点。harness 与 forge 的客户端构造函数要求传入 Lease"
+    acquire:
+      input: Demand
+      output: "Lease | Wait"
+    demand_fields:
+      - { name: items, type: "[]{resource string, amount int64}", required: true, note: "一次申请可含多个资源，全部满足才放行，否则全部不占" }
+      - { name: priority, type: "enum P0|P1|P2|P3", required: true }
+      - { name: caller, type: "{project, requirement_id, step_id, stage, role}", required: true }
+    wait_fields:
+      - { name: until, type: time, required: false, note: "已知重置时间时给出" }
+      - { name: reason, type: string, required: true, example: "below_floor:model/claude/max-1/7d" }
+    lease_ops:
+      settle: "Settle(actual []{resource, amount})：用真实用量结算，差额回到 available"
+      release: "Release()：未使用即归还（如会话启动失败）"
+    rules:
+      - "Wait 时任务进入 waiting(reason=quota)，不占 worker 名额，不扣重试次数"
+      - "被 MarkExhausted 的资源上，所有 Lease 申请返回 Wait(until=resets_at)；到点由调度器重新申请"
+
+  - id: RC-4
+    name: History
+    package: internal/resource/history
+    duty: "按小时写 global.db 表 resource_usage(hour, resource, caller_stage, project, consumed, capacity)，保留 90 天；web 资源页只读此表"
+
+# ---------------------------------------------------------------------------
+# 2. 资源种类（代码注册表；数值为默认值，CF-11 可改）
+# ---------------------------------------------------------------------------
+kinds:
+  - id: RES-MODEL
+    resource: "model/<harness>/<account>/<window>"
+    meter: "harness 适配器提供。claude：解析会话输出流中 type=rate_limit_event 的 rate_limit_info.unifiedWindows.{five_hour,seven_day}（utilization 百分比 + resetsAt），来源同 agent-crew harness.go claudeHarness.Level；codex、gemini 的读取方式未核实（verified: false）"
+    unit: "百分比：capacity=100，used=utilization"
+    windows_rule: "Gate 对适配器报告的每个窗口都检查 floor（claude 同时解析 five_hour 与 seven_day）；配置只决定 pacing 用哪个窗口（GEM-10）"
+    pacing_window_default:
+      claude: "7d"
+      codex: "7d"
+      gemini: "7d"
+    unknown_capacity: "适配器给不出百分比时：用 token 计数记账，上限 = 最近 7 天实测用量 p95；收到额度错误时把当时累计值记为新上限"
+    floor: 10%
+    warn: 30%
+    pacing: "7d 窗口每日可用 = 剩余 / 剩余天数；当日超出只放行 P0"
+    priority_gate: "剩余 < 30% 只放行 P0–P1"
+    reservation_estimate: "预留百分点 = 该 role 最近 20 次运行加权 token 的 p75 × k_model。加权 token = input + output×5 + cache_read×0.1（权重可配置）；k_model 按模型分开，只用相邻读数增量 > 0 的样本（滚动窗回落导致的 0 或负增量丢弃），样本少于 10 个时预留固定 2 个百分点"
+    granularity: "utilization 在 agent-crew 中存为 REAL；实际精度未核实（verified: false）"
+    stale_rule: "该资源的读数只在会话输出中出现；超过 stale_after 时按 RT-9 估算，不阻断派发"
+
+  - id: RES-GH-REST
+    resource: "github/rest"
+    meter: "每个响应的 X-RateLimit-* 头（FG-2）；GET /rate_limit 仅在启动或读数过期时"
+    capacity_default: 5000/h
+    floor: 10%
+    warn: 20%
+    reserved_for: { merge_push_pr: 500 }
+    rules: ["GET 带 If-None-Match；304 不计入主限额"]
+  - id: RES-GH-GRAPHQL
+    resource: "github/graphql"
+    meter: "查询返回的 rateLimit { cost remaining }（FG-8）与响应头"
+    capacity_default: 5000points/h
+    floor: 10%
+    warn: 20%
+    reserved_for: { merge_push_pr: 500 }
+  - id: RES-GH-WRITE
+    resource: "github/content-create"
+    meter: "foremand 自计数（GitHub 不提供读数）"
+    capacity_default: "60/min，400/h（GitHub 二级限额 80/min、500/h）"
+  - id: RES-GH-ACTIONS
+    resource: "github/actions-minutes/<owner>"
+    meter: "GitHub billing API（具体端点待核实，verified: false）"
+    rule: "公开仓库不计；私有仓库月用量 > 80% → nightly 改为隔天"
+
+  - id: RES-DISK
+    resource: "local/disk/<volume>"
+    floor: 10GiB
+    warn: 20GiB
+    daily_write: "按天计量写入量（会话仓库、构建缓存），超过 CF-11 阈值（默认 40GiB/天）告警（D-049 ④）"
+    on_floor: "先清理已结束需求的会话仓库与集成目录，仍低于 floor 则 Gate 返回 Wait"
+  - id: RES-INODES
+    resource: "local/inodes/<volume>"
+    floor: 5%
+    warn: 20%
+  - id: RES-MEM
+    resource: "local/mem"
+    warn: 15%
+    floor: none
+  - id: RES-SLOTS
+    resource: "local/slots/<kind>"     # kind ∈ session | l0-check | merge/<repo>
+    capacity_default: { session: "CF-04 全局 worker 数", l0-check: 2, "merge/<repo>": 1 }
+    rule: "merge/<repo> 从 update-branch 持有到合并成功或放弃；同一仓库同一时刻只有一个 PR 在合并路径上（ACR-02；test:one-merge-at-a-time）"
+  - id: RES-BASE
+    resource: "github/base-health/<repo>"
+    meter: "FG-7 的批量轮询同时取 base 分支最近一次 push 触发的 workflow run（OP-08，带 ETag）"
+    unit: "二值：最近一次 base run 结论为 success 或进行中 → capacity 1；failure → capacity 0"
+    rule: "capacity 0 时所有 merge 申请返回 Wait(reason=red_base)；首次变红时创建 source=nightly、priority=P0 的 bug 需求（同一 base sha 只建一个），变绿后自动放行（test:red-base-blocks-merge）"
+
+# ---------------------------------------------------------------------------
+# 3. 派发优先级
+# ---------------------------------------------------------------------------
+priority:
+  - { level: P0, what: "main 变红的修复、线上 bug（source=prod）" }
+  - { level: P1, what: "进行中的需求（已有提交的步骤优先）" }
+  - { level: P2, what: "新需求的拆解与首个步骤" }
+  - { level: P3, what: "改进 stage、nightly 引发的非阻塞修复" }
+
+# ---------------------------------------------------------------------------
+# 4. 告警
+# ---------------------------------------------------------------------------
+alerts:
+  - "低于 warn → Telegram 一条（同一资源 6 小时内一次）"
+  - "低于 floor、或 MarkExhausted → 立即一条，并写入受影响需求反馈报告的 infra_failures"
+
+# ---------------------------------------------------------------------------
+# 5. 测试（对应 C-05：注入时钟，不 sleep）
+# ---------------------------------------------------------------------------
+tests:
+  - { id: RT-1, case: "两个并发 Demand 合计超过 available：只放行一个，另一个 Wait", target: internal/resource/gate }
+  - { id: RT-2, case: "多资源 Demand 其中一项不足：全部不占", target: internal/resource/gate }
+  - { id: RT-3, case: "MarkExhausted 后申请返回 Wait(until=resets_at)；时钟推进到 resets_at 后放行", target: internal/resource/gate }
+  - { id: RT-4, case: "Settle 实际 < 预留：差额回到 available", target: internal/resource/ledger }
+  - { id: RT-5, case: "foremand 重启：账本由各项目运行中 Run 的 reserved 重建", target: internal/resource/ledger }
+  - { id: RT-6, case: "7d 窗口平摊：当日超出后 P1 Wait、P0 放行；次日恢复", target: internal/resource/gate }
+  - { id: RT-7, case: "GitHub 等可主动测量的资源 Reading 超过 stale_after：先重新测量；测量失败才只放行 P0", target: internal/resource/gate }
+  - { id: RT-9, case: "模型额度（读数随会话产生）超过 stale_after：用'最近读数 + 之后的预留与结算'估算，不降级为只放行 P0", target: internal/resource/gate }
+  - { id: RT-8, case: "Wait 状态任务不占 worker 名额、不扣重试次数", target: internal/pipeline/state }
