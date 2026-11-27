@@ -5,3 +5,6 @@
 /dist/
 *.test
 *.out
+
+# Claude Code 本地状态与子代理 worktree
+.claude/
