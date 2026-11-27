@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/andrewrong/foreman/internal/privguard"
 )
 
 const (
@@ -107,12 +109,15 @@ func fxAddCheckFindings(c *txc, _ string) error {
 	if err != nil {
 		return err
 	}
-	tests := nonNil(c.ev.FailingTests)
+	tests := make([]string, 0, len(c.ev.FailingTests))
+	for _, t := range c.ev.FailingTests {
+		tests = append(tests, privguard.Redact(t)) // the sink redacts again (C-09)
+	}
 	problem := "check failed"
 	if len(tests) > 0 {
 		problem = "check failed: " + strings.Join(tests, ", ")
 	}
-	return c.insertFinding("check", c.step.id, "blocking", nil, jsonText(tests), tailLines(c.ev.LogTail),
+	return c.insertFinding("check", c.step.id, "blocking", nil, jsonText(tests), tailLines(privguard.Redact(c.ev.LogTail)),
 		truncRunes(problem, maxProblem), "the failing checks pass", round)
 }
 

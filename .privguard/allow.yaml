@@ -1,0 +1,5 @@
+# Registered reasons for the inline marker "privguard:allow <id>" (privguard P2).
+# A reason exempts one line, never a file or a directory.
+reasons:
+  - id: rule-definition
+    why: the line defines or documents a privguard rule; it is not a leak
