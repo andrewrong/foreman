@@ -109,6 +109,7 @@ effects:   # 每个 effect 的数据库写入（TX-1：Transition 的同一事�
 implicit_writes:   # 不出现在行 effects 中、由引擎在事件发生时执行的写入（D-073）
   - { on: "check_pass",        writes: "关闭该步骤 open 的 kind=check finding（D-073）" }
   - { on: "review_approve",    writes: "关闭该步骤 open 的 kind=review finding（D-073）" }
+  - { on: "l1_pass",           writes: "关闭 integrate 步骤 open 的 kind=check finding（L1 再次通过，D-073 同理）" }
   - { on: "dims.counters 的 reset 事件",      writes: "dims.counters 的 reset 列表中 any_valid_result / any_non_infra_result / check_pass 等事件发生时由引擎清零，不写在行的 effects 里（D-073）" }
 
 step_table:

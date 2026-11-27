@@ -22,3 +22,13 @@ func (c *txc) autoResetCounters() {
 	}
 	c.step.counters["infra"] = 0
 }
+
+// closeOnL1Pass is the implicit write of l1_pass (state-machine.yaml
+// implicit_writes, D-073 applied to L1): the integrate step's open check
+// findings, written by an earlier l1_fail, are closed when L1 passes again.
+func (c *txc) closeOnL1Pass() error {
+	if c.step == nil || c.step.typ != "integrate" || c.ev.Name != "l1_pass" {
+		return nil
+	}
+	return c.closeFindings("check")
+}

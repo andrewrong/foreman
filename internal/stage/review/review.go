@@ -12,6 +12,7 @@ import (
 
 	"github.com/andrewrong/foreman/internal/spec/model"
 	"github.com/andrewrong/foreman/internal/stage/code"
+	wsgit "github.com/andrewrong/foreman/internal/workspace/git"
 	"github.com/andrewrong/foreman/internal/workspace/integrate"
 	"github.com/andrewrong/foreman/internal/workspace/session"
 )
@@ -27,8 +28,9 @@ type Env struct {
 type MergeBack struct {
 	ReqID, StepID string
 	SessionRepo   string
-	SessionBranch string // foreman/<req id> in the session repo
-	Subject       string // squash commit subject; the Step-Id trailer is appended
+	SessionBranch string         // foreman/<req id> in the session repo
+	Subject       string         // squash commit subject; the Step-Id trailer is appended
+	Identity      wsgit.Identity // identity of the refreshed session repo
 }
 
 // Request is one review Run.
@@ -115,6 +117,15 @@ func mergeBack(ctx context.Context, env Env, m MergeBack) (string, error) {
 	}
 	res, err := env.Integ.SquashMergeBack(ctx, integrate.MergeSpec{ReqID: m.ReqID, StepID: m.StepID, StepRef: ref, Subject: m.Subject})
 	if err != nil {
+		return "", err
+	}
+	// The next step's session must start from the requirement branch as it is
+	// now. Refresh is repeatable, so it also runs for AlreadyMerged after a crash.
+	if err := env.Mirror.ImportBranch(ctx, env.Integ.Path, m.SessionBranch); err != nil {
+		return "", err
+	}
+	if _, err := env.Mirror.Refresh(ctx, m.SessionRepo,
+		session.Spec{ReqID: m.ReqID, BaseBranch: m.SessionBranch, Identity: m.Identity}); err != nil {
 		return "", err
 	}
 	return res.SHA, nil

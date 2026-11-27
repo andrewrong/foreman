@@ -115,9 +115,14 @@ type scenario struct {
 	gh   *fakeGitHub
 	q    *scriptQueue
 	rows []string
+	// trace is "<step id> <RowID>" per step transition, in order.
+	trace []string
 }
 
-func newScenario(t *testing.T) *scenario {
+func newScenario(t *testing.T) *scenario { return newScenarioSeeded(t, seed) }
+
+// newScenarioSeeded is newScenario with another requirement and step set.
+func newScenarioSeeded(t *testing.T, seedFn func(*testing.T, *App, clock.Clock)) *scenario {
 	t.Helper()
 	f := newFixture(t)
 	s := &scenario{t: t, f: f, clk: clock.NewFake(time.Unix(1_800_000_000, 0)), q: newScriptQueue(t)}
@@ -126,6 +131,7 @@ func newScenario(t *testing.T) *scenario {
 	gh.updateBranch = f.githubUpdateBranch
 	cfg := f.config(s.clk, ghURL, func(stepID string, ev state.Event, out state.Outcome) {
 		s.rows = append(s.rows, out.RowID)
+		s.trace = append(s.trace, stepID+" "+out.RowID)
 		t.Logf("transition %-8s %-14s -> RowID %-8s state=%s stage=%s reason=%s", stepID, ev.Name, out.RowID, out.To.State, out.To.Stage, out.To.Reason)
 	})
 	cfg.Models = map[string]string{"coder": "sonnet", "reviewer": "opus"}
@@ -137,7 +143,7 @@ func newScenario(t *testing.T) *scenario {
 	}
 	t.Cleanup(func() { app.Close() })
 	s.app = app
-	seed(t, app, s.clk)
+	seedFn(t, app, s.clk)
 	return s
 }
 

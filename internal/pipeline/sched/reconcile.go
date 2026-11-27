@@ -211,7 +211,7 @@ func (s *Scheduler) runReview(ctx context.Context, st stepRow, req reqRow, run r
 	rr := stagereview.Request{Session: r}
 	if st.Type != "integrate" {
 		rr.MergeBack = &stagereview.MergeBack{ReqID: req.ID, StepID: st.ID, SessionRepo: req.SessionRepo,
-			SessionBranch: req.Branch, Subject: firstLine(st.Goal)}
+			SessionBranch: req.Branch, Subject: firstLine(st.Goal), Identity: s.d.SessionIdent}
 	}
 	res, done, err := s.driveSession(ctx, env, r)
 	if err != nil || !done {
