@@ -9,10 +9,8 @@ tests:
   - C-11
 - name: check:forbidden-paths
   covers:
+  - D-063
   - guardrails:G-05
-- name: check:module-deps
-  covers:
-  - D-032
 - name: check:no-gh-exec
   covers:
   - D-031
@@ -113,9 +111,9 @@ tests:
   - forge:FG-2
 - name: test:guardrail-diff-needs-h6
   covers:
-  - D-039
   - D-053
   - D-061
+  - D-063
   - guardrails:GR-1
 - name: test:guardrail-improve-evidence
   covers:
@@ -147,8 +145,9 @@ tests:
   - D-002
   - D-027
   - D-030
-  - D-037
+  - D-032
   - D-041
+  - D-064
   - forge:FG-1
   - forge:FG-6
 - name: test:nightly-flaky-rerun

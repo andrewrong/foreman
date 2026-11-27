@@ -245,7 +245,7 @@ decisions:
     statement: "harness 保留统一接口，v1 只实现 claude 与 scripted 两个适配器；codex、gemini 适配器在有实际需要时另立决定再加；它们的额度窗口默认值保留在 D-029 但不实现"
     amends: D-029
     enforced_by: test:module-deps
-    status: active
+    status: superseded
 
   - id: D-038
     date: 2026-11-27
@@ -259,7 +259,7 @@ decisions:
     statement: "H6 的触发由 spec/guardrails.yaml 的路径清单按 PR 真实 diff 判定；细粒度 PAT 不授予 workflows 权限，触及 .github/** 的 diff 在推送前拒绝并转 H6（ACR-04、ACR-22）"
     amends: D-005
     enforced_by: "test:guardrail-diff-needs-h6"
-    status: active
+    status: superseded
 
   - id: D-040
     date: 2026-11-27
@@ -442,4 +442,19 @@ decisions:
     supersedes: D-048
     amends: [D-015, D-025]
     enforced_by: "check:spec-lint；check:prompts-size"
+    status: active
+
+  - id: D-063
+    date: 2026-11-27
+    statement: "（取代 D-039）H6 的触发由 spec/guardrails.yaml 的路径清单按 PR 真实 diff 判定，在合并前由 reconciler 检查（state-machine S47）；owner 批准后记录 E-PR.guardrail_approved_sha，head 不变不再询问。细粒度 PAT 不授予 workflows 权限（2026-11-27 实测：触及 .github/workflows/** 的 push 被 GitHub 拒绝），因此 .github/** 不走 H6：L0 的 check:forbidden-paths 让该步骤 check_fail，改动需求写成 discovery 由 owner 手工处理（guardrails G-05）"
+    supersedes: D-039
+    enforced_by: "test:guardrail-diff-needs-h6；check:forbidden-paths"
+    coverage: { D-032: "test:module-deps" }
+    status: active
+
+  - id: D-064
+    date: 2026-11-27
+    statement: "（取代 D-037）harness 保留统一接口，v1 只实现 claude 与 scripted 两个适配器；codex、gemini 适配器在有实际需要时另立决定再加；额度窗口规则按 D-051（检查适配器报告的全部窗口），不为未实现的适配器保留默认值"
+    supersedes: D-037
+    enforced_by: "test:module-deps"
     status: active
