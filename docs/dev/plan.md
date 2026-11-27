@@ -23,7 +23,8 @@
 | T4 | spec lint：F1 id 唯一与引用可解析、F3 enforced_by 格式、F4、F5 禁用词、F7/F8、F10 phase 标签 | format-rules.yaml；C-12 | check:spec-lint、check:spec-phase-tags | ready |
 | T5 | internal/spec/model 与 validate、ears：Requirement/Spec/Step 类型与入库校验 | entities.yaml；format-rules F2 | test:spec-validate-requirement、test:derived-phase-total | done |
 | T6 | internal/store：sqlite 打开、迁移、单写者 | entities.yaml；D-002 | test:store-single-writer | done |
-| T7 | internal/pipeline/state：Transition，转移表由 state-machine.yaml 生成为 Go 数据（生成物标 generated） | state-machine.yaml；C-01 | test:only-transition-writes-state、test:state-table-exhaustive（复用 T2） | ready（T2、T5、T6 之后） |
+| T7a | internal/pipeline/state 的纯决策函数 Decide：由 tablegen 从 state-machine.yaml 生成转移表（含表 B、escalate、HOLD-1、ignored）；不碰数据库 | state-machine.yaml；C-01、C-02 | 生成表与 smcheck 展开结果逐条一致；穷举所有 (配置, 事件, 守卫取值) 有且只有一个结果 | ready |
+| T7b | Transition：在 store 的单写事务中读取步骤与需求、调用 Decide、写回状态与 effects（TX-1）；补 T6 的 panic 回滚 | state-machine.yaml TX-1；entities.yaml | test:only-transition-writes-state | 等实体表任务 |
 | T8 | internal/harness/api 与 scripted 假模型；里程碑 M1：scripted 模型 + 假 GitHub 跑通一个需求 | protocol-run.yaml；D-037 | M1 端到端测试 | ready |
 | T9 | internal/forge | forge.yaml | test:forge-* | ready |
 | T10 | internal/sandbox、internal/workspace | access.yaml；D-045、D-056 | test:sandbox-*、test:session-* | ready |
