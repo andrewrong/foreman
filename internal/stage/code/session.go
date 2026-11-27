@@ -67,25 +67,28 @@ type Result struct {
 	Exit   launch.Exit
 }
 
-// RunSession launches the session and waits for it to end.
-func (e Env) RunSession(ctx context.Context, r Request) (Result, error) {
+// Prepared is a session ready to start: files are written, the Invocation is
+// built and the sandbox policy is resolved.
+type Prepared struct {
+	Inv    api.Invocation
+	Policy policy.Policy
+}
+
+// Prepare writes context.md, prompt.md and the adapter's files into the run
+// directory and resolves the invocation and sandbox policy. It does not start
+// anything, so it is safe to repeat.
+func (e Env) Prepare(r Request) (Prepared, error) {
 	if sandboxRequired[e.Adapter.Name()] && !e.Launcher.Sandboxed() {
-		return Result{}, ErrNeedsSandbox
+		return Prepared{}, ErrNeedsSandbox
 	}
 	if err := os.MkdirAll(r.RunDir, 0o700); err != nil {
-		return Result{}, err
+		return Prepared{}, err
 	}
 	ctxFile, promptFile := filepath.Join(r.RunDir, "context.md"), filepath.Join(r.RunDir, "prompt.md")
 	for path, body := range map[string]string{ctxFile: r.Context, promptFile: r.Prompt} {
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-			return Result{}, err
+			return Prepared{}, err
 		}
-	}
-	// A result.json that already exists belongs to a session that ended before
-	// a crash or a failed Transition: read it, never launch a second session
-	// for the same run (reconciler: "进程已退出且有 result.json").
-	if _, err := os.Stat(filepath.Join(r.RunDir, "result.json")); err == nil {
-		return e.readResult(r, Result{}), nil
 	}
 	timeout, turns := e.Timeout, e.MaxTurns
 	if timeout == 0 {
@@ -99,18 +102,60 @@ func (e Env) RunSession(ctx context.Context, r Request) (Result, error) {
 		WorkDir: r.SessionRepo, RunDir: r.RunDir, PromptFiles: []string{promptFile, ctxFile}, Extra: r.Extra,
 	})
 	if err != nil {
-		return Result{}, fmt.Errorf("code: build invocation: %w", err)
+		return Prepared{}, fmt.Errorf("code: build invocation: %w", err)
 	}
 	for _, f := range inv.Files {
 		if err := os.WriteFile(f.Path, f.Content, os.FileMode(f.Mode)); err != nil {
-			return Result{}, err
+			return Prepared{}, err
 		}
 	}
 	in := e.Policy
 	in.SessionRepo, in.RunTmp = r.SessionRepo, r.RunDir
 	pol, err := policy.New(in)
 	if err != nil {
+		return Prepared{}, err
+	}
+	return Prepared{Inv: inv, Policy: pol}, nil
+}
+
+// Collect turns the end of a session into a Result. exit is nil when the exit
+// status is not known (foremand restarted while the session ran); timedOut
+// says foremand killed it for exceeding the invocation timeout. Without a
+// valid result.json the event is infra (timeout, non-zero or unknown exit) or
+// bad_result (clean exit without a usable result, PP-4).
+func (e Env) Collect(r Request, exit *launch.Exit, timedOut bool) Result {
+	res := Result{}
+	if exit != nil {
+		res.Exit = *exit
+	}
+	_, statErr := os.Stat(filepath.Join(r.RunDir, "result.json"))
+	switch {
+	case statErr == nil:
+		return e.readResult(r, res) // a result outranks how the process ended
+	case timedOut:
+		res.Event = model.Event{Name: model.EventInfra, Detail: "session timed out"}
+	case exit == nil:
+		res.Event = model.Event{Name: model.EventInfra, Detail: "session ended without result.json (exit status unknown after restart)"}
+	case exit.Code != 0:
+		res.Event = model.Event{Name: model.EventInfra, Detail: fmt.Sprintf("session exited with code %d", exit.Code)}
+	default:
+		res.Event = model.Event{Name: model.EventBadResult, Detail: "result.json missing"}
+	}
+	return res
+}
+
+// RunSession launches the session and waits for it to end (synchronous path,
+// for callers that do not supervise a detached process).
+func (e Env) RunSession(ctx context.Context, r Request) (Result, error) {
+	prep, err := e.Prepare(r)
+	if err != nil {
 		return Result{}, err
+	}
+	// A result.json that already exists belongs to a session that ended before
+	// a crash or a failed Transition: read it, never launch a second session
+	// for the same run (reconciler: "进程已退出且有 result.json").
+	if _, err := os.Stat(filepath.Join(r.RunDir, "result.json")); err == nil {
+		return e.readResult(r, Result{}), nil
 	}
 	stdout, err := os.Create(filepath.Join(r.RunDir, "stdout.log"))
 	if err != nil {
@@ -123,23 +168,16 @@ func (e Env) RunSession(ctx context.Context, r Request) (Result, error) {
 	}
 	defer stderr.Close()
 
-	runCtx, cancel := context.WithTimeout(ctx, inv.Timeout)
+	runCtx, cancel := context.WithTimeout(ctx, prep.Inv.Timeout)
 	defer cancel()
-	exit, err := e.Launcher.Run(runCtx, pol, inv.Argv, launch.IO{
-		Stdin: bytes.NewReader(inv.Stdin), Stdout: stdout, Stderr: stderr, ExtraEnv: inv.Env,
+	exit, err := e.Launcher.Run(runCtx, prep.Policy, prep.Inv.Argv, launch.IO{
+		Stdin: bytes.NewReader(prep.Inv.Stdin), Stdout: stdout, Stderr: stderr, ExtraEnv: prep.Inv.Env,
 	})
-	res := Result{Exit: exit}
-	switch {
-	case runCtx.Err() != nil && ctx.Err() == nil:
-		res.Event = model.Event{Name: model.EventInfra, Detail: "session timed out"}
-		return res, nil
-	case err != nil:
-		return res, fmt.Errorf("code: launch: %w", err)
-	case exit.Code != 0:
-		res.Event = model.Event{Name: model.EventInfra, Detail: fmt.Sprintf("session exited with code %d", exit.Code)}
-		return res, nil
+	timedOut := runCtx.Err() != nil && ctx.Err() == nil
+	if err != nil && !timedOut {
+		return Result{Exit: exit}, fmt.Errorf("code: launch: %w", err)
 	}
-	return e.readResult(r, res), nil
+	return e.Collect(r, &exit, timedOut), nil
 }
 
 // readResult validates result.json of an ended session into res.

@@ -43,6 +43,12 @@ func Run(ctx context.Context, env Env, req Request) (model.Event, error) {
 	if err != nil {
 		return model.Event{}, err
 	}
+	return Finish(ctx, env, req, res)
+}
+
+// Finish maps a finished reviewer session to an event and, for an approved
+// work step, performs the merge-back.
+func Finish(ctx context.Context, env Env, req Request, res code.Result) (model.Event, error) {
 	if res.Parsed == nil {
 		return res.Event, nil
 	}

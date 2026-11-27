@@ -118,7 +118,9 @@ func (s *Scheduler) leaseFor(ctx context.Context, st stepRow, req reqRow) (*gate
 	if err != nil || !dec.Allowed() {
 		return nil, err
 	}
-	s.hold(st.ID, dec.Lease)
+	if err := s.holdRun(ctx, st.ID, dec.Lease); err != nil {
+		return nil, err
+	}
 	return dec.Lease, nil
 }
 
@@ -168,8 +170,12 @@ func (s *Scheduler) runCode(ctx context.Context, st stepRow, req reqRow, run run
 	if err != nil {
 		return nil, err
 	}
-	ev, err := stagecode.Run(ctx, env, r)
-	return &ev, err
+	res, done, err := s.driveSession(ctx, env, r)
+	if err != nil || !done {
+		return nil, err // session starting or running: look again next Tick
+	}
+	ev := stagecode.EventOf(res)
+	return &ev, nil
 }
 
 func (s *Scheduler) runReview(ctx context.Context, st stepRow, req reqRow, run runRow) (*model.Event, error) {
@@ -190,7 +196,11 @@ func (s *Scheduler) runReview(ctx context.Context, st stepRow, req reqRow, run r
 		rr.MergeBack = &stagereview.MergeBack{ReqID: req.ID, StepID: st.ID, SessionRepo: req.SessionRepo,
 			SessionBranch: req.Branch, Subject: firstLine(st.Goal)}
 	}
-	ev, err := stagereview.Run(ctx, stagereview.Env{Session: env, Integ: s.d.Integ, Mirror: s.d.Mirror}, rr)
+	res, done, err := s.driveSession(ctx, env, r)
+	if err != nil || !done {
+		return nil, err
+	}
+	ev, err := stagereview.Finish(ctx, stagereview.Env{Session: env, Integ: s.d.Integ, Mirror: s.d.Mirror}, rr, res)
 	return &ev, err
 }
 

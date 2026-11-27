@@ -66,8 +66,15 @@ func (d *Dir) Push(ctx context.Context, reqID string) error {
 	if before != after {
 		d.mu.Lock()
 		d.halted = true
+		s := d.store
 		d.mu.Unlock()
-		return &DefaultBranchMovedError{Branch: d.Default, Before: before, After: after}
+		moved := &DefaultBranchMovedError{Branch: d.Default, Before: before, After: after}
+		if s != nil {
+			if err := s.SaveHalt(ctx, HaltInfo{Branch: d.Default, Before: before, After: after}); err != nil {
+				return errors.Join(moved, fmt.Errorf("integrate: persist push halt: %w", err))
+			}
+		}
+		return moved
 	}
 	return nil
 }

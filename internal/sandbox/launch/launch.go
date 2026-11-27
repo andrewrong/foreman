@@ -79,26 +79,7 @@ func Command(settingsPath string, argv []string) []string {
 // Start writes the settings file (0600) into the run tmp and starts argv
 // inside the sandbox with exactly the policy environment, in the session repo.
 func (l Launcher) Start(ctx context.Context, pol policy.Policy, argv []string, io IO) (Process, error) {
-	if l.SrtPath == "" && !l.PassThrough {
-		return nil, errors.New("launch: srt path not set")
-	}
-	if len(argv) == 0 || argv[0] == "" {
-		return nil, errors.New("launch: empty argv")
-	}
-	settings, err := pol.SettingsJSON()
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(pol.RunTmp(), 0o700); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(pol.Home(), 0o700); err != nil {
-		return nil, err
-	}
-	if err := writePrivate(pol.SettingsPath(), settings); err != nil {
-		return nil, err
-	}
-	env, err := mergeEnv(pol.Env(), io.ExtraEnv)
+	spec, err := l.spec(pol, argv, io)
 	if err != nil {
 		return nil, err
 	}
@@ -106,19 +87,39 @@ func (l Launcher) Start(ctx context.Context, pol policy.Policy, argv []string, i
 	if r == nil {
 		r = ExecRunner{}
 	}
+	return r.Start(ctx, spec)
+}
+
+// spec resolves argv, policy and streams into the process to start.
+func (l Launcher) spec(pol policy.Policy, argv []string, io IO) (Spec, error) {
+	if l.SrtPath == "" && !l.PassThrough {
+		return Spec{}, errors.New("launch: srt path not set")
+	}
+	if len(argv) == 0 || argv[0] == "" {
+		return Spec{}, errors.New("launch: empty argv")
+	}
+	settings, err := pol.SettingsJSON()
+	if err != nil {
+		return Spec{}, err
+	}
+	if err := os.MkdirAll(pol.RunTmp(), 0o700); err != nil {
+		return Spec{}, err
+	}
+	if err := os.MkdirAll(pol.Home(), 0o700); err != nil {
+		return Spec{}, err
+	}
+	if err := writePrivate(pol.SettingsPath(), settings); err != nil {
+		return Spec{}, err
+	}
+	env, err := mergeEnv(pol.Env(), io.ExtraEnv)
+	if err != nil {
+		return Spec{}, err
+	}
 	path, args := l.SrtPath, Command(pol.SettingsPath(), argv)
 	if path == "" {
 		path, args = argv[0], argv[1:]
 	}
-	return r.Start(ctx, Spec{
-		Path:   path,
-		Args:   args,
-		Env:    env,
-		Dir:    pol.SessionRepo(),
-		Stdin:  io.Stdin,
-		Stdout: io.Stdout,
-		Stderr: io.Stderr,
-	})
+	return Spec{Path: path, Args: args, Env: env, Dir: pol.SessionRepo(), Stdin: io.Stdin, Stdout: io.Stdout, Stderr: io.Stderr}, nil
 }
 
 // Run starts argv and waits for it to finish.

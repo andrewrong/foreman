@@ -33,6 +33,7 @@ func TestM1RedBaseHoldsMergeUntilGreen(t *testing.T) {
 		if _, err := app.Sched.Tick(ctx); err != nil {
 			t.Fatal(err)
 		}
+		app.Sched.WaitSessions()
 	}
 	var state2, reason2 string
 	for i := 0; i < 40 && reason2 != "quota"; i++ {

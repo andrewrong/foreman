@@ -11,8 +11,8 @@ import (
 )
 
 // markRunning moves a pending Run to running (the reconciler handshake of
-// E-RUN.status). pid.json, launch.lock and pid/start_time are not kept: the
-// session runs synchronously inside Tick (stubbed in M1).
+// E-RUN.status). The pid and start time follow once the launcher wrote
+// pid.json (recordPid).
 func (s *Scheduler) markRunning(ctx context.Context, runID string) error {
 	return s.d.DB.Write(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `UPDATE runs SET status = 'running' WHERE id = ? AND status = 'pending'`, runID)
@@ -45,7 +45,7 @@ func (s *Scheduler) endRun(ctx context.Context, runID string, ev model.Event) er
 		return err
 	}
 	return s.d.DB.Write(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `UPDATE runs SET status = 'ended', ended_at = ?, outcome = ?, usage = ?
+		_, err := tx.ExecContext(ctx, `UPDATE runs SET status = 'ended', ended_at = ?, outcome = ?, usage = ?, reserved = '[]'
 			WHERE id = ? AND status IN ('pending', 'running')`,
 			s.d.Clock.Now().UTC().Format(timeLayout), outcomeOf(ev.Name), string(usage), runID)
 		return err

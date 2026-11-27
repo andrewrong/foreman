@@ -27,6 +27,10 @@ type Action struct {
 	Git       []string                      `json:"git,omitempty"` // git args, run in cwd
 	Finish    *Finish                       `json:"finish,omitempty"`
 	Exit      *int                          `json:"exit,omitempty"` // exit immediately with code
+	// Block opens the named FIFO for reading and waits for end of file, so a
+	// test holds a session at this point until it opens and closes the FIFO
+	// for writing (no timers, no polling).
+	Block string `json:"block,omitempty"`
 }
 
 // Write creates a file. Path is relative to the working directory; a
@@ -52,7 +56,7 @@ type Finish struct {
 
 func (a Action) validate() error {
 	n := 0
-	for _, set := range []bool{a.Say != "", len(a.Emit) > 0, len(a.RateLimit) > 0, a.Write != nil, len(a.Git) > 0, a.Finish != nil, a.Exit != nil} {
+	for _, set := range []bool{a.Say != "", len(a.Emit) > 0, len(a.RateLimit) > 0, a.Write != nil, len(a.Git) > 0, a.Finish != nil, a.Exit != nil, a.Block != ""} {
 		if set {
 			n++
 		}
@@ -160,6 +164,13 @@ func (c *child) do(a Action) (code int, stop bool, err error) {
 		c.finish(a.Finish)
 	case a.Exit != nil:
 		return *a.Exit, true, nil
+	case a.Block != "":
+		f, oerr := os.Open(a.Block) // blocks until a writer opens the FIFO
+		if oerr != nil {
+			return 0, false, oerr
+		}
+		_, err = io.Copy(io.Discard, f)
+		f.Close()
 	}
 	return 0, false, err
 }
