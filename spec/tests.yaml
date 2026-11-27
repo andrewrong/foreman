@@ -127,6 +127,9 @@ tests:
 - name: test:harness-subagent-default-off
   covers:
   - D-041
+- name: test:intake-model-selection
+  covers:
+  - D-065
 - name: test:l0-covers-l1
   covers:
   - D-046
@@ -203,6 +206,9 @@ tests:
 - name: test:run-config-snapshot
   covers:
   - C-13
+- name: test:sandbox-env-has-only-allowed-credentials
+  covers:
+  - D-065
 - name: test:sandbox-probe-git-commit
   covers:
   - D-060

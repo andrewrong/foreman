@@ -458,3 +458,10 @@ decisions:
     supersedes: D-037
     enforced_by: "test:module-deps"
     status: active
+
+  - id: D-065
+    date: 2026-11-27
+    statement: "owner 确认：① C-08 的凭据例外只有两类——模型 token（专用、可吊销）与 R1 测试凭据；② intake 默认用 Sonnet，草稿 size=l 或 owner 要求时用 Opus（protocol-intake PI-3）"
+    resolves: []
+    enforced_by: "test:sandbox-env-has-only-allowed-credentials；test:intake-model-selection"
+    status: active
