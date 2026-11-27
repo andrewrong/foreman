@@ -172,6 +172,10 @@ func TestReviewChangesCarriesFindingsAndDoesNotMerge(t *testing.T) {
 	if _, err := w.integ.BranchSHA(ctx, "r1"); err == nil {
 		t.Fatal("requirement branch exists although the review asked for changes")
 	}
+	// S52 sets last_reviewed_sha=head: the event carries the head reviewed.
+	if sessionHead, _ := w.git.Line(ctx, w.sess.Dir, "rev-parse", "HEAD"); ev.Head != sessionHead {
+		t.Fatalf("review_changes head %q, session head %q", ev.Head, sessionHead)
+	}
 }
 
 func TestReviewMergeBackConflictIsAnEvent(t *testing.T) {

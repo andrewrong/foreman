@@ -81,6 +81,12 @@ func (e Env) RunSession(ctx context.Context, r Request) (Result, error) {
 			return Result{}, err
 		}
 	}
+	// A result.json that already exists belongs to a session that ended before
+	// a crash or a failed Transition: read it, never launch a second session
+	// for the same run (reconciler: "进程已退出且有 result.json").
+	if _, err := os.Stat(filepath.Join(r.RunDir, "result.json")); err == nil {
+		return e.readResult(r, Result{}), nil
+	}
 	timeout, turns := e.Timeout, e.MaxTurns
 	if timeout == 0 {
 		timeout = DefaultTimeout
@@ -133,19 +139,24 @@ func (e Env) RunSession(ctx context.Context, r Request) (Result, error) {
 		res.Event = model.Event{Name: model.EventInfra, Detail: fmt.Sprintf("session exited with code %d", exit.Code)}
 		return res, nil
 	}
+	return e.readResult(r, res), nil
+}
+
+// readResult validates result.json of an ended session into res.
+func (e Env) readResult(r Request, res Result) Result {
 	raw, err := os.ReadFile(filepath.Join(r.RunDir, "result.json"))
 	if err != nil {
 		res.Event = model.Event{Name: model.EventBadResult, Detail: "result.json missing"} // PP-4
-		return res, nil
+		return res
 	}
 	parsed, err := api.ValidateResult(raw, api.ResultContext{RunID: r.RunID, Role: r.Role, Scope: "step", AcceptanceIDs: r.AcceptanceIDs})
 	if err != nil {
 		res.Event = model.Event{Name: model.EventBadResult, Detail: err.Error()}
-		return res, nil
+		return res
 	}
 	res.Parsed = parsed
 	res.Event.Usage = e.usage(filepath.Join(r.RunDir, "stdout.log"))
-	return res, nil
+	return res
 }
 
 // usage reads the final result line of the session's stream, if any.

@@ -195,8 +195,8 @@ func (s *Scheduler) runReview(ctx context.Context, st stepRow, req reqRow, run r
 }
 
 func (s *Scheduler) runCheck(ctx context.Context, st stepRow, req reqRow, run runRow) (*model.Event, error) {
-	if _, err := s.leaseFor(ctx, st, req); err != nil {
-		return nil, err
+	if lease, err := s.leaseFor(ctx, st, req); err != nil || lease == nil {
+		return nil, err // Gate wait: try again next Tick
 	}
 	ev, err := stagecheck.Run(ctx, stagecheck.Env{Integ: s.d.Integ, Launcher: s.d.Launcher, Policy: s.checkPolicy()},
 		stagecheck.Request{RunID: run.ID, StepID: st.ID, SessionRepo: req.SessionRepo, SessionBranch: req.Branch,
@@ -242,8 +242,8 @@ func (s *Scheduler) runIntegrate(ctx context.Context, st stepRow, req reqRow) (*
 }
 
 func (s *Scheduler) runMerge(ctx context.Context, st stepRow, req reqRow) (*model.Event, error) {
-	if _, err := s.leaseFor(ctx, st, req); err != nil {
-		return nil, err
+	if lease, err := s.leaseFor(ctx, st, req); err != nil || lease == nil {
+		return nil, err // no merge slot / base health yet: never merge without them
 	}
 	pr, head, err := s.loadPR(ctx, req.ID)
 	if err != nil {

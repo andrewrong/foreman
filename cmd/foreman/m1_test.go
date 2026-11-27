@@ -233,10 +233,15 @@ func TestM1FastLane(t *testing.T) {
 	if prState != "merged" || prNumber != 7 {
 		t.Errorf("pull request: state %s number %d", prState, prNumber)
 	}
-	phase := validate.DerivedPhase(validate.PhaseInput{Status: model.StatusSubmitted, HasPR: true, AllPRsMerged: true,
-		HasSteps: true})
+	var reqStatus string
+	var prs, mergedPRs, steps int
+	query(t, app, `SELECT status FROM requirements WHERE id = 'R-m1'`, &reqStatus)
+	query(t, app, `SELECT COUNT(*), COALESCE(SUM(state = 'merged'), 0) FROM pull_requests`, &prs, &mergedPRs)
+	query(t, app, `SELECT COUNT(*) FROM steps`, &steps)
+	phase := validate.DerivedPhase(validate.PhaseInput{Status: model.ReqStatus(reqStatus), HasPR: prs > 0,
+		AllPRsMerged: prs == mergedPRs, HasSteps: steps > 0})
 	if phase != model.PhaseReporting {
-		t.Errorf("derived phase %s", phase)
+		t.Errorf("derived phase %s, want reporting", phase)
 	}
 
 	// The work step: a squashed commit with the Step-Id trailer on the

@@ -56,6 +56,14 @@ func Run(ctx context.Context, env Env, req Request) (model.Event, error) {
 		return ev, nil
 	case res.Parsed.Verdict == "changes":
 		ev.Name = model.EventReviewChanges
+		if mb := req.MergeBack; mb != nil {
+			// S52 records last_reviewed_sha=head: the head the reviewer saw.
+			head, err := env.Integ.FetchFromSession(ctx, mb.SessionRepo, mb.SessionBranch, integrate.StepRefPrefix+"steps/"+mb.StepID)
+			if err != nil {
+				return model.Event{}, err
+			}
+			ev.Head = head
+		}
 		if res.Parsed.Findings != nil {
 			for _, f := range *res.Parsed.Findings {
 				mf := model.Finding{Severity: f.Severity, Problem: f.Problem, CloseWhen: f.CloseWhen}
