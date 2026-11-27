@@ -3,14 +3,15 @@
 分工：Opus 会话拆任务、做探测、审查、合并；Sonnet 子代理按任务写代码。
 状态：ready = spec 已定，可以派；blocked:<探测> = 等探测结论改完 spec 再派；done。
 每个任务一个分支 task/<编号>-<短名>，审查通过后由 Opus 会话合入开发分支 dev/v1。
+探测结论见 docs/probes/phase-1.md，相关决定 D-066。
 
 ## 第 1 阶段：真机探测（Opus 会话做，结论写回 spec 并把 verified: false 改掉）
 
 | 编号 | 探测 | 影响的 spec | 状态 |
 |---|---|---|---|
-| P1 | srt 沙箱：会话仓库（clone --shared 自镜像）中带 pre-commit hook 的 git commit；denyRead 凭据目录；api.github.com 被拒；allowLocalBinding；同卷 cp -c 的 Go 缓存 | access.yaml R0、D-056、test:sandbox-probe-* | todo |
-| P2 | claude -p：stream-json 中 rate_limit_event 的字段（five_hour、seven_day）；--settings 的 advisorModel 是否生效；--max-turns；result 中的 usage | resources.yaml windows_rule、skills.yaml advisor、protocol-run | todo |
-| P3 | GitHub PAT：开 PR、update-branch、rerun Actions、条件请求 304 不扣额度、check-runs 在 PAT 下的可读性 | forge.yaml FG-*、OP-* | 部分完成（见 docs/reviews/round-2-response.md） |
+| P1 | srt 沙箱：会话仓库（clone --shared 自镜像）中带 pre-commit hook 的 git commit；denyRead 凭据目录；api.github.com 被拒；allowLocalBinding；同卷 cp -c 的 Go 缓存 | access.yaml R0、D-056、test:sandbox-probe-* | done（项目缓存克隆耗时待补） |
+| P2 | claude -p：stream-json 中 rate_limit_event 的字段（five_hour、seven_day）；--settings 的 advisorModel 是否生效；--max-turns；result 中的 usage | resources.yaml windows_rule、skills.yaml advisor、protocol-run | done |
+| P3 | GitHub PAT：开 PR、update-branch、rerun Actions、条件请求 304 不扣额度、check-runs 在 PAT 下的可读性 | forge.yaml FG-*、OP-* | done（私有仓库读取未验证） |
 
 ## 第 2 阶段：地基（交给 Sonnet）
 
@@ -23,8 +24,8 @@
 | T5 | internal/spec/model 与 validate、ears：Requirement/Spec/Step 类型与入库校验 | entities.yaml；format-rules F2 | test:spec-validate-requirement、test:derived-phase-total | ready |
 | T6 | internal/store：sqlite 打开、迁移、单写者 | entities.yaml；D-002 | test:store-single-writer | ready |
 | T7 | internal/pipeline/state：Transition，转移表由 state-machine.yaml 生成为 Go 数据（生成物标 generated） | state-machine.yaml；C-01 | test:only-transition-writes-state、test:state-table-exhaustive（复用 T2） | ready（T2、T5、T6 之后） |
-| T8 | internal/harness/api 与 scripted 假模型；里程碑 M1：scripted 模型 + 假 GitHub 跑通一个需求 | protocol-run.yaml；D-037 | M1 端到端测试 | blocked:P2 |
-| T9 | internal/forge | forge.yaml | test:forge-* | blocked:P3 |
-| T10 | internal/sandbox、internal/workspace | access.yaml；D-045、D-056 | test:sandbox-*、test:session-* | blocked:P1 |
+| T8 | internal/harness/api 与 scripted 假模型；里程碑 M1：scripted 模型 + 假 GitHub 跑通一个需求 | protocol-run.yaml；D-037 | M1 端到端测试 | ready |
+| T9 | internal/forge | forge.yaml | test:forge-* | ready |
+| T10 | internal/sandbox、internal/workspace | access.yaml；D-045、D-056 | test:sandbox-*、test:session-* | ready |
 
 里程碑 M2（真实 Claude 与 GitHub 跑通 foreman-sandbox 上的一个需求）在 T8–T10 之后另行拆分。
