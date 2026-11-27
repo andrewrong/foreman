@@ -18,7 +18,7 @@
 | 编号 | 任务 | spec | 验收（测试名） | 状态 |
 |---|---|---|---|---|
 | T1 | Go 骨架：go.mod、cmd/foreman（只有 version 子命令）、Makefile（build/test/lint）、internal/clock（Clock 接口、Real、Fake） | modules.yaml clock、cli；C-05 | go build/test/vet 通过；Fake 时钟的单测 | done |
-| T2 | 把 tools/smcheck.rb 移植为 Go 测试：读取 spec/design/state-machine.yaml 与 protocol-run.yaml，实现与 ruby 版相同的全部检查 | state-machine.yaml；C-02 | test:state-table-exhaustive；对 ruby 版做过的变异逐一给出 Go 测试用例（报错一致） | ready |
+| T2 | 把 tools/smcheck.rb 移植为 Go 测试：读取 spec/design/state-machine.yaml 与 protocol-run.yaml，实现与 ruby 版相同的全部检查 | state-machine.yaml；C-02 | test:state-table-exhaustive；对 ruby 版做过的变异逐一给出 Go 测试用例（报错一致） | done |
 | T3 | 仓库检查：package 行数（C-03）、模块依赖方向（MD-*）、AGENTS.md 体积（C-11）、测试里禁 time.Sleep、禁执行 gh | modules.yaml；C-03、C-04、C-05、C-11 | check:size-limits、test:module-deps、check:agents-md-size、check:no-sleep-in-tests、check:no-gh-exec | done |
 | T4 | spec lint：F1 id 唯一与引用可解析、F3 enforced_by 格式、F4、F5 禁用词、F7/F8、F10 phase 标签 | format-rules.yaml；C-12 | check:spec-lint、check:spec-phase-tags | ready |
 | T5 | internal/spec/model 与 validate、ears：Requirement/Spec/Step 类型与入库校验 | entities.yaml；format-rules F2 | test:spec-validate-requirement、test:derived-phase-total | done |
