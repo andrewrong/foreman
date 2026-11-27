@@ -36,6 +36,19 @@ func ValidateID(id string) error {
 	return ValidateName(id)
 }
 
+// ValidateStepID accepts a step id: a ValidateID segment, or the form
+// internal/pipeline/state mints, "<req id>/S<n>" (exactly one '/').
+func ValidateStepID(id string) error {
+	req, step, ok := strings.Cut(id, "/")
+	if !ok {
+		return ValidateID(id)
+	}
+	if ValidateID(req) != nil || ValidateID(step) != nil {
+		return ErrInvalidName
+	}
+	return nil
+}
+
 // RequirementBranch is the branch name for a requirement: foreman/<req id>.
 // It is both the session repo branch and the only push target (D-050).
 func RequirementBranch(reqID string) (string, error) {

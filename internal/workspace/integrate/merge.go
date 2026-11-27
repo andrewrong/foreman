@@ -46,7 +46,7 @@ func (d *Dir) SquashMergeBack(ctx context.Context, s MergeSpec) (MergeResult, er
 	if err != nil {
 		return MergeResult{}, err
 	}
-	if err := git.ValidateID(s.StepID); err != nil {
+	if err := git.ValidateStepID(s.StepID); err != nil {
 		return MergeResult{}, err
 	}
 	if err := git.ValidateName(s.StepRef); err != nil || !strings.HasPrefix(s.StepRef, StepRefPrefix) {
