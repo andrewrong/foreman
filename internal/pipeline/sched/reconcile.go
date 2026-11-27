@@ -204,22 +204,11 @@ func (s *Scheduler) runCheck(ctx context.Context, st stepRow, req reqRow, run ru
 	return &ev, err
 }
 
-// checkPolicy is the sandbox policy of L0: the working directory is the
-// integration directory, which the session policy denies for writing, so it
-// is taken out of the deny list here (policy.New refuses a working directory
-// inside a deny-write directory). The policy has no read-only working
-// directory, so L0 may write there; the integration directory is reset to the
-// fetched head before every check.
-func (s *Scheduler) checkPolicy() policy.Inputs {
-	in := s.d.Policy
-	in.DenyWrite = nil
-	for _, d := range s.d.Policy.DenyWrite {
-		if d != s.d.Integ.Path && !strings.HasPrefix(s.d.Integ.Path, d+"/") {
-			in.DenyWrite = append(in.DenyWrite, d)
-		}
-	}
-	return in
-}
+// checkPolicy is the sandbox policy of L0. The working directory is a
+// throwaway checkout under the Run's directory, so the deny-write list is the
+// session's own, integrate/ included: L0 runs AI-written code and must not be
+// able to alter the directory foremand runs git in.
+func (s *Scheduler) checkPolicy() policy.Inputs { return s.d.Policy }
 
 func (s *Scheduler) runIntegrate(ctx context.Context, st stepRow, req reqRow) (*model.Event, error) {
 	pr, _, err := s.loadPR(ctx, req.ID)

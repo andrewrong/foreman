@@ -44,7 +44,9 @@ type world struct {
 	env   Env
 }
 
-func newWorld(t *testing.T) *world {
+func newWorld(t *testing.T) *world { return newWorldExec(t, nil) }
+
+func newWorldExec(t *testing.T, ex wsgit.ExecFunc) *world {
 	t.Helper()
 	goBin, err := exec.LookPath("go")
 	if err != nil {
@@ -57,7 +59,7 @@ func newWorld(t *testing.T) *world {
 	t.Cleanup(func() { os.RemoveAll(root) })
 	ctx := context.Background()
 	gr, err := wsgit.New(wsgit.Config{Home: filepath.Join(root, "gh"), Clock: clock.NewFake(time.Unix(1_800_000_000, 0)),
-		Ident: &wsgit.Identity{Name: "seed", Email: "seed@users.noreply.example"}})
+		Ident: &wsgit.Identity{Name: "seed", Email: "seed@users.noreply.example"}, Exec: ex})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +96,8 @@ func newWorld(t *testing.T) *world {
 	}
 	return &world{t: t, root: root, git: gr, sess: sess, integ: integ, env: Env{Integ: integ,
 		Launcher: launch.Launcher{PassThrough: true},
-		Policy: policy.Inputs{DenyWrite: []string{filepath.Join(root, "db")},
+		// integrate/ stays denyWrite, as in the deployed policy.
+		Policy: policy.Inputs{DenyWrite: []string{filepath.Join(root, "db"), integ.Path},
 			Path: filepath.Dir(goBin) + ":" + wsgit.DefaultPath}}}
 }
 
@@ -131,9 +134,9 @@ func TestCheckStageRunsL0OnFetchedHead(t *testing.T) {
 	if err != nil || ev.Name != model.EventCheckPass || ev.Head != good {
 		t.Fatalf("event %+v err %v (want pass at %s)", ev, err, good)
 	}
-	// The checkout is the integration directory, at the fetched head.
-	if got, _ := w.git.Line(ctx, w.integ.Path, "rev-parse", "HEAD"); got != good {
-		t.Errorf("integration HEAD %s, want %s", got, good)
+	// L0 ran on its own checkout at the fetched head, not in the integration directory.
+	if got, _ := w.git.Line(ctx, filepath.Join(w.req().RunDir, "l0"), "rev-parse", "HEAD"); got != good {
+		t.Errorf("l0 HEAD %s, want %s", got, good)
 	}
 
 	w.commit(map[string]string{"sum.go": sumGo("a - b")})
