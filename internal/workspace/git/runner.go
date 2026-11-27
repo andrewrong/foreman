@@ -23,6 +23,10 @@ var HardenedArgs = []string{
 	"-c", "core.hooksPath=/dev/null",
 	"-c", "core.fsmonitor=",
 	"-c", "protocol.file.allow=always",
+	// No detached background work (auto gc / maintenance): foremand must not
+	// leave git processes writing into its directories after a call returns.
+	"-c", "gc.auto=0",
+	"-c", "maintenance.auto=false",
 }
 
 // Identity is the commit identity injected with -c user.name/-c user.email.
