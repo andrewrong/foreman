@@ -29,7 +29,7 @@ func outcomeOf(name string) string {
 		return "review_changes"
 	case model.EventSpecConflict:
 		return "spec_conflict"
-	case model.EventInfra:
+	case model.EventInfra, model.EventDeadlinePassed:
 		return "infra"
 	case model.EventBadResult:
 		return "bad_result"
@@ -72,19 +72,6 @@ func (s *Scheduler) ensureSessionRepo(ctx context.Context, req reqRow) (string, 
 		return err
 	})
 	return repo.Dir, err
-}
-
-// loadPR returns the PR number and head sha of a requirement (0, "" if none).
-func (s *Scheduler) loadPR(ctx context.Context, reqID string) (int, string, error) {
-	var n sql.NullInt64
-	var head sql.NullString
-	err := s.d.DB.Read(ctx, func(tx *sql.Tx) error {
-		return tx.QueryRowContext(ctx, `SELECT number, head_sha FROM pull_requests WHERE req_id = ?`, reqID).Scan(&n, &head)
-	})
-	if err == sql.ErrNoRows {
-		return 0, "", nil
-	}
-	return int(n.Int64), head.String, err
 }
 
 // savePR upserts the E-PR row (one PR per requirement, D-042).

@@ -170,6 +170,24 @@ func (c *txc) setLastReviewed() error {
 	return err
 }
 
+// approveGuardrail writes E-PR.guardrail_approved_sha: the head the event
+// names, else the head the pull request row holds.
+func (c *txc) approveGuardrail() error {
+	head := c.ev.Head
+	if head == "" {
+		var h sql.NullString
+		if err := c.tx.QueryRowContext(c.ctx, `SELECT head_sha FROM pull_requests WHERE req_id = ?`, c.req.id).Scan(&h); err != nil {
+			return fmt.Errorf("grant_access: no pull request to approve: %w", err)
+		}
+		head = h.String
+	}
+	if head == "" {
+		return fmt.Errorf("grant_access: the pull request has no head sha to approve")
+	}
+	_, err := c.tx.ExecContext(c.ctx, `UPDATE pull_requests SET guardrail_approved_sha = ? WHERE req_id = ?`, head, c.req.id)
+	return err
+}
+
 func fxRecordResumeStage(c *txc, _ string) error {
 	if c.step == nil {
 		return fmt.Errorf("record_resume_stage needs a step")
@@ -277,12 +295,18 @@ func fxInjectGuidance(c *txc, _ string) error {
 }
 
 func fxGrantAccess(c *txc, _ string) error {
-	if c.ev.Resource == "" {
-		return fmt.Errorf("grant_access: event carries no resource")
-	}
 	s, err := c.subjectStep()
 	if err != nil {
 		return err
+	}
+	if s.typ == "integrate" {
+		// An integrate step asks H6 only through S47 (guardrail_hit): the grant
+		// approves the PR's current head (E-PR.guardrail_approved_sha), so the
+		// merge goes ahead and a new head asks again.
+		return c.approveGuardrail()
+	}
+	if c.ev.Resource == "" {
+		return fmt.Errorf("grant_access: event carries no resource")
 	}
 	if !slices.Contains(s.grants, c.ev.Resource) {
 		s.grants = append(s.grants, c.ev.Resource)

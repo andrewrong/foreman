@@ -18,6 +18,9 @@ const (
 	EventSpecConflict   = "spec_conflict"
 	EventInfra          = "infra"
 	EventBadResult      = "bad_result"
+	EventGuardrailHit   = "guardrail_hit"   // merge: the diff touches a guardrail path (S47)
+	EventNeedsRereview  = "needs_rereview"  // merge: base changed files of the PR after update-branch (S46)
+	EventDeadlinePassed = "deadline_passed" // waiting(ci): no run found, or queued without a runner (S33)
 )
 
 // Event is the value a stage returns after it acted (MD-7: stage packages

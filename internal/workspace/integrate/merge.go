@@ -10,6 +10,23 @@ import (
 	"github.com/andrewrong/foreman/internal/workspace/git"
 )
 
+var stepHeadRE = regexp.MustCompile(`(?m)^Step-Head: ([0-9a-f]{40})$`)
+
+// lastMergedHead returns the newest session head recorded on the requirement
+// branch (Step-Head trailer) that is an ancestor of stepRef, "" if none.
+func (d *Dir) lastMergedHead(ctx context.Context, reqRef, stepRef string) (string, error) {
+	out, err := d.r.Run(ctx, d.Path, "log", "--format=%B%x00", "-E", "--grep=^Step-Head: [0-9a-f]{40}$", reqRef)
+	if err != nil {
+		return "", err
+	}
+	for _, m := range stepHeadRE.FindAllStringSubmatch(out, -1) {
+		if _, err := d.r.Run(ctx, d.Path, "merge-base", "--is-ancestor", m[1], stepRef); err == nil {
+			return m[1], nil
+		}
+	}
+	return "", nil
+}
+
 // ErrMergeConflict is wrapped by *ConflictError.
 var ErrMergeConflict = errors.New("integrate: merge-back conflict")
 
@@ -37,10 +54,18 @@ type MergeResult struct {
 	Empty         bool   // the step introduced nothing; branch unchanged
 }
 
-// SquashMergeBack squashes the step's commits into one commit (parent: the
-// merge-base with the requirement branch), rebases it onto the requirement
-// branch and fast-forwards the branch (state-machine S42 note). It is
-// idempotent on the Step-Id trailer.
+// SquashMergeBack squashes the step's commits into one commit, rebases it onto
+// the requirement branch and fast-forwards the branch (state-machine S42
+// note). It is idempotent on the Step-Id trailer.
+//
+// The squash starts where the session branch was when an earlier step of the
+// requirement was merged back: that step's session head is recorded in a
+// Step-Head trailer, and the newest recorded head that is an ancestor of this
+// step's head is the parent of the squash. Without it the session branch's
+// whole history since the merge base would be squashed again and collide with
+// the already merged earlier steps (add/add on every file they created).
+// With no earlier step the parent is the merge-base with the requirement
+// branch.
 func (d *Dir) SquashMergeBack(ctx context.Context, s MergeSpec) (MergeResult, error) {
 	branch, err := git.RequirementBranch(s.ReqID)
 	if err != nil {
@@ -73,6 +98,15 @@ func (d *Dir) SquashMergeBack(ctx context.Context, s MergeSpec) (MergeResult, er
 	if err != nil {
 		return MergeResult{}, fmt.Errorf("integrate: no merge base between %s and %s: %w", branch, s.StepRef, err)
 	}
+	if prev, err := d.lastMergedHead(ctx, reqRef, s.StepRef); err != nil {
+		return MergeResult{}, err
+	} else if prev != "" {
+		mb = prev
+	}
+	stepHead, err := d.r.Line(ctx, d.Path, "rev-parse", "--verify", s.StepRef+"^{commit}")
+	if err != nil {
+		return MergeResult{}, err
+	}
 	stepTree, err := d.r.Line(ctx, d.Path, "rev-parse", "--verify", s.StepRef+"^{tree}")
 	if err != nil {
 		return MergeResult{}, err
@@ -84,7 +118,7 @@ func (d *Dir) SquashMergeBack(ctx context.Context, s MergeSpec) (MergeResult, er
 	if stepTree == mbTree {
 		return MergeResult{SHA: tip, Empty: true}, nil
 	}
-	squash, err := d.r.Line(ctx, d.Path, "commit-tree", stepTree, "-p", mb, "-m", s.Subject+"\n\nStep-Id: "+s.StepID)
+	squash, err := d.r.Line(ctx, d.Path, "commit-tree", stepTree, "-p", mb, "-m", s.Subject+"\n\nStep-Head: "+stepHead+"\nStep-Id: "+s.StepID)
 	if err != nil {
 		return MergeResult{}, err
 	}

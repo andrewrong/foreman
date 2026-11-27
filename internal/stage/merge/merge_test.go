@@ -64,8 +64,8 @@ func newEnv(t *testing.T, f *fake) Env {
 func TestMergeStagePinsHeadAndIsIdempotent(t *testing.T) {
 	f := &fake{}
 	env := newEnv(t, f)
-	req := Request{PR: 7, Head: "abc123", Priority: gate.P2}
-	ev, err := Run(context.Background(), env, req)
+	call := ops.Call{Priority: gate.P2}
+	ev, err := Merge(context.Background(), env, call, 7, "abc123")
 	if err != nil || ev == nil || ev.Name != model.EventMerged || ev.Head != "m3rge" {
 		t.Fatalf("event %+v err %v", ev, err)
 	}
@@ -74,7 +74,7 @@ func TestMergeStagePinsHeadAndIsIdempotent(t *testing.T) {
 	}
 	// Already merged on GitHub (crash after the merge): merged again, no 2nd PUT.
 	f.body = nil
-	ev, err = Run(context.Background(), env, req)
+	ev, err = Merge(context.Background(), env, call, 7, "abc123")
 	if err != nil || ev == nil || ev.Name != model.EventMerged || f.body != nil {
 		t.Fatalf("repeat: %+v err %v body %v", ev, err, f.body)
 	}
@@ -83,7 +83,7 @@ func TestMergeStagePinsHeadAndIsIdempotent(t *testing.T) {
 func TestMergeStageConflictBecomesEvent(t *testing.T) {
 	for _, code := range []int{http.StatusConflict, http.StatusMethodNotAllowed} {
 		f := &fake{mergeCode: code}
-		ev, err := Run(context.Background(), newEnv(t, f), Request{PR: 7, Head: "abc123", Priority: gate.P2})
+		ev, err := Merge(context.Background(), newEnv(t, f), ops.Call{Priority: gate.P2}, 7, "abc123")
 		if err != nil || ev == nil || ev.Name != model.EventMergeConflict {
 			t.Fatalf("status %d: %+v err %v", code, ev, err)
 		}
