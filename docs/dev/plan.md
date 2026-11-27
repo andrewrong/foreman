@@ -9,7 +9,7 @@
 
 | 编号 | 探测 | 影响的 spec | 状态 |
 |---|---|---|---|
-| P1 | srt 沙箱：会话仓库（clone --shared 自镜像）中带 pre-commit hook 的 git commit；denyRead 凭据目录；api.github.com 被拒；allowLocalBinding；同卷 cp -c 的 Go 缓存 | access.yaml R0、D-056、test:sandbox-probe-* | done（项目缓存克隆耗时待补） |
+| P1 | srt 沙箱：会话仓库（clone --shared 自镜像）中带 pre-commit hook 的 git commit；denyRead 凭据目录；api.github.com 被拒；allowLocalBinding；同卷 cp -c 的 Go 缓存 | access.yaml R0、D-056、test:sandbox-probe-* | done |
 | P2 | claude -p：stream-json 中 rate_limit_event 的字段（five_hour、seven_day）；--settings 的 advisorModel 是否生效；--max-turns；result 中的 usage | resources.yaml windows_rule、skills.yaml advisor、protocol-run | done |
 | P3 | GitHub PAT：开 PR、update-branch、rerun Actions、条件请求 304 不扣额度、check-runs 在 PAT 下的可读性 | forge.yaml FG-*、OP-* | done（私有仓库读取未验证） |
 

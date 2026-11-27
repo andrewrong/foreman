@@ -20,7 +20,7 @@
 
 Go 缓存：
 - owner 机器的 GOCACHE 有 306G，cp -c（APFS 克隆）整份克隆数小时级（逐文件元数据），不可用；跨卷时退化为整份复制，更不可用。
-- 结论：每个项目一份专用缓存（FOREMAN_HOME/cache/<p>/，由 foremand 在沙箱外预热），会话用 cp -c 克隆这份项目缓存；数值见下方「项目缓存」一行（探测进行中则为空）。
+- 结论：每个项目一份专用缓存（FOREMAN_HOME/cache/<p>/，由 foremand 在沙箱外预热），会话用 cp -c 克隆这份项目缓存；实测 foreman-sandbox：空缓存首次 go test 3s，项目缓存 71M、1062 个文件，cp -c 克隆 < 1s。
 
 ## P2 claude -p
 
