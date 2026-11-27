@@ -89,6 +89,9 @@ func Requirement(r model.Requirement) []Error {
 		enum(&c, fmt.Sprintf("pending_triggers[%d]", i), "E-REQ", t,
 			model.TriggerReplan, model.TriggerRescue, model.TriggerOwner)
 	}
+	if r.SpecVersion < 1 {
+		c.add("spec_version", "E-REQ.spec_version.min", "spec_version %d must be at least 1 (D-070)", r.SpecVersion)
+	}
 	c.required("branch", "E-REQ.branch.required", r.Branch)
 	if r.Branch != "" && r.ID != "" && r.Branch != "foreman/"+r.ID {
 		c.add("branch", "E-REQ.branch.format", "branch %q must be foreman/%s", r.Branch, r.ID)
@@ -115,6 +118,10 @@ func Spec(s model.Spec) []Error {
 	c.maxLen("goal", "E-SPEC.goal.max_len", s.Goal, 500)
 	for i, ref := range s.Current {
 		c.required(fmt.Sprintf("current[%d].module", i), "E-REF.module.required", ref.Module)
+	}
+	// current may be empty (new module, D-070); change needs at least one item.
+	if len(s.Change) < 1 {
+		c.add("change", "E-SPEC.change.min_items", "change needs at least 1 item")
 	}
 	if len(s.Outcome) < 1 {
 		c.add("outcome", "E-SPEC.outcome.min_items", "outcome needs at least 1 item")
@@ -157,8 +164,8 @@ func acceptance(c *collector, p string, a model.Acceptance) {
 func bug(c *collector, p string, b model.BugInfo) {
 	c.required(p+".observed", "E-BUG.observed.required", b.Observed)
 	c.required(p+".expected", "E-BUG.expected.required", b.Expected)
-	if b.Repro == nil {
-		c.add(p+".repro", "E-BUG.repro.required", "repro is missing")
+	if len(b.Repro) < 1 {
+		c.add(p+".repro", "E-BUG.repro.min_items", "repro needs at least 1 item")
 	}
 	enum(c, p+".cause_status", "E-BUG", b.CauseStatus, model.CauseSuspected, model.CauseProven)
 	if b.CauseStatus == model.CauseProven {

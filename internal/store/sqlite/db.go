@@ -72,11 +72,20 @@ func (d *DB) Read(ctx context.Context, fn func(*sql.Tx) error) error {
 	return runTx(ctx, d.reader, true, fn)
 }
 
-func runTx(ctx context.Context, db *sql.DB, ro bool, fn func(*sql.Tx) error) error {
+// runTx runs fn in a transaction. If fn panics the transaction is rolled back
+// and the panic is re-raised, so the single write connection is never left
+// holding an open transaction.
+func runTx(ctx context.Context, db *sql.DB, ro bool, fn func(*sql.Tx) error) (err error) {
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: ro})
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if p := recover(); p != nil {
+			_ = tx.Rollback()
+			panic(p)
+		}
+	}()
 	if err := fn(tx); err != nil {
 		_ = tx.Rollback()
 		return err

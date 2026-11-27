@@ -48,6 +48,12 @@ func TestSpecValidateRequirement(t *testing.T) {
 	if errs := Spec(validSpec()); len(errs) != 0 {
 		t.Fatalf("valid spec rejected: %v", errs)
 	}
+	// current may be empty (new module, D-070).
+	noCurrent := validSpec()
+	noCurrent.Current = nil
+	if errs := Spec(noCurrent); len(errs) != 0 {
+		t.Fatalf("empty current must be accepted: %v", errs)
+	}
 	bugReq := validReq()
 	bugReq.Kind = model.KindBug
 	bugReq.Spec = validBugSpec()
@@ -70,6 +76,8 @@ func TestSpecValidateRequirement(t *testing.T) {
 		{"goal empty", "E-SPEC.goal.required", func(s *model.Spec) { s.Goal = "" }},
 		{"goal too long", "E-SPEC.goal.max_len", func(s *model.Spec) { s.Goal = strings.Repeat("g", 501) }},
 		{"ref without module", "E-REF.module.required", func(s *model.Spec) { s.Current = []model.Ref{{Path: "x"}} }},
+		{"no change", "E-SPEC.change.min_items", func(s *model.Spec) { s.Change = nil }},
+		{"empty change", "E-SPEC.change.min_items", func(s *model.Spec) { s.Change = []string{} }},
 		{"no outcome", "E-SPEC.outcome.min_items", func(s *model.Spec) { s.Outcome = nil }},
 		{"acc id empty", "E-ACC.id.required", func(s *model.Spec) { s.Outcome[0].ID = "" }},
 		{"acc id format", "E-ACC.id.format", func(s *model.Spec) { s.Outcome[0].ID = "X1" }},
@@ -99,7 +107,8 @@ func TestSpecValidateRequirement(t *testing.T) {
 	}{
 		{"observed", "E-BUG.observed.required", func(b *model.BugInfo) { b.Observed = "" }},
 		{"expected", "E-BUG.expected.required", func(b *model.BugInfo) { b.Expected = "" }},
-		{"repro", "E-BUG.repro.required", func(b *model.BugInfo) { b.Repro = nil }},
+		{"repro nil", "E-BUG.repro.min_items", func(b *model.BugInfo) { b.Repro = nil }},
+		{"repro empty", "E-BUG.repro.min_items", func(b *model.BugInfo) { b.Repro = []string{} }},
 		{"cause_status empty", "E-BUG.cause_status.required", func(b *model.BugInfo) { b.CauseStatus = "" }},
 		{"cause_status enum", "E-BUG.cause_status.enum", func(b *model.BugInfo) { b.CauseStatus = "maybe" }},
 		{"proven without proof", "E-BUG.cause_proof.required_when", func(b *model.BugInfo) { b.CauseProof = nil }},
@@ -133,6 +142,8 @@ func TestSpecValidateRequirement(t *testing.T) {
 		{"status enum", "E-REQ.status.enum", func(r *model.Requirement) { r.Status = "open" }},
 		{"size empty", "E-REQ.size.required", func(r *model.Requirement) { r.Size = "" }},
 		{"trigger enum", "E-REQ.pending_triggers.enum", func(r *model.Requirement) { r.PendingTriggers = []model.Trigger{"x"} }},
+		{"spec_version zero", "E-REQ.spec_version.min", func(r *model.Requirement) { r.SpecVersion = 0 }},
+		{"spec_version negative", "E-REQ.spec_version.min", func(r *model.Requirement) { r.SpecVersion = -1 }},
 		{"branch empty", "E-REQ.branch.required", func(r *model.Requirement) { r.Branch = "" }},
 		{"branch format", "E-REQ.branch.format", func(r *model.Requirement) { r.Branch = "feature/x" }},
 		{"bug kind without bug", "E-SPEC.bug.required_when", func(r *model.Requirement) { r.Kind = model.KindBug }},

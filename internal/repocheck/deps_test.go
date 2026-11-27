@@ -137,17 +137,28 @@ func depViolations(root string) ([]string, error) {
 		}
 	}
 	// imports[pkg] = set of import paths used by any file (tests included).
+	// External test packages (package foo_test) form their own node in the
+	// cycle graph: they may import foo, and foo_test -> bar -> foo is not a
+	// cycle. Their imports still count for layer and edge rules under foo.
 	imports := map[string]map[string]bool{}
+	extImports := map[string]map[string]bool{}
 	err = eachGoFile(root, func(rel string) bool {
 		return inPrefix(rel, "internal") || inPrefix(rel, "cmd")
 	}, func(rel string, _ *token.FileSet, f *ast.File) {
 		dir := path.Dir(rel)
+		set := imports
+		if isTestFile(rel) && strings.HasSuffix(f.Name.Name, "_test") {
+			set = extImports
+		}
 		if imports[dir] == nil {
-			imports[dir] = map[string]bool{}
+			imports[dir] = map[string]bool{} // keeps the package known even if only external tests exist
+		}
+		if set[dir] == nil {
+			set[dir] = map[string]bool{}
 		}
 		for _, imp := range f.Imports {
 			if p, err := strconv.Unquote(imp.Path.Value); err == nil {
-				imports[dir][p] = true
+				set[dir][p] = true
 			}
 		}
 	})
@@ -169,12 +180,29 @@ func depViolations(root string) ([]string, error) {
 		if fromMod == nil && !exempt {
 			out = append(out, fmt.Sprintf("%s: package not listed in %s", from, modulesPath))
 		}
-		imps := make([]string, 0, len(imports[from]))
-		for i := range imports[from] {
-			imps = append(imps, i)
+		type impEdge struct {
+			path string
+			ext  bool
 		}
-		sort.Strings(imps)
-		for _, imp := range imps {
+		var imps []impEdge
+		for i := range imports[from] {
+			imps = append(imps, impEdge{i, false})
+		}
+		for i := range extImports[from] {
+			imps = append(imps, impEdge{i, true})
+		}
+		sort.Slice(imps, func(a, b int) bool {
+			if imps[a].path != imps[b].path {
+				return imps[a].path < imps[b].path
+			}
+			return !imps[a].ext && imps[b].ext
+		})
+		for _, ie := range imps {
+			imp := ie.path
+			node := from
+			if ie.ext {
+				node = from + "_test"
+			}
 			if isGithubClientImport(imp) && !inPrefix(from, "internal/forge") {
 				out = append(out, fmt.Sprintf("%s imports %s: only internal/forge/* may (MD-2, C-10)", from, imp))
 			}
@@ -194,7 +222,7 @@ func depViolations(root string) ([]string, error) {
 				out = append(out, fmt.Sprintf("%s imports %s: package not listed in %s", from, rel, modulesPath))
 				continue
 			}
-			pkgGraph[from] = append(pkgGraph[from], rel)
+			pkgGraph[node] = append(pkgGraph[node], rel)
 			if fromMod == nil {
 				continue
 			}
@@ -356,6 +384,39 @@ func TestModuleDepsDetectsViolations(t *testing.T) {
 			t.Errorf("unexpected violations:\n%s", got)
 		}
 	})
+}
+
+func TestModuleDepsExternalTestPackage(t *testing.T) {
+	ext := func(pkg, imp string) string {
+		return "package p_test\nimport _ \"" + fixtureMod + "/" + imp + "\"\n"
+	}
+	// package foo_test in dir foo importing foo is not a cycle.
+	got := depFixture(t, map[string][]string{"internal/pipeline/state": nil}, map[string]string{
+		"internal/pipeline/state/x_test.go": ext("state", "internal/pipeline/state"),
+	})
+	if got != "" {
+		t.Errorf("external test package importing its own package reported: %s", got)
+	}
+	// foo_test -> bar -> foo is not a cycle either.
+	got = depFixture(t, map[string][]string{
+		"internal/pipeline/state": nil,
+		"internal/pipeline/sched": {"internal/pipeline/state"},
+	}, map[string]string{
+		"internal/pipeline/state/x_test.go": ext("state", "internal/pipeline/sched"),
+	})
+	if strings.Contains(got, "cycle") {
+		t.Errorf("foo_test -> bar -> foo reported as a cycle: %s", got)
+	}
+	// A real cycle is still found.
+	got = depFixture(t, map[string][]string{
+		"internal/pipeline/state": {"internal/pipeline/sched"},
+		"internal/pipeline/sched": {"internal/pipeline/state"},
+	}, map[string]string{
+		"internal/pipeline/state/x_test.go": ext("state", "internal/pipeline/state"),
+	})
+	if !strings.Contains(got, "package import cycle") {
+		t.Errorf("real cycle not reported: %s", got)
+	}
 }
 
 func TestFindCycle(t *testing.T) {

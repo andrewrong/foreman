@@ -3,6 +3,7 @@ package state
 import (
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // xholdRows is req_hold.table with every to: rescue_or_owner row replaced by
@@ -67,5 +68,21 @@ func DecideReq(req ReqView, ev Event) (ReqOutcome, error) {
 			len(hits), hold, ev.Name)
 	}
 	r := hits[0]
-	return ReqOutcome{RowID: r.ID, To: r.To, Effects: slices.Clone(r.Effects)}, nil
+	return ReqOutcome{RowID: r.ID, To: r.To, Effects: slices.Clone(r.Effects), Causes: atCapNames(r.Guard)}, nil
+
+}
+
+// atCapNames returns the counter names whose guard value is at_cap, in guard
+// order (the cause of an owner ask, H14).
+func atCapNames(g []guard) []string {
+	var out []string
+	for _, d := range g {
+		if d.Val != "at_cap" {
+			continue
+		}
+		if _, name, ok := strings.Cut(d.Dim, ":"); ok {
+			out = append(out, name)
+		}
+	}
+	return out
 }

@@ -237,7 +237,7 @@ func Decide(step StepView, req ReqView, ev Event) (Outcome, error) {
 	if err != nil {
 		return Outcome{}, fmt.Errorf("%s: %w", r.ID, err)
 	}
-	out := Outcome{RowID: r.ID, To: to, Effects: slices.Clone(r.Effects)}
+	out := Outcome{RowID: r.ID, To: to, Effects: slices.Clone(r.Effects), Causes: atCapNames(r.Guard)}
 	// HOLD-1: with a requirement hold, queued(X) becomes waiting(hold) with
 	// resume_stage = X.
 	if holdIsSet(req.Hold) && to.State == "queued" {
