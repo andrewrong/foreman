@@ -191,6 +191,7 @@ func (c *txc) transitionStep(stepID string) (Outcome, error) {
 	}
 	c.out, c.rowID, c.prevStage = &out, out.RowID, step.stage
 	if !out.Ignored {
+		c.autoResetCounters()
 		if err := c.applyStepTarget(out); err != nil {
 			return Outcome{}, fmt.Errorf("%s: %w", out.RowID, err)
 		}

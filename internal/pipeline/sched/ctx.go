@@ -41,6 +41,9 @@ func (s *Scheduler) contextInput(ctx context.Context, st stepRow, req reqRow, ro
 			in.Others = append(in.Others, ctxmd.StepLine{ID: o.ID, Type: o.Type, Goal: firstLine(o.Goal), State: o.State})
 		}
 	}
+	if in.OpenFindings, err = s.openReviewFindings(ctx, st.ID); err != nil {
+		return in, err
+	}
 	if role == "reviewer" {
 		in.Diff = s.diff(ctx, st)
 		return in, nil

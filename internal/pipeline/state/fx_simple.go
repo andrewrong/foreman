@@ -103,6 +103,11 @@ func fxReset(c *txc, arg string) error {
 			return err
 		}
 		m[name] = 0
+		if name == "check_fail" && c.ev.Name == "check_pass" && c.step != nil {
+			if err := c.closeFindings("check"); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -142,6 +147,9 @@ func (c *txc) setLastReviewed() error {
 			return fmt.Errorf("event %s carries no head sha", c.ev.Name)
 		}
 		s.lastReviewed, s.dirty = head, true
+		if c.ev.Name == "review_approve" {
+			return c.closeFindings("review")
+		}
 		return nil
 	}
 	if _, err := c.tx.ExecContext(c.ctx, `INSERT INTO pull_requests (req_id, head_branch) VALUES (?, ?)

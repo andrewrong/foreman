@@ -92,7 +92,7 @@ func RunChild(env func(string) string, stdout, stderr io.Writer) int {
 		}
 	}
 	c := &child{env: env, out: stdout, errw: stderr}
-	c.line(map[string]any{"type": "system", "subtype": "init", "session_id": "scripted-" + env(EnvRunID), "model": "scripted", "tools": []string{}})
+	c.line(map[string]any{"type": "system", "subtype": "init", "session_id": "scripted-" + env(EnvRunID), "model": c.model(), "tools": []string{}})
 	finished := false
 	for i, a := range sc.Actions {
 		code, stop, err := c.do(a)
@@ -117,6 +117,14 @@ type child struct {
 	env  func(string) string
 	out  io.Writer
 	errw io.Writer
+}
+
+// model is the model the Run was given (Invocation env), "scripted" if none.
+func (c *child) model() string {
+	if m := c.env(EnvModel); m != "" {
+		return m
+	}
+	return "scripted"
 }
 
 func (c *child) line(v any) {

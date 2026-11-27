@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/andrewrong/foreman/internal/spec/model"
+	ctxmd "github.com/andrewrong/foreman/internal/stage/context"
 )
 
 // timeLayout is the fixed-width format internal/pipeline/state writes.
@@ -210,5 +211,37 @@ func (s *Scheduler) lastCheckFailure(ctx context.Context, stepID string) (tests 
 	if err != nil {
 		return nil, "", false, err
 	}
-	return tests, lt, true, json.Unmarshal([]byte(ft), &tests)
+	if err := json.Unmarshal([]byte(ft), &tests); err != nil {
+		return nil, "", false, err
+	}
+	return tests, lt, true, nil
+}
+
+// openReviewFindings returns the step's open kind=review findings, oldest first.
+func (s *Scheduler) openReviewFindings(ctx context.Context, stepID string) ([]ctxmd.FindingLine, error) {
+	var out []ctxmd.FindingLine
+	err := s.d.DB.Read(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `SELECT id, severity, location, problem, close_when FROM findings
+			WHERE scope = ? AND kind = 'review' AND status = 'open' ORDER BY CAST(SUBSTR(id, 2) AS INTEGER)`, stepID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var f ctxmd.FindingLine
+			var loc sql.NullString
+			if err := rows.Scan(&f.ID, &f.Severity, &loc, &f.Problem, &f.CloseWhen); err != nil {
+				return err
+			}
+			var l struct {
+				Path string `json:"path"`
+				Line int    `json:"line"`
+			}
+			_ = json.Unmarshal([]byte(loc.String), &l)
+			f.Location = fmt.Sprintf("%s:%d", l.Path, l.Line)
+			out = append(out, f)
+		}
+		return rows.Err()
+	})
+	return out, err
 }
