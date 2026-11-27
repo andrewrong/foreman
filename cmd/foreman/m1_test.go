@@ -19,12 +19,14 @@ import (
 	"github.com/andrewrong/foreman/internal/pipeline/state"
 	"github.com/andrewrong/foreman/internal/resource/gate"
 	"github.com/andrewrong/foreman/internal/resource/ledger"
+	"github.com/andrewrong/foreman/internal/sandbox/launch"
 	"github.com/andrewrong/foreman/internal/spec/model"
 	"github.com/andrewrong/foreman/internal/spec/validate"
 	wsgit "github.com/andrewrong/foreman/internal/workspace/git"
 )
 
 func TestMain(m *testing.M) {
+	launch.MaybeRunSession() // ... and as the session launcher
 	scripted.MaybeRunChild() // the test binary doubles as the scripted model process
 	os.Exit(m.Run())
 }
@@ -199,6 +201,7 @@ func TestM1FastLane(t *testing.T) {
 		if _, err := app.Sched.Tick(ctx); err != nil {
 			t.Fatalf("tick %d: %v", tick, err)
 		}
+		app.Sched.WaitSessions() // a real process exit, not a sleep
 		var open int
 		query(t, app, `SELECT COUNT(*) FROM steps WHERE state <> 'done'`, &open)
 		done = open == 0

@@ -14,6 +14,7 @@ import (
 	"github.com/andrewrong/foreman/internal/harness/api"
 	"github.com/andrewrong/foreman/internal/harness/claude"
 	"github.com/andrewrong/foreman/internal/harness/scripted"
+	"github.com/andrewrong/foreman/internal/pipeline/recover"
 	"github.com/andrewrong/foreman/internal/pipeline/sched"
 	"github.com/andrewrong/foreman/internal/pipeline/state"
 	"github.com/andrewrong/foreman/internal/resource/gate"
@@ -26,10 +27,6 @@ import (
 	"github.com/andrewrong/foreman/internal/workspace/integrate"
 	"github.com/andrewrong/foreman/internal/workspace/session"
 )
-
-// maxHomeLen keeps "<home>/runs/<run id>" within the 70 bytes srt's unix
-// socket path allows (access.yaml layout).
-const maxHomeLen = 55
 
 // Config is what Compose wires together. Anything the daemon will later read
 // from config files and secrets is a plain field here.
@@ -75,6 +72,8 @@ type App struct {
 	Mirror    *session.Mirror
 	Integ     *integrate.Dir
 	ProjectID string
+	// Startup is the list of D-047 check lines (what `foreman status` prints).
+	Startup []recover.Check
 }
 
 // Close releases the stores and their directory lock.
@@ -92,24 +91,54 @@ func newGate(o gate.Options) (*gate.Gate, error) {
 	return gate.New(o), nil
 }
 
+// openMirror reuses the mirror of an earlier run after checking that it is a
+// bare repository of the configured remote.
+func openMirror(ctx context.Context, g *wsgit.Runner, dir, remote string) (*session.Mirror, error) {
+	m := session.OpenMirror(g, dir)
+	if _, err := m.DefaultBranch(ctx); err != nil {
+		return nil, fmt.Errorf("compose: %s is not a usable mirror: %w", dir, err)
+	}
+	url, err := m.RemoteURL(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("compose: mirror %s has no origin: %w", dir, err)
+	}
+	if url != remote {
+		return nil, fmt.Errorf("compose: mirror %s tracks %q, config says %q", dir, url, remote)
+	}
+	return m, nil
+}
+
 // Compose opens the stores and builds the engine, gate, forge, harness,
 // sandbox launcher, workspace and scheduler.
 func Compose(ctx context.Context, cfg Config) (*App, error) {
-	if len(cfg.Home) > maxHomeLen || !filepath.IsAbs(cfg.Home) {
-		return nil, fmt.Errorf("compose: FOREMAN_HOME must be absolute and at most %d bytes (srt socket path limit)", maxHomeLen)
-	}
 	if cfg.Clock == nil {
 		return nil, errors.New("compose: clock is required")
+	}
+	if cfg.Ledger == nil {
+		return nil, errors.New("compose: gate needs the daemon's ledger (RC-2); refusing the in-memory fallback")
+	}
+	checks, err := recover.Preflight(cfg.Home, cfg.Project)
+	if err != nil {
+		return nil, err
 	}
 	stores, err := sqlite.Open(ctx, filepath.Join(cfg.Home, "db"), cfg.Clock)
 	if err != nil {
 		return nil, err
 	}
-	app := &App{Stores: stores, ProjectID: cfg.Project}
+	app := &App{Stores: stores, ProjectID: cfg.Project, Startup: checks}
 	if err := app.wire(ctx, cfg); err != nil {
 		_ = stores.Close()
 		return nil, err
 	}
+	// Compose may run on a FOREMAN_HOME a previous daemon used: rebuild the
+	// ledger from the Runs that hold reservations and hand the leases over.
+	rep, err := recover.Startup(ctx, recover.Deps{Stores: stores, Gate: app.Gate, Ledger: cfg.Ledger, Project: cfg.Project, Home: cfg.Home})
+	app.Startup = append(app.Startup, rep.Checks...)
+	if err != nil {
+		_ = stores.Close()
+		return nil, err
+	}
+	app.Sched.AdoptLeases(rep.Leases)
 	return app, nil
 }
 
@@ -133,12 +162,22 @@ func (a *App) wire(ctx context.Context, cfg Config) error {
 	}
 	mirrorDir := session.MirrorDir(cfg.Home, cfg.Project)
 	if _, serr := os.Stat(mirrorDir); serr == nil {
-		a.Mirror = session.OpenMirror(a.Git, mirrorDir)
+		if a.Mirror, err = openMirror(ctx, a.Git, mirrorDir, cfg.Remote); err != nil {
+			return err
+		}
 	} else if a.Mirror, err = session.CloneMirror(ctx, a.Git, mirrorDir, cfg.Remote); err != nil {
 		return err
 	}
 	integDir := filepath.Join(cfg.Home, "projects", cfg.Project, "integrate")
-	if a.Integ, err = integrate.Init(ctx, a.Git, a.Mirror, integDir, foremanIdent); err != nil {
+	if _, serr := os.Stat(integDir); serr == nil {
+		a.Integ, err = integrate.Open(ctx, a.Git, a.Mirror, integDir, foremanIdent)
+	} else {
+		a.Integ, err = integrate.Init(ctx, a.Git, a.Mirror, integDir, foremanIdent)
+	}
+	if err != nil {
+		return err
+	}
+	if err := a.Integ.UseHaltStore(ctx, pushHalts{db: a.Stores.Global, project: cfg.Project, clock: cfg.Clock}); err != nil {
 		return err
 	}
 

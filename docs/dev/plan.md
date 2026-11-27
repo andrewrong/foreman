@@ -49,5 +49,6 @@
 
 - 骨架 done（2026-11-28）：快车道端到端通过，命中 S04 S02 S40 S05 S41 S06 S42 S10 S07 S29 S08 S44；红 base 场景 S03 S13。
 - L0 隔离（D-072 ②）done：L0 在 runs/<id>/l0 的一次性检出中运行，集成目录恢复 denyWrite。真实 srt 下的拒写未单独测（P1 已验证 denyWrite 与读取 alternates 在 srt 下成立）。
-- 骨架未做（后续场景任务）：launch.lock/pid.json/setsid 异步会话；update-branch、合并前等 L1、S47 护栏、needs_rereview；L1 失败分类与重跑；access_request（现按 bad_result）；todo.json；LogTail 的 privguard；stream 中额度事件写入 meter；runs.reserved；push 停止标志持久化；hold_released 路径；Compose 不能重启（integrate.Init 遇到已有目录失败，缺 Open）；合回后会话仓库不刷新（多步骤需求看不到前一步）；周期性 FG-7 轮询（骨架在 Tick 内临时 refreshBase）。
+- 骨架未做（后续场景任务）：update-branch、合并前等 L1、S47 护栏、needs_rereview；L1 失败分类与重跑；access_request（现按 bad_result）；todo.json；LogTail 的 privguard；stream 中额度事件写入 meter；hold_released 路径；合回后会话仓库不刷新（多步骤需求看不到前一步）；周期性 FG-7 轮询（骨架在 Tick 内临时 refreshBase）。
+- 重启恢复 done（task/m1-restart）：Compose 可在已有 FOREMAN_HOME 上重开（integrate.Open、mirror 校验、账本由 runs.reserved 重建、push 停止标志持久化到 global.db push_halt）；会话改为 launch.lock/pid.json/setsid 异步（internal/pipeline/recover、sched/session.go）。未做：D-047 第 4 步（配置 revision 检查，待 config 模块）、每小时备份与心跳、foreman status 命令；孤儿回收只覆盖 status=killing 的 Run 与 TMPDIR 扫描（macOS 上 ps -E 看不到 Apple 系统二进制的环境，会话内由它们 setsid 逃逸的子进程找不到）；dispatch 的 Transition 与 runs.reserved 写入之间崩溃时该 Run 没有预留记录，重启后按新租约申请；check/merge/ci 阶段仍在 Tick 内同步执行（重启后按幂等规则重做）。
 - 场景任务（并行）：check_fail 重试、review_changes、l1_fail → fix 步骤、hold 与 owner ask、重启恢复、多步骤需求；退出条件 = 状态表中没有场景命中的行清单为空或逐条说明。

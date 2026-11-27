@@ -27,6 +27,7 @@ type Dir struct {
 
 	mu     sync.Mutex
 	halted bool
+	store  HaltStore // nil: the halt lives in memory only
 }
 
 // Init clones the mirror (--shared) into path. The "mirror" remote is the

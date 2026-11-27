@@ -47,6 +47,7 @@ type Deps struct {
 
 	SessionIdent wsgit.Identity
 	Launcher     launch.Launcher
+	SessionExe   string        // foreman binary serving launch.FlagRunSession; empty: os.Args[0]
 	Policy       policy.Inputs // run-independent sandbox inputs
 	// NewAdapter builds the harness adapter of a Run with its lease (MD-3).
 	NewAdapter func(role api.Role, lease *gate.Lease) (api.Adapter, error)
@@ -65,7 +66,8 @@ type Scheduler struct {
 	d Deps
 
 	mu     sync.Mutex
-	leases map[string]*gate.Lease // step id -> lease held while the step runs
+	leases map[string]*gate.Lease    // step id -> lease held while the step runs
+	procs  map[string]*launch.Handle // run id -> session started by this process
 }
 
 // New validates deps and returns a Scheduler.
@@ -83,7 +85,7 @@ func New(d Deps) (*Scheduler, error) {
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("sched: missing dependencies: %s", strings.Join(sortedStrings(missing), ", "))
 	}
-	return &Scheduler{d: d, leases: map[string]*gate.Lease{}}, nil
+	return &Scheduler{d: d, leases: map[string]*gate.Lease{}, procs: map[string]*launch.Handle{}}, nil
 }
 
 // Tick does one scheduling round and reports whether any Transition was
@@ -207,7 +209,9 @@ func (s *Scheduler) dispatch(ctx context.Context) (bool, error) {
 		progressed = progressed || !out.Ignored
 		if lease != nil {
 			if out.To.State == "running" {
-				s.hold(st.ID, lease)
+				if err := s.holdRun(ctx, st.ID, lease); err != nil {
+					return progressed, err
+				}
 			} else {
 				s.release(lease) // S07 starts waiting(ci): forge ops take their own leases
 			}
