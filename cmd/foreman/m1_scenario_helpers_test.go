@@ -145,6 +145,7 @@ func (s *scenario) tick() {
 	if _, err := s.app.Sched.Tick(context.Background()); err != nil {
 		s.t.Fatalf("tick: %v", err)
 	}
+	s.app.Sched.WaitSessions() // a real process exit, not a sleep
 }
 
 // until ticks until cond holds, failing after max ticks.
