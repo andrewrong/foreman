@@ -86,7 +86,7 @@ type Recorder interface {
 	Record(ctx context.Context, at time.Time, resource, stage, project string, consumed, capacity int64) error
 }
 
-// Options configures a Gate.
+// Options configures a Gate. Ledger defaults to a new in-memory ledger.
 type Options struct {
 	Clock    clock.Clock
 	Config   meter.Config
@@ -113,6 +113,9 @@ type Gate struct {
 
 // New returns a Gate.
 func New(o Options) *Gate {
+	if o.Ledger == nil {
+		o.Ledger = ledger.New() // in-memory; lets forge/harness tests avoid importing ledger (MD-6)
+	}
 	return &Gate{o: o, pace: map[string]paceState{}}
 }
 
