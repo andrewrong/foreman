@@ -20,7 +20,7 @@ foreman 是 agent-crew 的 Go 重写：程序驱动的 AI 开发流水线。spec
 ## 改 spec
 - spec 与代码冲突时停下，报告冲突，不要自行改 spec 迁就代码
 - decisions.yaml 只追加：新条目用 supersedes/amends，旧条目只改 status（F7、F8）
-- 改完运行：ruby tools/smcheck.rb </dev/null；ruby tools/testtrace.rb --write </dev/null
+- 改完运行：go test ./internal/spec/...（spec lint 与状态表检查）；ruby tools/testtrace.rb --write </dev/null
 - 所有 ruby 调用都加 </dev/null（否则可能等待 stdin 卡住）
 - YAML 里不要用裸 yes/no/on/off 作取值，会被解析成布尔
 
