@@ -510,3 +510,9 @@ decisions:
     statement: "M1 骨架审查后定下：① 运行目录为 FOREMAN_HOME/runs/<run id>/，内分 out/（只放协议规定的结果文件，CheckOutputs 只检查这里）、tmp/（TMPDIR、HOME、缓存副本、srt 设置）、l0/（检查用的一次性检出）；② L0 只在 l0/ 中运行，该检出由 foremand 在启动沙箱前用禁钩子的 git 从集成目录导出，沙箱启动后 foremand 不再在 l0/ 中执行 git；集成目录对任何沙箱进程 denyWrite（修正骨架中为 L0 放开集成目录的做法：会话代码可改写其 .git/config 而劫持带 token 的推送）；③ PR 合并方式为 squash"
     enforced_by: "test:l0-runs-outside-integration-dir；test:session-output-only-result-files"
     status: active
+
+  - id: D-073
+    date: 2026-11-28
+    statement: "M1 场景 A 审查后确认：① check_pass 关闭该步骤未关闭的 check finding，review_approve 关闭其 review finding；② dims.counters 的 reset 事件（any_valid_result、any_non_infra_result、check_pass 等）由 Transition 引擎统一清零，不在每行重复写 reset 效果；③ 步骤计数到上限经 escalate 进入 waiting(rescue) 并创建 rescuer Run，需求 hold 保持 none（需求级 rescue 只由表 B 的 req_rescue 触发）"
+    enforced_by: "test:check-fail-reaches-next-context；test:effects-all-executed"
+    status: active
