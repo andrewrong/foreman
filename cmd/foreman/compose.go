@@ -22,6 +22,7 @@ import (
 	"github.com/andrewrong/foreman/internal/resource/meter"
 	"github.com/andrewrong/foreman/internal/sandbox/launch"
 	"github.com/andrewrong/foreman/internal/sandbox/policy"
+	"github.com/andrewrong/foreman/internal/spec/model"
 	"github.com/andrewrong/foreman/internal/store/sqlite"
 	wsgit "github.com/andrewrong/foreman/internal/workspace/git"
 	"github.com/andrewrong/foreman/internal/workspace/integrate"
@@ -56,6 +57,11 @@ type Config struct {
 	Path         string
 	L0           [][]string
 	Constitution string
+	// Guardrails and Forbidden come from spec/guardrails.yaml (the config
+	// module loads them in the daemon): the path list that needs H6 at merge,
+	// and the globs L0 refuses.
+	Guardrails []model.Guardrail
+	Forbidden  []string
 
 	// Ledger is the reservation book. It is required: Compose fails without it.
 	Ledger *ledger.Ledger
@@ -220,6 +226,7 @@ func (a *App) wire(ctx context.Context, cfg Config) error {
 			return nil
 		},
 		L0: cfg.L0, Constitution: cfg.Constitution, OnTransition: cfg.OnTransition,
+		Guardrails: cfg.Guardrails, Forbidden: cfg.Forbidden,
 	})
 	return err
 }

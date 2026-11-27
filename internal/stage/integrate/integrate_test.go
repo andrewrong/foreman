@@ -32,6 +32,13 @@ type fakeGitHub struct {
 	pr       *ops.PR
 	checks   []ops.CheckRun
 	requests []string
+	// runs answers OP-08 for a head_sha filter; logs answers OP-10 by job id.
+	runs []ops.Run
+	logs map[int64]string
+	// baseRun, if set, is the push run of the default branch; baseChecks are
+	// the check runs of its head.
+	baseRun    *ops.Run
+	baseChecks []ops.CheckRun
 }
 
 func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -57,10 +64,34 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "GET /repos/acme/widgets/pulls/7":
 		out(f.pr)
 	case "GET /repos/acme/widgets/actions/runs":
-		out(map[string]any{"workflow_runs": []ops.Run{{ID: 1, Status: "completed", Conclusion: "success", Event: "push", HeadBranch: "main"}}})
+		if r.URL.Query().Get("head_sha") != "" {
+			out(map[string]any{"workflow_runs": f.runs})
+			return
+		}
+		base := ops.Run{ID: 1, Status: "completed", Conclusion: "success", Event: "push", HeadBranch: "main"}
+		if f.baseRun != nil {
+			base = *f.baseRun
+		}
+		out(map[string]any{"workflow_runs": []ops.Run{base}})
 	default:
 		if strings.HasSuffix(r.URL.Path, "/check-runs") {
+			if f.baseRun != nil && strings.Contains(r.URL.Path, f.baseRun.HeadSHA) {
+				out(map[string]any{"check_runs": f.baseChecks})
+				return
+			}
 			out(map[string]any{"check_runs": f.checks})
+			return
+		}
+		if strings.Contains(r.URL.Path, "/actions/jobs/") && strings.HasSuffix(r.URL.Path, "/logs") {
+			var id int64
+			_, _ = fmt.Sscanf(strings.TrimPrefix(r.URL.Path, "/repos/acme/widgets/actions/jobs/"), "%d", &id)
+			if text, ok := f.logs[id]; ok {
+				_, _ = w.Write([]byte(text))
+				return
+			}
+		}
+		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/actions/runs/") && strings.HasSuffix(r.URL.Path, "/rerun-failed-jobs") {
+			w.WriteHeader(http.StatusCreated)
 			return
 		}
 		http.NotFound(w, r)
@@ -186,10 +217,18 @@ func TestIntegrateStagePushesCreatesPRAndPollsL1(t *testing.T) {
 	if err != nil || res.Event != nil {
 		t.Fatalf("round 2: %+v err %v", res, err)
 	}
+	// No run found at the deadline is deadline_passed (S33, ACR-24); a run in
+	// progress is ci_progress (S38).
 	res, err = Run(ctx, w.env, w.req(true, 7))
-	if err != nil || res.Event == nil || res.Event.Name != model.EventCIProgress {
+	if err != nil || res.Event == nil || res.Event.Name != model.EventDeadlinePassed {
 		t.Fatalf("round 2 at deadline: %+v err %v", res, err)
 	}
+	w.gh.checks = []ops.CheckRun{{ID: 1, Name: "ci", Status: "in_progress", HeadSHA: w.headSHA}}
+	res, err = Run(ctx, w.env, w.req(true, 7))
+	if err != nil || res.Event == nil || res.Event.Name != model.EventCIProgress {
+		t.Fatalf("in progress at deadline: %+v err %v", res, err)
+	}
+	w.gh.checks = nil
 	creates := 0
 	for _, r := range w.gh.requests {
 		if r == "POST /repos/acme/widgets/pulls" {

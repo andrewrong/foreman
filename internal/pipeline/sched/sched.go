@@ -23,6 +23,7 @@ import (
 	"github.com/andrewrong/foreman/internal/resource/meter"
 	"github.com/andrewrong/foreman/internal/sandbox/launch"
 	"github.com/andrewrong/foreman/internal/sandbox/policy"
+	"github.com/andrewrong/foreman/internal/spec/model"
 	"github.com/andrewrong/foreman/internal/store/sqlite"
 	wsgit "github.com/andrewrong/foreman/internal/workspace/git"
 	"github.com/andrewrong/foreman/internal/workspace/integrate"
@@ -56,6 +57,12 @@ type Deps struct {
 	// L0 are the project's L0 commands (argv form).
 	L0           [][]string
 	Constitution string
+	// Guardrails is the project's spec/guardrails.yaml path list (D-063); the
+	// merge stage matches it against the PR's real diff (S47).
+	Guardrails []model.Guardrail
+	// Forbidden are the globs L0 refuses (check:forbidden-paths); nil means
+	// the check stage's default (.github/**, G-05).
+	Forbidden []string
 
 	// OnTransition, if set, sees every applied Transition (tests log RowIDs).
 	OnTransition func(stepID string, ev state.Event, out state.Outcome)
@@ -119,7 +126,9 @@ func (s *Scheduler) apply(ctx context.Context, stepID string, ev state.Event) (s
 }
 
 // wake sends the exit events of waiting steps whose condition holds:
-// deps_done (S10) and deadline_passed for quota and infra waits (S13, S14).
+// deps_done (S10), fix_done / fix_dropped when the fix step of a waiting(fix)
+// integrate step ended (S35, S36) and deadline_passed for quota and infra
+// waits (S13, S14).
 func (s *Scheduler) wake(ctx context.Context) (bool, error) {
 	steps, err := s.stepsIn(ctx, "waiting")
 	if err != nil {
@@ -139,6 +148,16 @@ func (s *Scheduler) wake(ctx context.Context) (bool, error) {
 				continue
 			}
 			ev = state.Event{Name: "deps_done"}
+		case "fix":
+			all, err := s.stepsOf(ctx, st.ReqID)
+			if err != nil {
+				return progressed, err
+			}
+			name := fixOutcome(st, all)
+			if name == "" {
+				continue
+			}
+			ev = state.Event{Name: name}
 		case "quota", "infra":
 			if st.Deadline.IsZero() || now.Before(st.Deadline) {
 				continue

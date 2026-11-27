@@ -74,8 +74,14 @@ func (s *Scheduler) reconcileStep(ctx context.Context, st stepRow) (bool, error)
 	if err != nil {
 		return true, err
 	}
-	if _, err := s.apply(ctx, st.ID, s.stateEvent(*ev, singleStep(all))); err != nil {
+	out, err := s.apply(ctx, st.ID, s.stateEvent(*ev, singleStep(all)))
+	if err != nil {
 		return true, err
+	}
+	if staysPut(*ev, st, out) {
+		// S37, S38, S45, S48: the deadline was extended and the step keeps its
+		// state; the Run and the lease it holds (the merge slot) go on.
+		return true, nil
 	}
 	if err := s.endRun(ctx, run.ID, *ev); err != nil {
 		return true, err
@@ -86,6 +92,15 @@ func (s *Scheduler) reconcileStep(ctx context.Context, st stepRow) (bool, error)
 		}
 	}
 	return true, nil
+}
+
+// staysPut reports whether an event left the step where it was: the deadline
+// extensions ci_progress and lease_wait below their cap.
+func staysPut(ev model.Event, st stepRow, out state.Outcome) bool {
+	if ev.Name != model.EventCIProgress && ev.Name != model.EventLeaseWait {
+		return false
+	}
+	return out.To.State == st.State && out.To.Stage == st.Stage && out.To.Reason == st.Reason
 }
 
 // execute performs the stage action of a step. A nil event means "nothing to
@@ -210,7 +225,7 @@ func (s *Scheduler) runCheck(ctx context.Context, st stepRow, req reqRow, run ru
 	if lease, err := s.leaseFor(ctx, st, req); err != nil || lease == nil {
 		return nil, err // Gate wait: try again next Tick
 	}
-	ev, err := stagecheck.Run(ctx, stagecheck.Env{Integ: s.d.Integ, Launcher: s.d.Launcher, Policy: s.checkPolicy()},
+	ev, err := stagecheck.Run(ctx, stagecheck.Env{Integ: s.d.Integ, Launcher: s.d.Launcher, Policy: s.checkPolicy(), Forbidden: s.d.Forbidden},
 		stagecheck.Request{RunID: run.ID, StepID: st.ID, SessionRepo: req.SessionRepo, SessionBranch: req.Branch,
 			RunDir: s.runDir(run.ID), Commands: s.d.L0})
 	return &ev, err
@@ -223,14 +238,15 @@ func (s *Scheduler) runCheck(ctx context.Context, st stepRow, req reqRow, run ru
 func (s *Scheduler) checkPolicy() policy.Inputs { return s.d.Policy }
 
 func (s *Scheduler) runIntegrate(ctx context.Context, st stepRow, req reqRow) (*model.Event, error) {
-	pr, _, err := s.loadPR(ctx, req.ID)
+	row, err := s.loadPRRow(ctx, req.ID)
 	if err != nil {
 		return nil, err
 	}
 	call := s.opsCall(req, st)
 	res, err := stageintegrate.Run(ctx, stageintegrate.Env{Integ: s.d.Integ, Ops: s.d.Ops, Repo: s.d.Repo},
-		stageintegrate.Request{ReqID: req.ID, Title: req.Spec.Title, Body: req.Spec.Goal, PR: pr, Priority: call.Priority,
-			Caller: call.Caller, DeadlinePassed: !st.Deadline.IsZero() && !s.d.Clock.Now().Before(st.Deadline)})
+		stageintegrate.Request{ReqID: req.ID, Title: req.Spec.Title, Body: req.Spec.Goal, PR: row.Number, Priority: call.Priority,
+			Caller: call.Caller, DeadlinePassed: s.deadlinePassed(st), Reruns: row.Reruns,
+			MarkRerun: func(ctx context.Context, head string) error { return s.markRerun(ctx, req.ID, head) }})
 	if err != nil {
 		return nil, err
 	}
@@ -246,21 +262,41 @@ func (s *Scheduler) runMerge(ctx context.Context, st stepRow, req reqRow) (*mode
 	if lease, err := s.leaseFor(ctx, st, req); err != nil || lease == nil {
 		return nil, err // no merge slot / base health yet: never merge without them
 	}
-	pr, head, err := s.loadPR(ctx, req.ID)
+	row, err := s.loadPRRow(ctx, req.ID)
 	if err != nil {
 		return nil, err
 	}
-	if pr == 0 {
+	if row.Number == 0 {
 		return nil, fmt.Errorf("integrate step %s reached merge without a pull request", st.ID)
 	}
 	call := s.opsCall(req, st)
-	return stagemerge.Run(ctx, stagemerge.Env{Ops: s.d.Ops, Repo: s.d.Repo},
-		stagemerge.Request{PR: pr, Head: head, Priority: call.Priority, Caller: call.Caller})
+	res, err := stagemerge.Run(ctx, stagemerge.Env{Ops: s.d.Ops, Repo: s.d.Repo, Integ: s.d.Integ, Mirror: s.d.Mirror, Guardrails: s.d.Guardrails},
+		stagemerge.Request{ReqID: req.ID, PR: row.Number, Head: row.Head, Priority: call.Priority, Caller: call.Caller,
+			LastReviewed: row.LastReviewed, GuardrailApproved: row.GuardrailApproved, Reruns: row.Reruns,
+			MarkRerun:      func(ctx context.Context, head string) error { return s.markRerun(ctx, req.ID, head) },
+			DeadlinePassed: s.deadlinePassed(st)})
+	// The head moves under update-branch; the merge pins it and S43 reads it
+	// back as last_reviewed_sha, so it is stored before any event is applied.
+	if res.Head != "" && res.Head != row.Head {
+		if serr := s.saveHead(ctx, req.ID, res.Head); serr != nil {
+			return nil, serr
+		}
+	}
+	return res.Event, err
+}
+
+// deadlinePassed: the deadline of the step's current state has passed.
+func (s *Scheduler) deadlinePassed(st stepRow) bool {
+	return !st.Deadline.IsZero() && !s.d.Clock.Now().Before(st.Deadline)
 }
 
 // stateEvent converts a stage event value into the Transition input.
 func (s *Scheduler) stateEvent(ev model.Event, single string) state.Event {
 	out := state.Event{Name: ev.Name, Head: ev.Head, Detail: ev.Detail, FailingTests: ev.FailingTests, LogTail: ev.LogTail}
+	if ev.Name == model.EventGuardrailHit {
+		out.Ask = &state.AskContent{HItem: "H6", What: "The pull request changes guardrail paths and needs your approval before it is merged",
+			Changes: "Granting approves this head only; a new head asks again", Checked: ev.Detail}
+	}
 	if ev.Name == model.EventL1Pass {
 		out.SingleStep = single
 	}

@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/andrewrong/foreman/internal/forge/client"
 	"github.com/andrewrong/foreman/internal/forge/ops"
@@ -37,6 +36,10 @@ type Request struct {
 	// then do "still running" and "quota wait" become ci_progress / lease_wait
 	// events (state-machine dims.counters.ci_extensions).
 	DeadlinePassed bool
+	// Reruns is E-PR.l1_reruns (head sha -> count); MarkRerun records one
+	// before it is issued (see L1Request).
+	Reruns    map[string]int
+	MarkRerun func(ctx context.Context, head string) error
 }
 
 // Result is what the call learned. PR and Head are facts for the
@@ -90,23 +93,21 @@ func Run(ctx context.Context, env Env, r Request) (Result, error) {
 	if !ok || detail.PR.Head.SHA != head {
 		return res, pending(r, &res) // GitHub has not seen our head yet
 	}
-	switch verdict(detail.Checks) {
-	case "pass":
-		res.Event = &model.Event{Name: model.EventL1Pass, Head: head, PR: pr.Number}
-		return res, nil
-	case "fail":
-		failed := failedChecks(detail.Checks)
-		res.Event = &model.Event{Name: model.EventL1Fail, Head: head, PR: pr.Number, FailingTests: failed,
-			LogTail: "L1 check runs failed: " + strings.Join(failed, ", ")}
-		return res, nil
+	l1, err := ReadL1(ctx, env, L1Request{Head: head, PR: pr.Number, Call: call, Checks: detail.Checks, BaseRun: poll.BaseRun,
+		Reruns: r.Reruns[head], MarkRerun: r.MarkRerun, DeadlinePassed: r.DeadlinePassed})
+	if err != nil {
+		return res, quotaOrError(err, r, &res)
 	}
-	return res, pending(r, &res)
+	res.Event = l1.Event
+	return res, nil
 }
 
-// pending is "L1 not finished": silent until the deadline, then ci_progress.
+// pending is "GitHub has not seen the head yet": no check run exists, so at
+// the deadline it is the same as "no run found" (ACR-24, S33).
 func pending(r Request, res *Result) error {
 	if r.DeadlinePassed {
-		res.Event = &model.Event{Name: model.EventCIProgress, PR: res.PR}
+		res.Event = &model.Event{Name: model.EventDeadlinePassed, PR: res.PR, Head: res.Head,
+			Detail: "GitHub has not seen the head"}
 	}
 	return nil
 }

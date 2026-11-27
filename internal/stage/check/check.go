@@ -37,7 +37,14 @@ type Env struct {
 	// hosts ...); SessionRepo (the l0 checkout) and RunTmp are set
 	// per Run.
 	Policy policy.Inputs
+	// Forbidden are the path globs no step may touch (check:forbidden-paths,
+	// D-063); nil means DefaultForbidden.
+	Forbidden []string
 }
+
+// DefaultForbidden is guardrail G-05: the PAT has no workflows permission
+// (ACR-22), so a change under .github/** could never be pushed.
+var DefaultForbidden = []string{".github/**"}
 
 // Request is one check Run.
 type Request struct {
@@ -56,6 +63,9 @@ func Run(ctx context.Context, env Env, r Request) (model.Event, error) {
 	head, err := env.Integ.FetchFromSession(ctx, r.SessionRepo, r.SessionBranch, ref)
 	if err != nil {
 		return model.Event{}, fmt.Errorf("check: fetch session head: %w", err)
+	}
+	if ev, bad, err := forbidden(ctx, env, head); err != nil || bad {
+		return ev, err
 	}
 	// L0 runs code written by the AI session, so it gets a throwaway checkout
 	// inside the Run's own directory; the integration directory stays
@@ -90,7 +100,36 @@ func Run(ctx context.Context, env Env, r Request) (model.Event, error) {
 	return model.Event{Name: model.EventCheckPass, Head: head}, nil
 }
 
+// forbidden is check:forbidden-paths: a head whose real diff against the
+// default branch touches a forbidden path fails the check at once, before any
+// L0 command runs, and says what to do instead (G-05).
+func forbidden(ctx context.Context, env Env, head string) (model.Event, bool, error) {
+	globs := env.Forbidden
+	if globs == nil {
+		globs = DefaultForbidden
+	}
+	files, err := env.Integ.PRFiles(ctx, head)
+	if err != nil {
+		return model.Event{}, false, fmt.Errorf("check: list changed files: %w", err)
+	}
+	var rules []model.Guardrail
+	for _, g := range globs {
+		rules = append(rules, model.Guardrail{ID: g, Glob: g})
+	}
+	hits := model.Hits(rules, files)
+	if len(hits) == 0 {
+		return model.Event{}, false, nil
+	}
+	return model.Event{Name: model.EventCheckFail, Head: head, FailingTests: []string{"forbidden-paths"},
+		LogTail: "forbidden-paths: the diff touches " + strings.Join(hits, ", ") +
+			"\nThese paths cannot be changed by foreman (no workflows permission). Revert the change and " +
+			"write a discovery describing it for the owner."}, true, nil
+}
+
 var failRE = regexp.MustCompile(`(?m)^\s*--- FAIL: (\S+)`)
+
+// FailingTests lists the test names of "--- FAIL:" lines in go test output.
+func FailingTests(out string) []string { return failingTests(out) }
 
 // failingTests lists the test names of "--- FAIL:" lines (go test output),
 // without duplicates. A build failure has none: the log tail carries it.

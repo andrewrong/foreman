@@ -123,12 +123,14 @@ func newScenario(t *testing.T) *scenario {
 	s := &scenario{t: t, f: f, clk: clock.NewFake(time.Unix(1_800_000_000, 0)), q: newScriptQueue(t)}
 	gh, ghURL := newFakeGitHub(t, func(branch string) string { return f.remoteSHA("refs/heads/" + branch) })
 	s.gh = gh
+	gh.updateBranch = f.githubUpdateBranch
 	cfg := f.config(s.clk, ghURL, func(stepID string, ev state.Event, out state.Outcome) {
 		s.rows = append(s.rows, out.RowID)
 		t.Logf("transition %-8s %-14s -> RowID %-8s state=%s stage=%s reason=%s", stepID, ev.Name, out.RowID, out.To.State, out.To.Stage, out.To.Reason)
 	})
 	cfg.Models = map[string]string{"coder": "sonnet", "reviewer": "opus"}
 	cfg.ScriptFor = s.q.pick
+	cfg.Guardrails = repoGuardrails(t)
 	app, err := Compose(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -287,7 +289,13 @@ func (s *scenario) wantRows(want ...string) {
 }
 
 func (s *scenario) count(row string) int {
-	return strings.Count(" "+strings.Join(s.rows, " ")+" ", " "+row+" ")
+	n := 0 // not strings.Count: " S50 S50 " has overlapping matches
+	for _, r := range s.rows {
+		if r == row {
+			n++
+		}
+	}
+	return n
 }
 
 func (s *scenario) sessionHead() string {

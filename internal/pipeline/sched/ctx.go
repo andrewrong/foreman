@@ -44,8 +44,13 @@ func (s *Scheduler) contextInput(ctx context.Context, st stepRow, req reqRow, ro
 	if in.OpenFindings, err = s.openReviewFindings(ctx, st.ID); err != nil {
 		return in, err
 	}
+	if st.Type == "fix" {
+		if err := s.fixContext(ctx, st, &in); err != nil {
+			return in, err
+		}
+	}
 	if role == "reviewer" {
-		in.Diff = s.diff(ctx, st)
+		in.Diff = s.diff(ctx, st, req)
 		return in, nil
 	}
 	tests, tail, ok, err := s.lastCheckFailure(ctx, st.ID)
@@ -62,12 +67,22 @@ func (s *Scheduler) contextInput(ctx context.Context, st stepRow, req reqRow, ro
 // integration directory from the head the check stage fetched (never with a
 // session repo as cwd). An unreadable diff is empty: the reviewer then reads
 // the repository.
-func (s *Scheduler) diff(ctx context.Context, st stepRow) string {
+func (s *Scheduler) diff(ctx context.Context, st stepRow, req reqRow) string {
 	base := "refs/remotes/mirror/" + s.d.Integ.Default
+	head := integrate.StepRefPrefix + "steps/" + st.ID
 	if st.LastReviewed != "" {
 		base = st.LastReviewed
 	}
-	out, err := s.d.Git.Run(ctx, s.d.Integ.Path, "diff", "--no-color", base+"..."+integrate.StepRefPrefix+"steps/"+st.ID)
+	if st.Type == "integrate" {
+		// The integrate step's review reads the pull request: its branch in
+		// the integration directory, since E-PR.last_reviewed_sha (the
+		// increment after update-branch, S46).
+		head = "refs/heads/" + req.Branch
+		if row, err := s.loadPRRow(ctx, req.ID); err == nil && row.LastReviewed != "" {
+			base = row.LastReviewed
+		}
+	}
+	out, err := s.d.Git.Run(ctx, s.d.Integ.Path, "diff", "--no-color", base+"..."+head)
 	if err != nil {
 		return ""
 	}

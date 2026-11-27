@@ -49,6 +49,7 @@ type fixture struct {
 	git     *wsgit.Runner
 	scripts map[api.Role]string
 	goBin   string
+	work    string // the seed working tree: pushes to main come from here
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -72,6 +73,7 @@ func newFixture(t *testing.T) *fixture {
 	f := &fixture{t: t, home: filepath.Join(root, "home"), remote: filepath.Join(root, "remote.git"), git: gr,
 		scripts: map[api.Role]string{}, goBin: goBin}
 	work := filepath.Join(root, "work")
+	f.work = work
 	for _, d := range []string{work, f.home} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			t.Fatal(err)

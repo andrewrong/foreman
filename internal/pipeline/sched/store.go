@@ -23,6 +23,7 @@ type stepRow struct {
 	Acceptance, DependsOn []string
 	Deadline              time.Time // zero when none
 	LastReviewed          string
+	FixFor                string // fix step: the integrate step it repairs
 }
 
 // reqRow is the part of a requirement the scheduler reads.
@@ -39,16 +40,16 @@ type runRow struct {
 	ID, Role, Status, Model string
 }
 
-const stepColumns = `id, req_id, seq, type, goal, state, stage, reason, acceptance, depends_on, deadline, last_reviewed_sha`
+const stepColumns = `id, req_id, seq, type, goal, state, stage, reason, acceptance, depends_on, deadline, last_reviewed_sha, fix_for`
 
 func scanStepRow(sc interface{ Scan(...any) error }) (stepRow, error) {
 	var s stepRow
-	var reason, deadline, last sql.NullString
+	var reason, deadline, last, fixFor sql.NullString
 	var acc, deps string
-	if err := sc.Scan(&s.ID, &s.ReqID, &s.Seq, &s.Type, &s.Goal, &s.State, &s.Stage, &reason, &acc, &deps, &deadline, &last); err != nil {
+	if err := sc.Scan(&s.ID, &s.ReqID, &s.Seq, &s.Type, &s.Goal, &s.State, &s.Stage, &reason, &acc, &deps, &deadline, &last, &fixFor); err != nil {
 		return s, err
 	}
-	s.Reason, s.LastReviewed = reason.String, last.String
+	s.Reason, s.LastReviewed, s.FixFor = reason.String, last.String, fixFor.String
 	if deadline.Valid {
 		t, err := time.Parse(timeLayout, deadline.String)
 		if err != nil {
@@ -67,7 +68,7 @@ func scanStepRow(sc interface{ Scan(...any) error }) (stepRow, error) {
 func (s *Scheduler) stepsIn(ctx context.Context, state string) ([]stepRow, error) {
 	var out []stepRow
 	err := s.d.DB.Read(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT s.id, s.req_id, s.seq, s.type, s.goal, s.state, s.stage, s.reason, s.acceptance, s.depends_on, s.deadline, s.last_reviewed_sha
+		rows, err := tx.QueryContext(ctx, `SELECT s.id, s.req_id, s.seq, s.type, s.goal, s.state, s.stage, s.reason, s.acceptance, s.depends_on, s.deadline, s.last_reviewed_sha, s.fix_for
 			FROM steps s JOIN requirements r ON r.id = s.req_id
 			WHERE s.state = ? AND r.status = 'submitted' ORDER BY r.priority, s.req_id, s.seq`, state)
 		if err != nil {
@@ -143,6 +144,27 @@ func depsDone(st stepRow, all []stepRow) bool {
 		}
 	}
 	return true
+}
+
+// fixOutcome is the exit event of an integrate step waiting for its fix step:
+// fix_done once the newest fix step for it is done, fix_dropped if it was
+// dropped, "" while it is still open.
+func fixOutcome(integrate stepRow, all []stepRow) string {
+	var newest *stepRow
+	for i := range all {
+		if all[i].FixFor == integrate.ID && (newest == nil || all[i].Seq > newest.Seq) {
+			newest = &all[i]
+		}
+	}
+	switch {
+	case newest == nil:
+		return ""
+	case newest.State == "done":
+		return "fix_done"
+	case newest.State == "dropped":
+		return "fix_dropped"
+	}
+	return ""
 }
 
 // singleStep computes the guard single_step: the requirement has exactly one
