@@ -3,6 +3,9 @@
 #       保存前做 schema 校验（不合法拒绝保存）；每次保存生成 revision（global.db 表 config_revisions：rev, diff, actor, time），
 #       `foreman config rollback <rev>` 一条命令回退；新任务开始时生效，运行中的任务继续用自己的快照（C-13）。
 #       actor=owner 的修改直接生效；actor=AI（improver/rescuer）只能提交"配置提议"，以按钮发给 owner（H6），不走 PR。
+# home 目录：文中的 ~/.foreman 指 FOREMAN_HOME，默认 ~/.foreman，可由环境变量 FOREMAN_HOME 改到任何卷（owner 的部署放在外置盘，与 agent-crew 的 home 同盘）。
+#       约束：FOREMAN_HOME 下的 projects/（镜像、会话仓库）与 cache/（GOCACHE、GOMODCACHE 共享层）必须在同一个 APFS 卷——cp -c 与 clone --shared 的硬链接/克隆不能跨卷，跨卷时退化为整份复制（2026-11-27 实测：外置盘 → 系统盘复制 Go 缓存超过 2 分钟）；foremand 启动检查（D-047）比较两者的 st_dev，不同则拒绝启动。
+#       项目工作目录也应在同一卷，L0 与会话都在这里构建。
 # 代码：在 foreman 仓库，走 PR + 流水线。仓库内只放 config.example.toml。
 schema: foreman.config-split/1
 
