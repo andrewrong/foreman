@@ -311,6 +311,17 @@ func TestRedBaseBlocksMerge(t *testing.T) {
 	wantAllowed(t, e.acquire(P1, 1, "local/slots/merge/r1"))
 }
 
+// D-067: the merge of the red-base fix requirement is not blocked by the red base.
+func TestRedBaseAllowsBaseFixMerge(t *testing.T) {
+	e := newEnv(t)
+	e.m.IngestBaseHealth("r1", false, e.clk.Now())
+	d, err := e.g.Acquire(context.Background(), Demand{Items: []Item{{Resource: "local/slots/merge/r1", Amount: 1}}, Priority: P0, BaseFix: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAllowed(t, d)
+}
+
 func TestContentCreateCounter(t *testing.T) {
 	e := newEnv(t)
 	d := e.acquire(P1, 60, "github/content-create")

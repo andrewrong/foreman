@@ -472,3 +472,9 @@ decisions:
     amends: [D-056]
     enforced_by: "test:sandbox-env-has-only-allowed-credentials；test:harness-claude-argv"
     status: active
+
+  - id: D-067
+    date: 2026-11-28
+    statement: "红 base 不阻塞它自己的修复：RES-BASE 为 capacity 0 时，为该 base sha 自动创建的 P0 bug 需求（source=nightly）的合并申请不受 red_base 拦截；其它合并照常等待。否则修复需求永远无法合并（T11 审查时发现的死锁）。规则写在 resources.yaml RES-BASE"
+    enforced_by: "test:red-base-allows-base-fix-merge；test:red-base-blocks-merge"
+    status: active

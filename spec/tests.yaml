@@ -193,8 +193,12 @@ tests:
 - name: test:quota-daily-pacing
   covers:
   - D-051
+- name: test:red-base-allows-base-fix-merge
+  covers:
+  - D-067
 - name: test:red-base-blocks-merge
   covers:
+  - D-067
   - resources:RES-BASE
 - name: test:restart-recovery
   covers:

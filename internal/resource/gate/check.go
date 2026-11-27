@@ -53,6 +53,9 @@ func (g *Gate) eval(u unit, d Demand, now time.Time) (reasons, warns []Reason) {
 	}
 
 	if k.Binary {
+		if capacity < 1 && k.ID == "RES-BASE" && d.BaseFix {
+			return nil, warns
+		}
 		if capacity < 1 {
 			code := "unavailable"
 			if k.ID == "RES-BASE" {

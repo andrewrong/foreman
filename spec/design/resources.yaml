@@ -152,7 +152,7 @@ kinds:
     resource: "github/base-health/<repo>"
     meter: "FG-7 的批量轮询同时取 base 分支最近一次 push 触发的 workflow run（OP-08，带 ETag）"
     unit: "二值：最近一次 base run 结论为 success 或进行中 → capacity 1；failure → capacity 0"
-    rule: "capacity 0 时所有 merge 申请返回 Wait(reason=red_base)；首次变红时创建 source=nightly、priority=P0 的 bug 需求（同一 base sha 只建一个），变绿后自动放行（test:red-base-blocks-merge）"
+    rule: "capacity 0 时 merge 申请返回 Wait(reason=red_base)，唯一例外是为当前红 base 创建的修复需求的合并（Demand.BaseFix，D-067）；首次变红时创建 source=nightly、priority=P0 的 bug 需求（同一 base sha 只建一个），变绿后自动放行（test:red-base-blocks-merge）"
 
 # ---------------------------------------------------------------------------
 # 3. 派发优先级

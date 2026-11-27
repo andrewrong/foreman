@@ -48,6 +48,9 @@ type Demand struct {
 	// Essential marks merge/push/PR traffic that may use the amount
 	// reserved_for it (RES-GH-REST, RES-GH-GRAPHQL).
 	Essential bool
+	// BaseFix marks the merge of the requirement created for the current red
+	// base (RES-BASE, D-067): it is the one merge a red base must not block.
+	BaseFix bool
 }
 
 // Reason is one data-form cause of a Wait (or a Warning on an Allow).
