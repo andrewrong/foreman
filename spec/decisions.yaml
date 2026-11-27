@@ -478,3 +478,9 @@ decisions:
     statement: "红 base 不阻塞它自己的修复：RES-BASE 为 capacity 0 时，为该 base sha 自动创建的 P0 bug 需求（source=nightly）的合并申请不受 red_base 拦截；其它合并照常等待。否则修复需求永远无法合并（T11 审查时发现的死锁）。规则写在 resources.yaml RES-BASE"
     enforced_by: "test:red-base-allows-base-fix-merge；test:red-base-blocks-merge"
     status: active
+
+  - id: D-068
+    date: 2026-11-28
+    statement: "FOREMAN_HOME 目录布局固定为 access.yaml layout：db/、config/、projects/<p>/repo.git、projects/<p>/integrate、cache/<p>/、sessions/<req id>/、runs/<run id>/；沙箱 denyWrite 只覆盖其中的系统目录，会话目录与运行目录在 FOREMAN_HOME 下但只对各自的会话可写；runs/<run id>/ 路径 ≤ 70 字节"
+    enforced_by: "test:sandbox-layout-policy；test:startup-integrity-check"
+    status: active

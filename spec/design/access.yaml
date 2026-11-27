@@ -2,6 +2,16 @@
 schema: foreman.access/1
 
 tiers:
+layout:   # FOREMAN_HOME 目录布局与沙箱读写（D-068）
+  - { path: "db/",                      sandbox: "denyRead + denyWrite", note: "global.db、work.db、ci.db、锁文件" }
+  - { path: "config/",                  sandbox: "denyRead + denyWrite" }
+  - { path: "projects/<p>/repo.git/",   sandbox: "denyWrite（可读：clone --shared 的 alternates）" }
+  - { path: "projects/<p>/integrate/",  sandbox: "denyWrite" }
+  - { path: "cache/<p>/",               sandbox: "denyWrite", note: "项目 Go 缓存母本；会话用 cp -c 克隆到自己的运行目录" }
+  - { path: "sessions/<req id>/",       sandbox: "只有该需求的会话 allowWrite", note: "会话仓库" }
+  - { path: "runs/<run id>/",           sandbox: "只有该 Run allowWrite", note: "TMPDIR、HOME、GOCACHE 副本、srt 设置文件；路径 ≤ 70 字节（srt 的 unix socket 路径上限），run id 用短编号；启动检查 FOREMAN_HOME 长度，超出则拒绝启动" }
+  - { rule: "denyWrite 只列上面标出的子目录，不能是整个 FOREMAN_HOME（sandbox.New 拒绝位于 denyWrite 内的会话目录）；凭据目录在 FOREMAN_HOME 之外，denyRead" }
+
   - id: R0
     name: always
     grant: "自动，无需声明"

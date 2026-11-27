@@ -217,6 +217,9 @@ tests:
   covers:
   - D-065
   - D-066
+- name: test:sandbox-layout-policy
+  covers:
+  - D-068
 - name: test:sandbox-probe-git-commit
   covers:
   - D-060
@@ -257,6 +260,7 @@ tests:
 - name: test:startup-integrity-check
   covers:
   - D-047
+  - D-068
 - name: test:state-table-exhaustive
   covers:
   - C-02
