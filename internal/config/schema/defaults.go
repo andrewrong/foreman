@@ -44,7 +44,7 @@ func DefaultRuntime() Runtime {
 		Limits: Limits{
 			CheckFail: 3, ReviewRounds: 2, MergeConflict: 2, BadResult: 2, Infra: 6,
 			Replans: 2, PlannerFails: 2, ReqRescues: 2, FixSteps: 3,
-			PRSplitLines: 400, H4BudgetFactor: 2,
+			PRSplitLines: 800, H4BudgetFactor: 2, // pr_split_lines: D-006/D-054 (split is v2; v1 keeps one PR)
 		},
 		Improve: Improve{MinIntervalHours: 24, WeeklyCap: 3},
 		Resources: ResourceCfg{

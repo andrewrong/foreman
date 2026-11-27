@@ -14,7 +14,7 @@ review_rounds = 2
 merge_conflict = 2
 bad_result = 2
 infra = 6
-pr_split_lines = 400
+pr_split_lines = 800
 h4_budget_multiplier = 2.0
 
 [improve]                   # CF-09
