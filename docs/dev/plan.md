@@ -48,6 +48,6 @@
 ## M1
 
 - 骨架 done（2026-11-28）：快车道端到端通过，命中 S04 S02 S40 S05 S41 S06 S42 S10 S07 S29 S08 S44；红 base 场景 S03 S13。
-- 安全修复进行中：L0 隔离（D-072 ②）。
+- L0 隔离（D-072 ②）done：L0 在 runs/<id>/l0 的一次性检出中运行，集成目录恢复 denyWrite。真实 srt 下的拒写未单独测（P1 已验证 denyWrite 与读取 alternates 在 srt 下成立）。
 - 骨架未做（后续场景任务）：launch.lock/pid.json/setsid 异步会话；update-branch、合并前等 L1、S47 护栏、needs_rereview；L1 失败分类与重跑；access_request（现按 bad_result）；todo.json；LogTail 的 privguard；stream 中额度事件写入 meter；runs.reserved；push 停止标志持久化；hold_released 路径；Compose 不能重启（integrate.Init 遇到已有目录失败，缺 Open）；合回后会话仓库不刷新（多步骤需求看不到前一步）；周期性 FG-7 轮询（骨架在 Tick 内临时 refreshBase）。
 - 场景任务（并行）：check_fail 重试、review_changes、l1_fail → fix 步骤、hold 与 owner ask、重启恢复、多步骤需求；退出条件 = 状态表中没有场景命中的行清单为空或逐条说明。
