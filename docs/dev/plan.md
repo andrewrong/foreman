@@ -28,7 +28,7 @@
 | T8 | internal/harness/api 与 scripted 假模型；里程碑 M1：scripted 模型 + 假 GitHub 跑通一个需求 | protocol-run.yaml；D-037 | M1 端到端测试 | ready |
 | T11 | internal/resource（meter、ledger、gate、history）：资源注册表、预占与结算、Gate 的 Allow/Wait、窗口与 pacing | resources.yaml；D-027、D-030、D-051 | test:quota-all-windows-gate、test:quota-daily-pacing、test:budget-fallback-default 等 resources.yaml 引用的测试 | ready |
 | T9 | internal/forge | forge.yaml | test:forge-* | ready（T11 之后：forge 依赖 resource/gate、meter） |
-| T10 | internal/sandbox、internal/workspace | access.yaml；D-045、D-056 | test:sandbox-*、test:session-* | ready |
+| T10 | internal/sandbox（T10b；workspace 已由 T10a 完成） | access.yaml；D-045、D-056 | test:sandbox-*、test:session-* | ready |
 
 里程碑 M2（真实 Claude 与 GitHub 跑通 foreman-sandbox 上的一个需求）在 T8–T10 之后另行拆分。
 
@@ -37,3 +37,4 @@
 - T5 未实现的 entities.yaml 约束：spec_version 递增、current 必须有引用、必填列表是否允许为空（change、repro、current）、E-STEP 全部约束（max_len、min_items、required_when、code_role）、Acceptance/Unknown id 唯一、E-REF 模块名对照 modules.yaml。需要先在 entities.yaml 写清「必填列表能否为空」与 spec_version 起始值，再开任务。
 - T6：Write 中 fn panic 时事务不回滚、写连接被占住；T7 前补 recover + rollback。
 - T7a：S19 hold_released 在 hold 仍为 set 时经 HOLD-1 回到 waiting(hold)；reconciler 必须只在 hold 清除后发 hold_released（T7b/reconciler 任务加断言）。无 HOLD-1 而进入 waiting(hold) 的行保留当前 stage，resume_stage 由 record_resume_stage effect 写入。
+- T10a：integrate 的 push 停止标志（默认分支被改动后停止推送）只在内存；需要持久化到 global.db（reconciler 任务）。reconciler 必须先 Mirror.Update 再 SyncFromMirror。
