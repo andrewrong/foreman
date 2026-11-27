@@ -1,8 +1,15 @@
 package sched
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/andrewrong/foreman/internal/clock"
+	"github.com/andrewrong/foreman/internal/harness/api"
+	"github.com/andrewrong/foreman/internal/pipeline/recover"
+	stagecode "github.com/andrewrong/foreman/internal/stage/code"
 )
 
 func TestNewReportsEveryMissingDependency(t *testing.T) {
@@ -14,6 +21,30 @@ func TestNewReportsEveryMissingDependency(t *testing.T) {
 		if !strings.Contains(err.Error(), name) {
 			t.Errorf("error %q does not name %s", err, name)
 		}
+	}
+}
+
+// A session that is already starting must not consult RunExtra: a script
+// queue handing out one script per call would otherwise be drained by polls.
+func TestDriveSessionPollsDoNotConsultRunExtra(t *testing.T) {
+	dir := t.TempDir()
+	clk := clock.NewFake(time.Unix(1_800_000_000, 0))
+	if err := recover.TakeLock(dir, clk.Now(), 1); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	s := &Scheduler{d: Deps{Clock: clk, RunExtra: func(api.Role, string) map[string]string { calls++; return nil }}}
+	for i := 0; i < 3; i++ {
+		_, done, err := s.driveSession(context.Background(), stagecode.Env{}, stagecode.Request{RunID: "r1", Role: api.RoleCoder, StepID: "S1", RunDir: dir})
+		if err != nil || done {
+			t.Fatalf("poll %d: done=%v err=%v, want a session still starting", i, done, err)
+		}
+	}
+	if calls != 0 {
+		t.Errorf("RunExtra called %d times while polling a starting session, want 0", calls)
+	}
+	if got := s.withExtra(stagecode.Request{Role: api.RoleCoder, StepID: "S1"}); got.Extra != nil || calls != 1 {
+		t.Errorf("withExtra: Extra=%v calls=%d, want one call at launch", got.Extra, calls)
 	}
 }
 

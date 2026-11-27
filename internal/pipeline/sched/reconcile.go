@@ -142,15 +142,17 @@ func (s *Scheduler) sessionRequest(ctx context.Context, st stepRow, req reqRow, 
 		prompt = reviewerPrompt
 	}
 	return stagecode.Request{RunID: run.ID, StepID: st.ID, Role: role, Model: run.Model, RunDir: s.runDir(run.ID),
-		SessionRepo: repo, Context: renderContext(in), Prompt: prompt, AcceptanceIDs: st.Acceptance,
-		Extra: s.extra(role, st.ID)}, nil
+		SessionRepo: repo, Context: renderContext(in), Prompt: prompt, AcceptanceIDs: st.Acceptance}, nil
 }
 
-func (s *Scheduler) extra(role api.Role, stepID string) map[string]string {
-	if s.d.RunExtra == nil {
-		return nil
+// withExtra adds the adapter settings of a Run. It is called only when a
+// session is about to be launched, never per poll of a running one, so a
+// RunExtra that hands out one script per call sees one call per launch.
+func (s *Scheduler) withExtra(r stagecode.Request) stagecode.Request {
+	if s.d.RunExtra != nil {
+		r.Extra = s.d.RunExtra(r.Role, r.StepID)
 	}
-	return s.d.RunExtra(role, stepID)
+	return r
 }
 
 func (s *Scheduler) runCode(ctx context.Context, st stepRow, req reqRow, run runRow) (*model.Event, error) {

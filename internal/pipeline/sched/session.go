@@ -77,7 +77,7 @@ func (s *Scheduler) driveSession(ctx context.Context, env stagecode.Env, r stage
 // startSession takes launch.lock (O_EXCL), starts the launcher in its own
 // session and, once pid.json exists, records the pid in the Run.
 func (s *Scheduler) startSession(ctx context.Context, env stagecode.Env, r stagecode.Request, attempt int) (stagecode.Result, bool, error) {
-	prep, err := env.Prepare(r)
+	prep, err := env.Prepare(s.withExtra(r))
 	if err != nil {
 		return stagecode.Result{}, false, err
 	}
