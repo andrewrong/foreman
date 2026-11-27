@@ -161,7 +161,7 @@ entities:
       - { name: harness, type: string, required_when: "role 为 AI 角色（不是 check、ci_watch、merge）" }
       - { name: pid, type: int, required: false }
       - { name: pid_start, type: time, required: false, note: "与 pid 一起判断进程是否仍是同一个" }
-      - { name: dir, type: string, required: true, note: "~/.foreman/projects/<p>/runs/<run id>/" }
+      - { name: dir, type: string, required: true, note: "FOREMAN_HOME/runs/<run id>/（D-068、D-072）" }
       - { name: config_rev, type: int, required: true }
       - { name: prompt_hash, type: string, required_when: "role 为 AI 角色（不是 check、ci_watch、merge）" }
       - { name: reserved, type: "[]{resource, amount}", required: true, note: "Ledger 重启时由运行中 Run 的 reserved 重建" }

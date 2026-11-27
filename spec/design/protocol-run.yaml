@@ -1,5 +1,5 @@
 # AI 会话 ↔ foremand 的文件协议（D-033）：输入 context.md + todo.json，输出 result.json。
-# 位置：运行目录 ~/.foreman/projects/<p>/runs/<run id>/；会话的工作目录是需求的会话仓库（D-045），运行目录以只读+单文件可写方式映射。
+# 位置：运行目录 FOREMAN_HOME/runs/<run id>/（D-072：out/ 放会话结果文件，tmp/ 为 TMPDIR 与 HOME，l0/ 为检查用的检出）；会话的工作目录是需求的会话仓库（D-045），运行目录以只读+单文件可写方式映射。
 schema: foreman.protocol-run/1
 
 compat:

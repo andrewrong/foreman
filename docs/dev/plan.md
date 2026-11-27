@@ -44,3 +44,10 @@
 - T9：PRListOpen 不分页（只取 100 条）；ETag 缓存键是完整 URL，不区分 token；JobLogs 最多 32 MiB 不缓存，调用方必须过 privguard；gate.New 在 Ledger 为 nil 时自建内存 ledger（forge 测试用）。
 - T8a：claude 参数含 --permission-mode bypassPermissions（D-056：沙箱内放开），因此 claude 会话必须只经 sandbox/launch 启动——stage/reconciler 任务要加测试：没有沙箱包装的 claude 调用被拒绝。skills 以文本注入提示词（--disable-slash-commands 关闭了原生 skills），M-3「skill 调用次数」指标因此测不到，需要换度量方式或改用原生加载（下次探测确认 Skill 工具在 --disable-slash-commands 下能否工作）。todo.json 校验未实现。真实 CLI 冒烟测试（haiku，1 轮）通过。
 - T7b：包级 Transition 用真实时钟与默认配置，daemon 必须用 NewEngine 注入 clock 与 skills.yaml 的模型配置；LogTail 未经 privguard（privguard 模块未实现，调用方必须先脱敏）；PV-2/5/7/8 留给 planner 校验器；默认 deadline（running 60m、rescue 2h、ask 72h、parked 7d）待 CF-02 配置化。
+
+## M1
+
+- 骨架 done（2026-11-28）：快车道端到端通过，命中 S04 S02 S40 S05 S41 S06 S42 S10 S07 S29 S08 S44；红 base 场景 S03 S13。
+- 安全修复进行中：L0 隔离（D-072 ②）。
+- 骨架未做（后续场景任务）：launch.lock/pid.json/setsid 异步会话；update-branch、合并前等 L1、S47 护栏、needs_rereview；L1 失败分类与重跑；access_request（现按 bad_result）；todo.json；LogTail 的 privguard；stream 中额度事件写入 meter；runs.reserved；push 停止标志持久化；hold_released 路径；Compose 不能重启（integrate.Init 遇到已有目录失败，缺 Open）；合回后会话仓库不刷新（多步骤需求看不到前一步）；周期性 FG-7 轮询（骨架在 Tick 内临时 refreshBase）。
+- 场景任务（并行）：check_fail 重试、review_changes、l1_fail → fix 步骤、hold 与 owner ask、重启恢复、多步骤需求；退出条件 = 状态表中没有场景命中的行清单为空或逐条说明。

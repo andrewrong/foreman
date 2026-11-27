@@ -504,3 +504,9 @@ decisions:
     statement: "T7b 实现时对齐的实体细节：E-RUN 增加 status（pending|running|killing|killed|ended）与 input，创建后可改 status、pid、prompt_hash；E-REQ.pending_triggers 保存完整触发上下文并在 hold 回到 none 时重放；req_counters 增加 access_requests 与 budget_extensions（H4 resume 每次追加一份原预算）；step 进入 done 或 dropped、hold 离开 owner/parked 时，其未回答的 ask 记为 moot"
     enforced_by: "test:effects-all-executed；test:ask-counts-single-source"
     status: active
+
+  - id: D-072
+    date: 2026-11-28
+    statement: "M1 骨架审查后定下：① 运行目录为 FOREMAN_HOME/runs/<run id>/，内分 out/（只放协议规定的结果文件，CheckOutputs 只检查这里）、tmp/（TMPDIR、HOME、缓存副本、srt 设置）、l0/（检查用的一次性检出）；② L0 只在 l0/ 中运行，该检出由 foremand 在启动沙箱前用禁钩子的 git 从集成目录导出，沙箱启动后 foremand 不再在 l0/ 中执行 git；集成目录对任何沙箱进程 denyWrite（修正骨架中为 L0 放开集成目录的做法：会话代码可改写其 .git/config 而劫持带 token 的推送）；③ PR 合并方式为 squash"
+    enforced_by: "test:l0-runs-outside-integration-dir；test:session-output-only-result-files"
+    status: active

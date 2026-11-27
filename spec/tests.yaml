@@ -144,6 +144,9 @@ tests:
   - D-046
   - D-055
   - state-machine:state-machine
+- name: test:l0-runs-outside-integration-dir
+  covers:
+  - D-072
 - name: test:l1-failure-classification
   covers:
   - D-055
@@ -255,6 +258,7 @@ tests:
 - name: test:session-output-only-result-files
   covers:
   - D-002
+  - D-072
 - name: test:session-repo-no-upstream
   covers:
   - D-050
