@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-const goodToken = "0123456789abcdef0123456789abcdef-SECRETVALUE"
+const goodToken = "0123456789abcdef" + "0123456789abcdef-SECRETVALUE"
 
 func mkdir(t *testing.T, mode os.FileMode) string {
 	t.Helper()

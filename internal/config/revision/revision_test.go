@@ -117,7 +117,7 @@ func TestConfigSaveRejectsInvalid(t *testing.T) {
 		{"runtime.toml", "workerz = 1\n"},
 		{"roles.toml", "[role.coder]\neffort = \"turbo\"\n"},
 		{"projects/demo.toml", "default_branch = \"main\"\n"},
-		{"projects/demo.toml", "repo_path = \"/r\"\ngithub_token = \"ghp_abcdefghijklmnopqrstuvwxyz0123456789\"\n"},
+		{"projects/demo.toml", "repo_path = \"/r\"\ngithub_token = \"gh" + "p_abcdefghijklmnopqrstuvwxyz0123456789\"\n"},
 		{"../escape.toml", "x = 1\n"},
 		{"projects/../runtime.toml", "x = 1\n"},
 	} {

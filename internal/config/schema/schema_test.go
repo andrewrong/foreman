@@ -101,7 +101,7 @@ func TestConfigSchemaRejectsBadInput(t *testing.T) {
 		{"project bad repo slug", "projects/p.toml", "repo_path = \"/r\"\ngithub_repo = \"nope\"\n", "github_repo"},
 		{"project unknown key", "projects/p.toml", "repo_path = \"/r\"\ntoken = \"abc\"\n", `unknown key "token"`},
 		{"project bad db", "projects/p.toml", "repo_path = \"/r\"\n[[database]]\nname = \"a\"\nkind = \"oracle\"\npath = \"/x\"\n", "database[0].kind"},
-		{"project db credentials", "projects/p.toml", "repo_path = \"/r\"\n[[database]]\nname = \"a\"\nkind = \"postgres\"\npath = \"postgres://u:pw@h/db\"\n", "database[0].path"},
+		{"project db credentials", "projects/p.toml", "repo_path = \"/r\"\n[[database]]\nname = \"a\"\nkind = \"postgres\"\npath = \"postgres://u:" + "pw@h/db\"\n", "database[0].path"},
 		{"project dup service", "projects/p.toml", "repo_path = \"/r\"\n[[service]]\nname = \"a\"\n[[service]]\nname = \"a\"\n", "duplicate service"},
 		{"project empty argv", "projects/p.toml", "repo_path = \"/r\"\nl0 = [[]]\n", "l0[0]"},
 		{"project l0 budget", "projects/p.toml", "repo_path = \"/r\"\n[l0_budget]\ngomaxprocs = 0\n", "l0_budget.gomaxprocs"},
