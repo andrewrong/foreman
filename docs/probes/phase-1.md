@@ -37,4 +37,14 @@ Go 缓存：
 
 ## P3 GitHub PAT
 
-见 docs/reviews/round-2-response.md 末尾：workflow 文件 push 被拒；普通 push、删分支成功；公开仓库读取不能说明权限。开 PR、update-branch、rerun、304 计数待做。
+| 项 | 结果 |
+|---|---|
+| push 触及 .github/workflows/** | 被拒（PAT 无 workflow 权限） |
+| 普通 push、删除分支（git push --delete 与 DELETE git/refs） | 成功 |
+| 开 PR（POST pulls）、关 PR（PATCH state=closed） | 成功 |
+| update-branch | 接口可调用（无新提交时返回说明信息） |
+| rerun workflow run（POST actions/runs/{id}/rerun） | 201 |
+| check-runs 读取 | 返回 PR 头提交的 check run（公开仓库；私有仓库仍未验证） |
+| 条件请求 If-None-Match → 304 | x-ratelimit-used 不变：304 不计入 core 额度 |
+
+探测用的 PR 与分支已关闭、删除。

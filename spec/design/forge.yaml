@@ -72,7 +72,7 @@ ops:   # 初始操作集合；新增一个操作 = 改代码 + 测试
   - { id: OP-04, name: PRMerge,         method: "PUT /repos/{o}/{r}/pulls/{n}/merge",                resource: [rest, write], note: "带 sha 参数，head 变化时 GitHub 返回 409" }
   - { id: OP-05, name: PRUpdateBranch,  method: "PUT /repos/{o}/{r}/pulls/{n}/update-branch",        resource: [rest, write] }
   - { id: OP-06, name: PRComment,       method: "POST /repos/{o}/{r}/issues/{n}/comments",           resource: [rest, write] }
-  - { id: OP-07, name: ChecksForRef,    method: "GET /repos/{o}/{r}/commits/{ref}/check-runs",       resource: [rest], verified: false, note: "细粒度 PAT 能否读取 check-runs 待核实；不能时改用 GET /repos/{o}/{r}/commits/{ref}/status 与 actions runs" }
+  - { id: OP-07, name: ChecksForRef,    method: "GET /repos/{o}/{r}/commits/{ref}/check-runs",       resource: [rest], verified: public-repo-only, note: "细粒度 PAT 能否读取 check-runs 待核实；不能时改用 GET /repos/{o}/{r}/commits/{ref}/status 与 actions runs" }
   - { id: OP-08, name: RunsList,        method: "GET /repos/{o}/{r}/actions/runs",                   resource: [rest] }
   - { id: OP-09, name: RunRerunFailed,  method: "POST /repos/{o}/{r}/actions/runs/{id}/rerun-failed-jobs", resource: [rest, write] }
   - { id: OP-10, name: JobLogs,         method: "GET /repos/{o}/{r}/actions/jobs/{id}/logs",         resource: [rest], note: "302 跳转到 blob 存储，由 foremand 下载，日志经 privguard 后交给会话" }
