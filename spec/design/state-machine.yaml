@@ -77,6 +77,35 @@ dims:
 #   inject_denial  inject_guidance  grant_one:<counter,...>
 #   create_run:<role> 的模型选择：步骤的 check_fail 或 review_rounds 达到 cap − 1 后的下一次 coder Run 使用 skills.yaml coder.retry_upgrade 的模型（默认 opus，D-044）；Run.model 记录实际模型
 
+effects:   # 每个 effect 的数据库写入（TX-1：Transition 的同一事务内执行；外部动作由 reconciler 依据写入的状态完成）。执行器在 internal/pipeline/state（C-01）。
+  - { name: "inc:<counter>",            writes: "E-STEP.counters[c] += 1；或 E-REQ.req_counters[c] += 1（按 dims.counters / req_counters 归属）" }
+  - { name: "reset:<counter,...>",      writes: "对应计数置 0；ask.cause_counter 指 E-ASK.cause_counter 所指的计数" }
+  - { name: "grant_one:<counter,...>",  writes: "每个计数 c := min(c, cap − 1)" }
+  - { name: "set:<field>=<value>",      writes: "last_reviewed_sha=head → E-STEP.last_reviewed_sha（integrate 步骤写 E-PR.last_reviewed_sha）= 当前 head；parked=true|false → E-REQ.parked" }
+  - { name: "create_run:<role>",        writes: "插入 E-RUN(status=pending, role, model 按 skills.yaml 与 retry_upgrade, spec_version, snapshot_id)；reconciler 启动会话" }
+  - { name: "create_run_when_drained:<role>", writes: "在 E-REQ 上记 pending_run=<role>；该需求没有 running 步骤、也没有 waiting(rescue|ci) 步骤时由 Transition 插入 E-RUN（R2-M3）" }
+  - { name: "kill_run",                 writes: "当前步骤的 running E-RUN.status=killing；reconciler 终止进程后写 killed" }
+  - { name: "kill_runs",                writes: "该需求所有 running E-RUN.status=killing" }
+  - { name: "add_findings",             writes: "把 Run 结果中的 findings 插入 E-FIND(kind=review, status=open, round)" }
+  - { name: "add_findings:check",       writes: "插入 E-FIND(kind=check, failing_tests, log_tail)" }
+  - { name: "add_fix_step",             writes: "插入 E-STEP(type=fix, state=queued, stage=code, deps=[], 目标=引发的 integrate 步骤)；integrate 步骤记 reason=fix" }
+  - { name: "req_hold:<hold>[:<H 项>]", writes: "E-REQ.hold=<hold>；owner 时同时插入 E-ASK(H 项, subject=当前步骤, cause_counter=该行守卫中 at_cap 的计数, status=open)" }
+  - { name: "record_resume_stage",      writes: "E-STEP.resume_stage = 当前 stage（若目标为 queued(X) 经 HOLD-1 改写，则为 X）" }
+  - { name: "extend_deadline",          writes: "E-STEP.deadline = now + 该等待原因的 deadline" }
+  - { name: "alert_starved",            writes: "插入 notify 队列一条告警（同一步骤 6h 内一次）" }
+  - { name: "inject_denial",            writes: "在步骤的下一次 Run 的 context 输入中记录访问被拒原因" }
+  - { name: "inject_guidance",          writes: "把 rescuer 结果的 guidance 记入步骤，下一次 Run 的 context 渲染" }
+  - { name: "grant_access",             writes: "E-STEP.access_grants 追加被批准的资源；access_requests 不变" }
+  - { name: "release_steps",            writes: "该需求所有 waiting(hold) 步骤：按 resume_stage 回到 queued(resume_stage)（不受 HOLD-1 影响，因为 hold 已在同一事务内清除）" }
+  - { name: "drop_all_steps",           writes: "该需求所有非终态步骤 → dropped；E-REQ.dropped_reason 必填（ACR-05）" }
+  - { name: "drop_held_step",           writes: "E-ASK.subject 指向的 work 步骤 → dropped" }
+  - { name: "apply_plan_diff",          writes: "按 protocol-plan.yaml apply 规则在同一事务内增删改步骤" }
+  - { name: "append_trigger_to_planner_input", writes: "把触发原因追加到下一次 planner Run 的输入" }
+  - { name: "append_trigger_to_rescuer_input", writes: "把触发原因追加到下一次 rescuer Run 的输入" }
+  - { name: "create_owner_ask",         writes: "插入 E-ASK(status=open)；发送由 notify 模块按队列完成" }
+  - { name: "notify",                   writes: "插入 notify 队列一条消息" }
+  - { name: "release_session_repo",     writes: "E-REQ.session_repo_state=releasing；reconciler 删除会话仓库后写 released" }
+
 step_table:
   # ---- 派发（queued）----
   - { id: S01, from: { state: queued, stages: all, types: all }, event: dispatch, guard: { hold: set },                                  to: { state: waiting, reason: hold }, effects: [record_resume_stage] }

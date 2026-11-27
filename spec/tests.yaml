@@ -88,6 +88,9 @@ tests:
 - name: test:derived-phase-total
   covers:
   - D-054
+- name: test:effects-all-executed
+  covers:
+  - D-070
 - name: test:feedback-report-generated
   covers:
   - D-061
@@ -166,6 +169,7 @@ tests:
 - name: test:only-transition-writes-state
   covers:
   - C-01
+  - D-070
 - name: test:privguard-binary-rejected
   covers:
   - privguard:P3
@@ -258,6 +262,7 @@ tests:
 - name: test:spec-validate-requirement
   covers:
   - D-003
+  - D-070
 - name: test:startup-integrity-check
   covers:
   - D-047

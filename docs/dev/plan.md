@@ -1,6 +1,7 @@
 # 开发计划（v1）
 
 分工：Opus 会话拆任务、做探测、审查、合并；Sonnet 子代理按任务写代码。
+额度上限：owner 的 Claude 7 天额度到 0.93 时停止派任务（留给 owner 自用）；每次合并后用一次 haiku 调用读 rate_limit_event 复查。2026-11-28 读数 0.90，12-01 11:00 重置。
 状态：ready = spec 已定，可以派；blocked:<探测> = 等探测结论改完 spec 再派；done。
 每个任务一个分支 task/<编号>-<短名>，审查通过后由 Opus 会话合入开发分支 dev/v1。
 探测结论见 docs/probes/phase-1.md，相关决定 D-066。

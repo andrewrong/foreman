@@ -492,3 +492,9 @@ decisions:
     amends: [D-031]
     enforced_by: "test:module-deps；test:forge-error-mapping"
     status: active
+
+  - id: D-070
+    date: 2026-11-28
+    statement: "M1 前补齐的规格缺口：① spec_version 从 1 开始；② 必填列表：change 与 bug.repro 至少 1 项，current 可以为空（新模块），outcome 维持至少 1 项；③ E-REQ.base_fix_sha 承载 D-067 的修复需求标记；④ run id 为 r + base36 序号（≤ 8 字符），保证 runs/<run id>/ 满足 D-068 的 70 字节上限；⑤ 会话仓库路径以 entities.yaml 为准：FOREMAN_HOME/projects/<p>/sessions/<req id>/；⑥ state-machine.yaml 的 effects 清单定义每个 effect 的数据库写入，执行器在 internal/pipeline/state，Transition 的单个事务内执行（C-01、TX-1）"
+    enforced_by: "test:spec-validate-requirement；test:effects-all-executed；test:only-transition-writes-state"
+    status: active

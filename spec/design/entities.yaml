@@ -13,7 +13,7 @@ entities:
       - { name: kind, type: "enum feature|bug|chore", required: true }
       - { name: source, type: "enum owner|nightly|prod|improve", required: true }
       - { name: priority, type: "enum P0|P1|P2|P3", required: true, default_by_source: { prod: P0, nightly: P0, owner: P2, improve: P3 } }
-      - { name: spec_version, type: int, required: true, rule: "spec 任一字段变化必须 +1；旧版本保存在 req_spec_versions 表" }
+      - { name: spec_version, type: int, required: true, rule: "首个版本为 1；spec 任一字段变化必须 +1；旧版本保存在 req_spec_versions 表（D-070）" }
       - { name: spec, type: Spec, required: true }
       - { name: branch, type: string, required: true, format: "foreman/<id>" }
       - { name: parked, type: bool, required: true, default: false, note: "见 state-machine 表 B（H17）" }
@@ -22,6 +22,9 @@ entities:
       - { name: req_counters, type: "{replans, planner_failures, req_rescues, fix_steps}", required: true, note: "上限见 state-machine dims.req_counters" }
       - { name: last_l0_sha, type: string, required: false, note: "DT-3" }
       - { name: session_repo, type: string, required: false, note: "~/.foreman/projects/<p>/sessions/<req id>/，由镜像 clone --shared 创建（D-045）" }
+      - { name: session_repo_state, type: "enum none|active|releasing|released", required: true, default: none }
+      - { name: pending_run, type: "enum none|planner|rescuer", required: true, default: none, note: "create_run_when_drained 记录；排空后由 Transition 创建 Run" }
+      - { name: base_fix_sha, type: string, required: false, note: "RES-BASE 为某个红 base sha 自动创建的修复需求记录该 sha；merge lease 时据此设置 Demand.BaseFix（D-067、D-070）" }
       - { name: dropped_reason, type: string, required: false, rule: "drop_all_steps 必须同时写入（ACR-05）" }
       - { name: status, type: "enum draft|submitted", required: true, default: draft, note: "draft 时 spec 可不完整、不校验；submit 时整体校验（ACR-14）" }
       - { name: size, type: "enum s|m|l", required: true, note: "s：intake 直接产出单个步骤，跳过 planner（快车道，ACR-30）" }
@@ -44,8 +47,8 @@ entities:
     fields:
       - { name: title, type: string, required: true, max_len: 80 }
       - { name: goal, type: string, required: true, max_len: 500, note: "谁需要、为什么" }
-      - { name: current, type: "[]Ref", required: true, note: "系统现有什么；每项引用程序收集的模块/文件，不允许无引用的描述" }
-      - { name: change, type: "[]string", required: true, note: "要改什么，只写做什么" }
+      - { name: current, type: "[]Ref", required: true, min_items: 0, note: "系统现有什么；每项引用程序收集的模块/文件，不允许无引用的描述；新模块可以为空（D-070）" }
+      - { name: change, type: "[]string", required: true, min_items: 1, note: "要改什么，只写做什么" }
       - { name: outcome, type: "[]Acceptance", required: true, min_items: 1 }
       - { name: boundaries, type: "[]string", required: false, note: "不许碰的地方；不得写成文件白名单" }
       - { name: unknowns, type: "[]Unknown", required: false }
@@ -73,7 +76,7 @@ entities:
     fields:
       - { name: observed, type: string, required: true }
       - { name: expected, type: string, required: true }
-      - { name: repro, type: "[]string", required: true, note: "步骤或命令" }
+      - { name: repro, type: "[]string", required: true, min_items: 1, note: "步骤或命令" }
       - { name: cause, type: string, required: false }
       - { name: cause_status, type: "enum suspected|proven", required: true, rule: "proven 必须有 cause_proof" }
       - { name: cause_proof, type: Proof, required_when: "cause_status == proven" }
@@ -110,6 +113,9 @@ entities:
       - { name: state, type: "enum queued|running|waiting|done|dropped", required: true }
       - { name: stage, type: "enum code|check|review|merge", required: true, note: "合法组合见 state-machine dims" }
       - { name: resume_stage, type: "enum code|check|review|merge", required_when: "state == waiting && reason == hold" }
+      - { name: access_grants, type: "[]string", required: true, default: [], note: "grant_access 追加的已批准资源" }
+      - { name: guidance, type: string, required: false, note: "inject_guidance 写入，下一次 Run 的 context 渲染" }
+      - { name: denial, type: string, required: false, note: "inject_denial 写入" }
       - { name: reason, type: "waiting：enum deps|quota|infra|access|rescue|hold|ci|fix；dropped：自由文本", required_when: "state ∈ {waiting, dropped}" }
       - { name: deadline, type: time, required_when: "state ∈ {queued, running, waiting}" }
       - { name: counters, type: Counters, required: true }
