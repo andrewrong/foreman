@@ -71,8 +71,8 @@
 |---|---|---|---|
 | 1 | store、workspace（git） | 本机 sqlite、真实 git 仓库 | 已真实 |
 | 2 | sandbox | 本机 srt | 探测通过；会话启动未在 srt 中验证 |
-| 3 | harness | claude 在 srt 内用专用 token | 未做（下一步） |
-| 4 | forge | foreman-sandbox 仓库 | 只有接口冒烟 |
+| 3 | harness | claude 在 srt 内用专用 token | 探测通过（P4）；修 CLAUDE_CODE_TMPDIR；待：launcher 的 node 目录配置、把探测改成带开关的真实测试 |
+| 4 | forge | foreman-sandbox 仓库 | done：TestForgeLiveSmoke 覆盖 OP-01..OP-14 与 FG-8，83s 通过（2026-11-28）；rerun 在绿 CI 上 403 属预期；分支保护 403＝unavailable |
 | 5 | 单个 stage | code 阶段：真实会话仓库 + 层 2–3 | 未做 |
 | 6 | 一个需求端到端 | foreman-sandbox 上从接需求到合并 | 未做 |
 - smcheck 瘦身 done：1597 → 1080 行，YAML 只在 model.go 解析一次（tablegen、exhaustive 共用），tools/smcheck.rb 删除（T2 行为历史记录）。变异测试全部保留，只改了期望的错误文字格式。
