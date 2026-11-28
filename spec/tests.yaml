@@ -74,6 +74,15 @@ tests:
   covers:
   - D-073
   - protocol-run:PF-CTX
+- name: test:config-defaults-generated
+  covers:
+  - D-074
+- name: test:config-keys-match-schema
+  covers:
+  - D-074
+- name: test:config-owner-keys-required
+  covers:
+  - D-074
 - name: test:config-revision-rollback
   covers:
   - D-022

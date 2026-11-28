@@ -59,9 +59,73 @@ code:     # foreman 仓库，走 PR
   - id: CD-04
     item: "foreman 的 constitution.yaml、spec/ 下的设计与决定"
   - id: CD-05
-    item: "配置的 schema 与默认值（default 值在代码里，配置文件只写覆盖项）"
+    item: "配置的 schema（Go 类型与校验）；默认值的唯一来源是本文件 keys 表，代码中的默认值由 configgen 生成（D-074），配置文件只写覆盖项"
   - id: CD-06
     item: "资源分级与线上工具的语义定义（access.yaml、prod-access.yaml 的结构部分）"
 
 secrets:  # 见 D-026：services.toml 的 secrets 目录，foreman.<名称>，0600；不进 config_revisions 的 diff（只记录"已修改"）
   - "GitHub token、Telegram bot token、线上只读账号、开发凭据"
+
+# 配置项与默认值的唯一来源（D-074）。代码中的默认值由 internal/config/schema/configgen 从本表生成，
+# 不得手写。default 取值：具体值（一律写成字符串）；"owner"＝spec 不给值，owner 未设置时 foremand 拒绝启动；
+# "unset"＝可选项，不设置表示该功能不启用或不设上限（含义写在 note）。spec 中找不到出处的值不得写入本表，只能写 "owner"。
+keys:
+  # runtime.toml
+  - { key: secrets_dir,                               file: runtime.toml, type: path,     default: "owner", source: D-026, note: "D-026 的默认值是 owner 本机路径，不进仓库" }
+  - { key: parallel.workers,                          file: runtime.toml, type: int,      default: "owner", source: CF-04, note: "spec 未给数值" }
+  - { key: parallel.steps_per_requirement,            file: runtime.toml, type: int,      default: "1",     source: D-042, note: "v1 需求内步骤串行；>1 为 phase: v2" }
+  - { key: limits.check_fail,                         file: runtime.toml, type: int,      default: "3",     source: D-053 }
+  - { key: limits.review_rounds,                      file: runtime.toml, type: int,      default: "2",     source: D-053 }
+  - { key: limits.merge_conflict,                     file: runtime.toml, type: int,      default: "2",     source: D-053 }
+  - { key: limits.bad_result,                         file: runtime.toml, type: int,      default: "2",     source: D-053 }
+  - { key: limits.infra,                              file: runtime.toml, type: int,      default: "6",     source: D-053 }
+  - { key: limits.replans,                            file: runtime.toml, type: int,      default: "2",     source: D-053 }
+  - { key: limits.planner_failures,                   file: runtime.toml, type: int,      default: "2",     source: D-053 }
+  - { key: limits.req_rescues,                        file: runtime.toml, type: int,      default: "2",     source: D-053 }
+  - { key: limits.fix_steps,                          file: runtime.toml, type: int,      default: "3",     source: D-053 }
+  - { key: limits.pr_split_lines,                     file: runtime.toml, type: int,      default: "800",   source: "D-054, D-042", note: "拆多 PR 为 phase: v2；v1 一个需求一个 PR" }
+  - { key: limits.h4_budget_multiplier,               file: runtime.toml, type: float,    default: "2",     source: D-053, note: "H4：单需求成本超过 budget 的 2 倍" }
+  - { key: improve.min_interval_hours,                file: runtime.toml, type: int,      default: "owner", source: D-061, phase: v2, note: "improver 为 v2；触发规则与键名在 v2 重定" }
+  - { key: improve.weekly_cap,                        file: runtime.toml, type: int,      default: "owner", source: D-061, phase: v2, note: "同上" }
+  - { key: resources.github_rest_per_hour,            file: runtime.toml, type: int,      default: "5000",  source: RES-GH-REST }
+  - { key: resources.github_graphql_points_per_hour,  file: runtime.toml, type: int,      default: "5000",  source: RES-GH-GRAPHQL }
+  - { key: resources.github_write_per_minute,         file: runtime.toml, type: int,      default: "60",    source: RES-GH-WRITE }
+  - { key: resources.github_write_per_hour,           file: runtime.toml, type: int,      default: "400",   source: RES-GH-WRITE }
+  - { key: resources.github_merge_push_pr_reserve,    file: runtime.toml, type: int,      default: "500",   source: RES-GH-REST }
+  - { key: resources.l0_slots,                        file: runtime.toml, type: int,      default: "2",     source: RES-SLOTS }
+  - { key: resources.disk_floor_gib,                  file: runtime.toml, type: int,      default: "10",    source: RES-DISK }
+  - { key: resources.model_quota_floor_percent,       file: runtime.toml, type: int,      default: "10",    source: RES-MODEL }
+  - { key: resources.model_quota_warn_percent,        file: runtime.toml, type: int,      default: "30",    source: RES-MODEL }
+  # roles.toml（role.<name>.<键>；未列出的 角色×键 组合取 unset）
+  - { key: role.intake.model,                         file: roles.toml,   type: string,   default: "sonnet", source: "skills.yaml, D-065" }
+  - { key: role.planner.model,                        file: roles.toml,   type: string,   default: "opus",   source: skills.yaml }
+  - { key: role.coder.model,                          file: roles.toml,   type: string,   default: "sonnet", source: "skills.yaml, D-040" }
+  - { key: role.coder.advisor,                        file: roles.toml,   type: bool,     default: "true",   source: "skills.yaml, D-044" }
+  - { key: role.coder.advisor_model,                  file: roles.toml,   type: string,   default: "opus",   source: "skills.yaml, D-044" }
+  - { key: role.coder.retry_upgrade_model,            file: roles.toml,   type: string,   default: "opus",   source: "skills.yaml, D-053" }
+  - { key: role.reviewer.model,                       file: roles.toml,   type: string,   default: "opus",   source: "skills.yaml, D-040" }
+  - { key: role.rescuer.model,                        file: roles.toml,   type: string,   default: "opus",   source: "skills.yaml, D-053" }
+  - { key: role.rescuer.advisor,                      file: roles.toml,   type: bool,     default: "true",   source: "skills.yaml, D-053" }
+  - { key: role.rescuer.advisor_model,                file: roles.toml,   type: string,   default: "opus",   source: "skills.yaml, D-053" }
+  - { key: role.diagnoser.model,                      file: roles.toml,   type: string,   default: "opus",   source: skills.yaml, phase: v2 }
+  - { key: role.improver.model,                       file: roles.toml,   type: string,   default: "opus",   source: skills.yaml, phase: v2 }
+  - { key: role.improver.advisor,                     file: roles.toml,   type: bool,     default: "true",   source: skills.yaml, phase: v2 }
+  - { key: role.improver.advisor_model,               file: roles.toml,   type: string,   default: "opus",   source: skills.yaml, phase: v2 }
+  - { key: "role.*.timeout",                          file: roles.toml,   type: duration, default: "owner",  source: CF-02, note: "spec 未给数值；C-02 要求有 deadline，所以不能 unset" }
+  - { key: "role.*.effort",                           file: roles.toml,   type: string,   default: "unset",  source: CF-02, note: "不设置时由 harness 决定" }
+  - { key: "role.*.max_tokens",                       file: roles.toml,   type: int,      default: "unset",  source: "CF-02, PP-5", note: "不设置时只由 max_turns 与 timeout 约束" }
+  # projects/<p>.toml
+  - { key: repo_path,                                 file: projects/<p>.toml, type: path,   default: "owner", source: CF-01 }
+  - { key: github_repo,                               file: projects/<p>.toml, type: string, default: "owner", source: CF-01 }
+  - { key: default_branch,                            file: projects/<p>.toml, type: string, default: "owner", source: CF-01 }
+  - { key: l0,                                        file: projects/<p>.toml, type: argv_list, default: "owner", source: CF-01 }
+  - { key: service,                                   file: projects/<p>.toml, type: table_list, default: "unset", source: CF-01 }
+  - { key: database,                                  file: projects/<p>.toml, type: table_list, default: "unset", source: CF-01 }
+  - { key: pii_mask,                                  file: projects/<p>.toml, type: string_list, default: "unset", source: CF-01 }
+  - { key: l0_budget.timeout,                         file: projects/<p>.toml, type: duration, default: "120s", source: CF-12 }
+  - { key: l0_budget.gomaxprocs,                      file: projects/<p>.toml, type: int,      default: "2",    source: CF-12 }
+  - { key: l0_budget.memory_mb,                       file: projects/<p>.toml, type: int,      default: "2048", source: CF-12 }
+  - { key: access.r1_declared,                        file: projects/<p>.toml, type: string_list, default: "unset", source: CF-06 }
+  - { key: access.r2_approved,                        file: projects/<p>.toml, type: string_list, default: "unset", source: CF-06 }
+  - { key: prod.sql_ro,                               file: projects/<p>.toml, type: bool,   default: "false", source: "CF-07, D-042", note: "线上访问为 phase: v2" }
+  - { key: prod.rows_max,                             file: projects/<p>.toml, type: int,    default: "500",   source: prod-access.yaml }

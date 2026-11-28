@@ -516,3 +516,9 @@ decisions:
     statement: "M1 场景 A 审查后确认：① check_pass 关闭该步骤未关闭的 check finding，review_approve 关闭其 review finding；② dims.counters 的 reset 事件（any_valid_result、any_non_infra_result、check_pass 等）由 Transition 引擎统一清零，不在每行重复写 reset 效果；③ 步骤计数到上限经 escalate 进入 waiting(rescue) 并创建 rescuer Run，需求 hold 保持 none（需求级 rescue 只由表 B 的 req_rescue 触发）"
     enforced_by: "test:check-fail-reaches-next-context；test:effects-all-executed"
     status: active
+
+  - id: D-074
+    date: 2026-11-28
+    statement: "配置默认值只有一个来源：design/config.yaml 的 keys 表（键、文件、类型、默认值、出处）。代码中的默认值由 internal/config/schema/configgen 生成，不得手写；schema 中每个键必须在表中，表中每个键必须在 schema 中。spec 不给数值的键写 default: owner，owner 未设置时 foremand 拒绝启动，实现不得自行补值。起因：实现时 spec 未集中列出默认值，子代理补了与 D-054 冲突的 pr_split_lines=400、与 D-042 冲突的 steps_per_requirement=3。取代 config.yaml CD-05 中『default 值在代码里』"
+    enforced_by: "test:config-defaults-generated；test:config-keys-match-schema；test:config-owner-keys-required"
+    status: active
