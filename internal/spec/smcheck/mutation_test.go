@@ -57,7 +57,7 @@ type mutation struct {
 	name string
 	pr   bool // mutate protocol-run.yaml instead of state-machine.yaml
 	edit mutate
-	// want: every entry must equal one of the errors exactly (wording is shared with tools/smcheck.rb)
+	// want: every entry must equal one of the errors exactly (Go wording)
 	want    []string
 	wantErr string
 }
@@ -74,28 +74,28 @@ var mutations = []mutation{
 		want: []string{"unbounded cycle: S06,S08,S14,S43,S46,S71,S73,S75"}},
 	{name: "uncovered event",
 		edit: dropLine(`- { id: S47,`),
-		want: []string{`uncovered: {:state=>"running", :stage=>"merge", :type=>"integrate"} event=guardrail_hit`}},
+		want: []string{`uncovered: running/merge/integrate/ event=guardrail_hit`}},
 	{name: "unbounded cycle without access_requests inc",
 		edit: replace(`effects: ["inc:access_requests"] }`, `}`),
 		want: []string{"unbounded cycle: S06,S14,S15,S17,S71,S73,S75,S78", "unbounded cycle: S04,S14,S15,S17,S71,S73,S75,S78"}},
 	{name: "guard gap",
 		edit: dropLine(`- { id: S46b,`),
-		want: []string{`guard gap: {:state=>"running", :stage=>"merge", :type=>"integrate"} event=needs_rereview {"counter:rereviews"=>"at_cap"}`}},
+		want: []string{`guard gap: running/merge/integrate/ event=needs_rereview {counter:rereviews=at_cap}`}},
 	{name: "invalid target",
 		edit: replace(`to: { state: queued, stage: review }, effects: ["inc:rereviews"]`, `to: { state: queued, stage: bogus }, effects: ["inc:rereviews"]`),
-		want: []string{`invalid target: S46 from {:state=>"running", :stage=>"merge", :type=>"integrate"} -> {"state"=>"queued", "stage"=>"bogus"}`}},
+		want: []string{`invalid target: S46 from running/merge/integrate/ -> queued/bogus/`}},
 	{name: "no exit",
 		edit: chain(
 			replace(`    hold:   { types: all,       stages: all,                 deadline: none_bounded,  note: "由表 B 保证终止" }`,
 				"    hold:   { types: all,       stages: all,                 deadline: none_bounded,  note: \"由表 B 保证终止\" }\n    limbo:  { types: all,       stages: all }"),
 			replace(`- { id: S90, from: { state: [queued, running, waiting],`, `- { id: S90, from: { state: [queued, running],`)),
-		want: []string{`no exit: {:state=>"waiting", :stage=>"code", :type=>"build", :reason=>"limbo"}`}},
+		want: []string{`no exit: waiting/code/build/limbo`}},
 	{name: "unguarded inc",
 		edit: replace(`event: needs_rereview, guard: { counter: { name: rereviews, is: below } }`, `event: needs_rereview, guard: { counter: { name: merge_waits, is: below } }`),
 		want: []string{"unguarded inc: S46 inc:rereviews"}},
 	{name: "req guard gap",
 		edit: dropLine(`- { id: H05,`),
-		want: []string{`req guard gap: replan planner_failed {"req_counter:planner_failures"=>"at_cap"}`}},
+		want: []string{`req guard gap: replan planner_failed {req_counter:planner_failures=at_cap}`}},
 	{name: "req hold no exit",
 		edit: replace(`values: [none, replan, rescue, owner, parked]`, `values: [none, replan, rescue, owner, parked, limbo]`),
 		want: []string{"req hold no exit: limbo", "req trigger unhandled: limbo replan_trigger (precedence note covers only lower-priority)"}},
@@ -107,25 +107,25 @@ var mutations = []mutation{
 		want: []string{"counter never incremented: rereviews", "unbounded cycle: S06,S08,S14,S43,S46,S71,S73,S75"}},
 	{name: "ignored overlaps row",
 		edit: replace(`- { states: [done, dropped], events: all }`, `- { states: [queued, done, dropped], events: all }`),
-		want: []string{`ignored overlaps row: S01 {:state=>"queued", :stage=>"code", :type=>"build"} event=dispatch`}},
+		want: []string{`ignored overlaps row: S01 queued/code/build/ event=dispatch`}},
 	{name: "req uncovered",
 		edit: dropLine(`- { from: [none], events: [planner_ok,`),
 		want: []string{"req uncovered: hold=none event=planner_ok"}},
 	{name: "protocol step_decision mismatch", pr: true,
 		edit: replace(`enum retry|drop_step|replan|ask_owner`, `enum retry|drop_step|replan`),
-		want: []string{`protocol step_decision mismatch: ["retry", "drop_step", "replan"] vs ["retry", "drop_step", "replan", "ask_owner"]`}},
+		want: []string{`protocol step_decision mismatch: [retry drop_step replan] vs [retry drop_step replan ask_owner]`}},
 	{name: "protocol req_decision mismatch", pr: true,
 		edit: replace(`需求级：enum retry|replan|drop_requirement|ask_owner`, `需求级：enum retry|replan|ask_owner`),
-		want: []string{`protocol req_decision mismatch: ["retry", "replan", "ask_owner"] vs ["retry", "replan", "drop_requirement", "ask_owner"]`}},
+		want: []string{`protocol req_decision mismatch: [retry replan ask_owner] vs [retry replan drop_requirement ask_owner]`}},
 	{name: "undeclared guard enum",
 		edit:    replace(`guard: { tier: R1,`, `guard: { tierx: R1,`),
 		wantErr: "guard dim without declared enum: tierx"},
 	{name: "step decision enum gains an unhandled value",
 		edit: replace(`step_decision: [retry, drop_step, replan, ask_owner]`, `step_decision: [retry, drop_step, replan, ask_owner, extra]`),
-		want: []string{`guard gap: {:state=>"waiting", :stage=>"code", :type=>"build", :reason=>"rescue"} event=rescue_decision {"decision"=>"extra"}`, `protocol step_decision mismatch: ["retry", "drop_step", "replan", "ask_owner"] vs ["retry", "drop_step", "replan", "ask_owner", "extra"]`}},
+		want: []string{`guard gap: waiting/code/build/rescue event=rescue_decision {decision=extra}`, `protocol step_decision mismatch: [retry drop_step replan ask_owner] vs [retry drop_step replan ask_owner extra]`}},
 	{name: "answer enum gains an unhandled value",
 		edit: replace(`answer:        [resume, replan, drop, drop_step, grant, deny]`, `answer:        [resume, replan, drop, drop_step, grant, deny, extra]`),
-		want: []string{`req guard gap: owner owner_answer {"answer"=>"extra"}`, `req guard gap: parked owner_answer {"answer"=>"extra"}`}},
+		want: []string{`req guard gap: owner owner_answer {answer=extra}`, `req guard gap: parked owner_answer {answer=extra}`}},
 }
 
 func TestSmcheckMutations(t *testing.T) {
