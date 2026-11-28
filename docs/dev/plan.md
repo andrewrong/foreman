@@ -76,3 +76,4 @@
 | 5 | 单个 stage | code 阶段：真实会话仓库 + 层 2–3 | 未做 |
 | 6 | 一个需求端到端 | foreman-sandbox 上从接需求到合并 | 未做 |
 - smcheck 瘦身 done：1597 → 1080 行，YAML 只在 model.go 解析一次（tablegen、exhaustive 共用），tools/smcheck.rb 删除（T2 行为历史记录）。变异测试全部保留，只改了期望的错误文字格式。
+- forge 改用 go-github v93 + githubv4（D-075）done，TestDepsRegistry（check:deps-registry）done。自写代码 1073 → 1217 行（spec 估计 600–900，未达到）。真实 GitHub 冒烟只覆盖 3 个只读操作（RateLimit、PRListOpen、RunsList）；写操作（开 PR、合并、rerun、update-branch、job 日志、GraphQL 批量）未在真实 GitHub 上验证，属于逐层计划第 4 层。GraphQL 非 200 错误未类型化。
