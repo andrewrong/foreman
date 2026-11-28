@@ -75,3 +75,13 @@ Claude Code 2.1.332、srt（agent-crew 工具目录中的版本），haiku，for
 - 与 agent-crew 一致：其 README 记为"已知放松：除 deny_read 外读不受限制"。
 
 **白名单方式（srt 0.0.78 的 allowRead）**：denyRead 整个主目录与整个数据卷，allowRead 只给 claude 安装目录、运行目录、会话仓库。上面所有路径都读不到（连是否存在也看不到）；claude 在其中正常完成 Bash、写文件、git。唯一副作用：git 的 xcrun 写系统缓存目录失败，打印警告。
+
+**补充检查（同日，白名单下，shell 逐项，不经模型）**
+- 可执行文件能启动不等于能工作：不在 allowRead 里的二进制仍可启动，但读不到它自己的文件时中途失败（python 读不到 libpython、go 找不到 compile/vet 工具）。这是"有时能跑有时不能"的一个具体成因。
+- 符号链接：经 mise 的 lts、3.13、shims 等链接路径执行被拒，用 readlink -f 后的真实路径可以执行。allowRead、denyRead、PATH 都须是解析后的真实路径。
+- 会话仓库（clone --shared）的对象在镜像里：镜像不在 allowRead 时 git log 报 bad object；加入镜像（只读）后 git log 正常。
+- 加入 Go 安装目录后 go build、go test 正常。
+- 钥匙串：沙箱外查询 Claude Code 条目退出码 0，沙箱内（显式给 login 钥匙串路径）为 44，读不到。
+- osascript 向 Finder 发 Apple Event 失败（退出码 1）。
+- 网络：会话内 curl api.github.com 与 example.com 均被代理拒绝（403），会话不接触 GitHub。
+- 探测自身的坑：用宿主 git 克隆时 owner 的 init.templateDir 把 pre-commit 钩子复制进了仓库；foreman 用加固 git（GIT_CONFIG_GLOBAL=/dev/null）建会话仓库，不受影响，但会话内的 git 环境也应设 GIT_CONFIG_GLOBAL=/dev/null、GIT_CONFIG_NOSYSTEM=1。
