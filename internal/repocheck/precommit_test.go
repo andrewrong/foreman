@@ -76,7 +76,16 @@ func TestPreCommitConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range preCommitProblems(data, onPath) {
+	root := repoRoot(t)
+	// A repository script (tools/hooks/...) is found by its path in the repo, not on PATH.
+	found := func(name string) bool {
+		if strings.Contains(name, "/") {
+			fi, err := os.Stat(filepath.Join(root, name))
+			return err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0
+		}
+		return onPath(name)
+	}
+	for _, p := range preCommitProblems(data, found) {
 		t.Error(p)
 	}
 }

@@ -277,7 +277,7 @@ tests:
 - name: test:sandbox-read-allowlist
   covers:
   - D-080
-  - D-081
+  - D-087
 - name: test:secret-file-check
   covers:
   - D-026

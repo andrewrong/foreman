@@ -566,7 +566,7 @@ decisions:
     statement: "（P5 补充检查后补全 D-080）① allowRead 必须包含镜像 repo.git（只读，会话仓库的对象在其中，与 access.yaml R0 一致）；② 策略中的每个路径（allowRead、denyRead、allowWrite、PATH 的每一项）在生成时用 realpath 解析，启动前自检每一项存在；③ allowRead 的工具链等条目进 config.yaml keys 表，默认 owner，不由实现推断；④ 会话环境设 GIT_CONFIG_GLOBAL=/dev/null、GIT_CONFIG_NOSYSTEM=1；⑤ 被沙箱拒绝的访问要留下记录（srt 的违规上报或系统沙箱日志）写入运行目录，避免只看到一句 EPERM 而查不出原因"
     amends: D-080
     enforced_by: "test:sandbox-read-allowlist"
-    status: active
+    status: superseded
 
   - id: D-082
     date: 2026-11-28
@@ -596,4 +596,11 @@ decisions:
     date: 2026-11-28
     statement: "（owner 2026-11-28）运行目录用完即删：会话结束后 foremand 读取 out/ 并在一个事务中写入结果，事务提交后删除整个 FOREMAN_HOME/runs/<run id>/；顺序不可颠倒。foremand 启动时（D-047 的固定步骤之后）删除 runs/ 下数据库中不处于运行中的目录，运行中的（含待接管的分离会话）保留。只删除 runs/ 的直接子目录，删除前 realpath 确认在 runs/ 之内，不跟随符号链接。失败的运行不保留目录（日志与结果已入库）。任何时刻 runs/ 下的目录数不超过运行中的会话数"
     enforced_by: "test:run-dir-removed-after-run"
+    status: active
+  - id: D-087
+    date: 2026-11-28
+    statement: "（取代 D-081 全文；只改 ①，实现 D-085 时发现原 ① 与 access.yaml R0 不一致，以 R0 为准）补全 D-080：① allowRead 中镜像只含 repo.git/objects（clone --shared 的 alternates 目标，只读），不含 repo.git 的 config、HEAD、refs 与根目录；镜像 fetch 的凭据与推送相同，只经该进程环境注入，不进 argv 与配置文件；② 策略中的每个路径（allowRead、denyRead、allowWrite、PATH 的每一项）在生成时用 realpath 解析，启动前自检每一项存在；③ allowRead 的工具链等条目进 config.yaml keys 表，默认 owner，不由实现推断（工具链本身按 D-085 取自项目 mise.toml）；④ 会话环境的 git 配置按 D-082（GIT_CONFIG_GLOBAL 指向 foremand 生成的文件、GIT_CONFIG_NOSYSTEM=1）；⑤ 被沙箱拒绝的访问要留下记录（srt 的违规上报或系统沙箱日志）写入运行目录，避免只看到一句 EPERM 而查不出原因"
+    supersedes: D-081
+    amends: D-080
+    enforced_by: "test:sandbox-read-allowlist"
     status: active
