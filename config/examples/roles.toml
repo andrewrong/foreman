@@ -1,17 +1,25 @@
-# Example roles.toml (CF-02). Defaults: coder sonnet, reviewer opus, intake
-# sonnet, planner/rescuer opus; coder has an opus advisor (D-040, D-044).
+# Example roles.toml (CF-02). Models and advisor settings have defaults
+# (spec/design/config.yaml keys table); timeout has none, so every role sets it.
+
+[role.intake]
+timeout = "20m"
+
+[role.planner]
+timeout = "40m"
 
 [role.coder]
-model = "sonnet"
 effort = "medium"          # low | medium | high | xhigh | max, or omit
 timeout = "45m"
-advisor = true
-advisor_model = "opus"
-retry_upgrade_model = "opus"
 
 [role.reviewer]
 model = "opus"
 timeout = "30m"
 
-[role.intake]
-model = "sonnet"
+[role.rescuer]
+timeout = "40m"
+
+[role.diagnoser]
+timeout = "30m"
+
+[role.improver]
+timeout = "30m"

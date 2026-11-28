@@ -11,7 +11,7 @@ modules:
   - { module: privguard, layer: 0, packages: [internal/privguard],                               duty: "隐私扫描与脱敏（privguard.yaml P1–P4，D-014，C-09）：Scan、Redact、提交元数据检查；owner 专属值只经 Config 传入；本 package 的测试扫描全部 tracked 文件" }
 
   - { module: store,     layer: 1, packages: [internal/store/sqlite, internal/store/migrate],    duty: "global.db / work.db / ci.db 的打开、迁移、单写者" }
-  - { module: config,    layer: 1, packages: [internal/config/schema, internal/config/revision], duty: "配置读取、校验、revision、回退（config.yaml）" }
+  - { module: config,    layer: 1, packages: [internal/config/schema, internal/config/schema/configgen, internal/config/revision], duty: "配置读取、校验、revision、回退（config.yaml）" }
   - { module: secrets,   layer: 1, packages: [internal/secrets],                                 duty: "密钥文件检查与读取（D-026）" }
 
   - { module: resource,  layer: 2, packages: [internal/resource/meter, internal/resource/ledger, internal/resource/gate, internal/resource/history], duty: "资源层（resources.yaml）" }

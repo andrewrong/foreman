@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -50,15 +51,33 @@ func (e *env) file(rel string) (string, bool) {
 	return string(b), err == nil
 }
 
-const projBody = "repo_path = \"/work/demo\"\n"
+const projBody = "repo_path = \"/work/demo\"\ngithub_repo = \"example/demo\"\ndefault_branch = \"main\"\nl0 = [[\"go\", \"test\", \"./...\"]]\n"
+
+// rt is a complete runtime.toml (owner keys set) with the given worker count.
+func rt(workers int) string {
+	return "secrets_dir = \"/srv/example/secrets\"\n[parallel]\nworkers = " + strconv.Itoa(workers) + "\n"
+}
+
+// rolesBody is a complete roles.toml: the owner-required timeout of every
+// role, plus extra lines for the coder.
+func rolesBody(coderExtra string) string {
+	var b strings.Builder
+	for _, n := range schema.RoleNames {
+		b.WriteString("[role." + n + "]\ntimeout = \"30m\"\n")
+		if n == "coder" {
+			b.WriteString(coderExtra)
+		}
+	}
+	return b.String()
+}
 
 func TestConfigRevisionRollback(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
-	r1 := e.save(Owner, "runtime.toml", "[parallel]\nworkers = 4\n")
-	r2 := e.save(Owner, "roles.toml", "[role.coder]\nmodel = \"opus\"\n")
+	r1 := e.save(Owner, "runtime.toml", rt(4))
+	r2 := e.save(Owner, "roles.toml", rolesBody("model = \"opus\"\n"))
 	r3 := e.save(Owner, "projects/demo.toml", projBody)
-	r4 := e.save(Owner, "runtime.toml", "[parallel]\nworkers = 8\n")
+	r4 := e.save(Owner, "runtime.toml", rt(8))
 	if !(r1.Rev < r2.Rev && r2.Rev < r3.Rev && r3.Rev < r4.Rev) || !r1.Applied {
 		t.Fatalf("revs %v %v %v %v", r1, r2, r3, r4)
 	}
@@ -86,7 +105,7 @@ func TestConfigRevisionRollback(t *testing.T) {
 	if rb.Rev <= r4.Rev || !rb.Applied {
 		t.Errorf("rollback recorded as %+v", rb)
 	}
-	if got, _ := e.file("runtime.toml"); got != "[parallel]\nworkers = 4\n" {
+	if got, _ := e.file("runtime.toml"); got != rt(4) {
 		t.Errorf("runtime.toml = %q", got)
 	}
 	if _, ok := e.file("projects/demo.toml"); ok {
@@ -136,11 +155,11 @@ func TestConfigSaveRejectsInvalid(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(e.home, schema.Dir)); err == nil {
 		t.Error("config dir created by rejected saves")
 	}
-	if _, err := e.s.Save(ctx, "robot", "runtime.toml", nil); !errors.Is(err, ErrUnknownActor) {
+	if _, err := e.s.Save(ctx, "robot", "runtime.toml", []byte(rt(3))); !errors.Is(err, ErrUnknownActor) {
 		t.Errorf("unknown actor: %v", err)
 	}
-	e.save(Owner, "runtime.toml", "[parallel]\nworkers = 3\n")
-	_, err := e.s.Save(ctx, Owner, "runtime.toml", []byte("[parallel]\nworkers = 3\n"))
+	e.save(Owner, "runtime.toml", rt(3))
+	_, err := e.s.Save(ctx, Owner, "runtime.toml", []byte(rt(3)))
 	if !errors.Is(err, ErrNoChange) {
 		t.Errorf("identical save: %v", err)
 	}
@@ -149,14 +168,14 @@ func TestConfigSaveRejectsInvalid(t *testing.T) {
 func TestConfigAIChangesAreProposals(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
-	e.save(Owner, "runtime.toml", "[parallel]\nworkers = 2\n")
+	e.save(Owner, "runtime.toml", rt(2))
 	before, _ := e.s.Current(ctx)
 
-	p := e.save(AI, "runtime.toml", "[parallel]\nworkers = 6\n")
+	p := e.save(AI, "runtime.toml", rt(6))
 	if p.Applied || p.Rev != 0 || p.ProposalID == 0 {
 		t.Fatalf("proposal result %+v", p)
 	}
-	if got, _ := e.file("runtime.toml"); got != "[parallel]\nworkers = 2\n" {
+	if got, _ := e.file("runtime.toml"); got != rt(2) {
 		t.Fatalf("AI save changed the file: %q", got)
 	}
 	if cur, _ := e.s.Current(ctx); cur != before {
@@ -168,7 +187,7 @@ func TestConfigAIChangesAreProposals(t *testing.T) {
 	}
 
 	// Owner rejects one, accepts another.
-	p2 := e.save(AI, "runtime.toml", "[parallel]\nworkers = 7\n")
+	p2 := e.save(AI, "runtime.toml", rt(7))
 	if err := e.s.Reject(ctx, p2.ProposalID); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +195,7 @@ func TestConfigAIChangesAreProposals(t *testing.T) {
 	if err != nil || !acc.Applied || acc.Rev <= before {
 		t.Fatalf("accept = %+v, %v", acc, err)
 	}
-	if got, _ := e.file("runtime.toml"); got != "[parallel]\nworkers = 6\n" {
+	if got, _ := e.file("runtime.toml"); got != rt(6) {
 		t.Errorf("after accept: %q", got)
 	}
 	if _, err := e.s.Accept(ctx, p.ProposalID); !errors.Is(err, ErrNoSuchProposal) {
@@ -190,15 +209,16 @@ func TestConfigAIChangesAreProposals(t *testing.T) {
 func TestConfigVerifyDetectsOutOfBandEdit(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
-	if err := e.s.Verify(ctx); err != nil {
-		t.Fatalf("empty: %v", err)
+	if err := e.s.Verify(ctx); err == nil || !strings.Contains(err.Error(), "parallel.workers") {
+		t.Fatalf("empty config must be refused for its missing owner keys: %v", err)
 	}
-	e.save(Owner, "runtime.toml", "[parallel]\nworkers = 2\n")
+	e.save(Owner, "roles.toml", rolesBody(""))
+	e.save(Owner, "runtime.toml", rt(2))
 	if err := e.s.Verify(ctx); err != nil {
 		t.Fatal(err)
 	}
 	p := filepath.Join(e.home, schema.Dir, "runtime.toml")
-	if err := os.WriteFile(p, []byte("[parallel]\nworkers = 9\n"), 0o600); err != nil {
+	if err := os.WriteFile(p, []byte(rt(9)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	err := e.s.Verify(ctx)
@@ -216,8 +236,8 @@ func TestConfigVerifyDetectsOutOfBandEdit(t *testing.T) {
 func TestRunConfigSnapshot(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
-	e.save(Owner, "runtime.toml", "[parallel]\nworkers = 5\n")
-	e.save(Owner, "roles.toml", "[role.reviewer]\nmodel = \"opus\"\neffort = \"high\"\n")
+	e.save(Owner, "runtime.toml", rt(5))
+	e.save(Owner, "roles.toml", rolesBody("effort = \"high\"\n"))
 	r := e.save(Owner, "projects/demo.toml", projBody)
 
 	runDir := filepath.Join(t.TempDir(), "runs", "run-1")
@@ -259,12 +279,12 @@ func TestRunConfigSnapshot(t *testing.T) {
 	}
 
 	// The run reads its own copy and is unaffected by later saves.
-	e.save(Owner, "runtime.toml", "[parallel]\nworkers = 1\n")
+	e.save(Owner, "runtime.toml", rt(1))
 	snap, err := schema.Load(runDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.Runtime.Parallel.Workers != 5 || snap.Roles["reviewer"].Effort != "high" || snap.Projects["demo"].RepoPath != "/work/demo" {
+	if snap.Runtime.Parallel.Workers != 5 || snap.Roles["coder"].Effort != "high" || snap.Projects["demo"].RepoPath != "/work/demo" {
 		t.Errorf("snapshot config = %+v", snap.Runtime.Parallel)
 	}
 	live, _ := schema.Load(e.home)
