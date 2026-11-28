@@ -10,11 +10,9 @@ permissions:
 
 jobs:
   test:
-    # The owner's self-hosted runner (Linux arm64, one throwaway container per job, memory disk at /pt).
-    # This repository is public: a pull request from a fork must never run on that machine, so only
-    # pushes and pull requests whose head branch is in this repository run.
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: self-hosted
+    # GitHub-hosted runner: the repository is public, so standard runners cost nothing and no
+    # outside code runs on the owner's machine.
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -30,12 +28,11 @@ jobs:
       - name: go test
         run: |
           set -o pipefail
-          # Temporary files and test databases on the memory disk, where fsync costs nothing;
-          # the go command's build files stay on disk (the memory disk counts against the container's memory).
-          if [ -d /pt ] && [ -w /pt ]; then export TMPDIR=/pt; fi
+          # Temporary files and test databases on the RAM-backed /dev/shm, where fsync costs nothing;
+          # the go command's build files stay on disk.
+          export TMPDIR=/dev/shm/foreman-test && mkdir -p "$TMPDIR"
           export GOTMPDIR="$RUNNER_TEMP"
-          # golangci-lint runs inside go test (TestGolangciLint); bound its memory.
-          GOGC=50 go test -v -p 1 -parallel 2 -timeout 15m ./... | tee "$RUNNER_TEMP/go-test.log"
+          go test -v -race -timeout 15m ./... | tee "$RUNNER_TEMP/go-test.log"
       - name: slowest tests
         if: always()
         run: |
