@@ -52,6 +52,9 @@ func newWorld(t *testing.T, adapterName string) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(root, "db"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	w := &world{t: t, root: root, repo: filepath.Join(root, "sess"), run: filepath.Join(root, "runs", "r1"), git: gr}
 	if err := os.MkdirAll(w.repo, 0o700); err != nil {
 		t.Fatal(err)
@@ -82,7 +85,8 @@ func newWorld(t *testing.T, adapterName string) *world {
 	}
 	w.env = ctxmd.Env{
 		Launcher: launch.Launcher{PassThrough: true}, Adapter: ad, Timeout: time.Minute,
-		Policy: policy.Inputs{DenyWrite: []string{filepath.Join(root, "db")}, Path: wsgit.DefaultPath},
+		Policy: policy.Inputs{DenyWrite: []string{filepath.Join(root, "db")}, Path: wsgit.DefaultPath,
+			SessionGit: policy.SessionGit{Name: "foreman-session", Email: "foreman-session@users.noreply.example", DefaultBranch: "main"}},
 	}
 	return w
 }

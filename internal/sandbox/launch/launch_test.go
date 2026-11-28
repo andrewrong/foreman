@@ -30,11 +30,17 @@ func newPolicy(t *testing.T) policy.Policy {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(root) })
+	for _, d := range []string{"/repo", "/run", "/home"} {
+		if err := os.MkdirAll(root+d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	p, err := policy.New(policy.Inputs{
 		SessionRepo: root + "/repo",
 		RunTmp:      root + "/run",
 		ForemanHome: root + "/home",
 		Path:        "/usr/bin",
+		SessionGit:  policy.SessionGit{Name: "n", Email: "n@users.noreply.example", DefaultBranch: "main"},
 		Families:    []policy.Family{policy.FamilyGo},
 		Model:       &policy.ModelToken{Name: "MODEL_TOKEN", Value: "v"},
 	})
@@ -118,5 +124,68 @@ func TestExecRunnerDoesNotInheritEnv(t *testing.T) {
 	}
 	if strings.TrimSpace(out.String()) != "A=1" {
 		t.Errorf("env was %q", out.String())
+	}
+}
+
+// D-082: the launcher writes the generated gitconfig into the run HOME.
+func TestLaunchWritesSessionGitconfig(t *testing.T) {
+	p := newPolicy(t)
+	if _, err := (Launcher{SrtPath: "srt", Runner: &fakeRunner{}}).Start(context.Background(), p, []string{"true"}, IO{}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(p.GitConfigPath())
+	if err != nil || string(b) != string(p.GitConfig()) {
+		t.Errorf("gitconfig not written as generated: %v", err)
+	}
+}
+
+// Probe P4: srt is a node script and a mise shim on PATH breaks it, so the
+// configured node dir goes first in the PATH srt starts with; a pass-through
+// launcher leaves PATH alone.
+func TestLaunchPutsNodeDirFirstInSrtPath(t *testing.T) {
+	p := newPolicy(t)
+	fr := &fakeRunner{}
+	if _, err := (Launcher{SrtPath: "srt", NodeDir: "/opt/node/bin", Runner: fr}).Start(context.Background(), p, []string{"true"}, IO{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Launcher{PassThrough: true, NodeDir: "/opt/node/bin", Runner: fr}).Start(context.Background(), p, []string{"true"}, IO{}); err != nil {
+		t.Fatal(err)
+	}
+	pathOf := func(env []string) string {
+		for _, kv := range env {
+			if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+				return v
+			}
+		}
+		return ""
+	}
+	if got := pathOf(fr.got[0].Env); !strings.HasPrefix(got, "/opt/node/bin:") {
+		t.Errorf("srt PATH = %q", got)
+	}
+	if got := pathOf(fr.got[1].Env); strings.Contains(got, "/opt/node/bin") {
+		t.Errorf("pass-through PATH = %q", got)
+	}
+}
+
+func TestLauncherResolveRefusesMissingPaths(t *testing.T) {
+	real, err := os.MkdirTemp("/tmp", "fml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(real) })
+	link := real + "-link"
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(link) })
+	got, err := Launcher{SrtPath: link, NodeDir: link}.Resolve()
+	if err != nil || got.SrtPath == link || got.NodeDir == link {
+		t.Errorf("not resolved: %+v %v", got, err)
+	}
+	if _, err := (Launcher{SrtPath: link, NodeDir: real + "/missing"}).Resolve(); err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Errorf("missing node dir: %v", err)
+	}
+	if _, err := (Launcher{PassThrough: true}).Resolve(); err != nil {
+		t.Errorf("pass-through: %v", err)
 	}
 }

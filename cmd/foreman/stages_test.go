@@ -45,8 +45,9 @@ func TestDriveSessionPollsDoNotConsultRunExtra(t *testing.T) {
 	calls := 0
 	errStop := errors.New("stop before launch")
 	stage := sessionStage{
-		launcher:   launch.Launcher{PassThrough: true},
-		policy:     policy.Inputs{DenyWrite: []string{short()}, Path: "/usr/bin"},
+		launcher: launch.Launcher{PassThrough: true},
+		policy: policy.Inputs{DenyWrite: []string{short()}, Path: "/usr/bin",
+			SessionGit: policy.SessionGit{Name: "s", Email: "s@users.noreply.example", DefaultBranch: "main"}},
 		newAdapter: func(api.Role, *gate.Lease) (api.Adapter, error) { return stubAdapter{}, nil },
 		runExtra:   func(api.Role, string) map[string]string { calls++; return nil },
 		finish:     codeFinish,

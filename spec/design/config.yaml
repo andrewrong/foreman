@@ -96,6 +96,13 @@ keys:
   - { key: resources.disk_floor_gib,                  file: runtime.toml, type: int,      default: "10",    source: RES-DISK }
   - { key: resources.model_quota_floor_percent,       file: runtime.toml, type: int,      default: "10",    source: RES-MODEL }
   - { key: resources.model_quota_warn_percent,        file: runtime.toml, type: int,      default: "30",    source: RES-MODEL }
+  # 沙箱（D-080、D-081、D-082）
+  - { key: sandbox.srt_path,                          file: runtime.toml, type: path,        default: "owner", source: D-081, note: "srt 可执行文件；按真实路径使用" }
+  - { key: sandbox.node_dir,                          file: runtime.toml, type: path,        default: "owner", source: D-081, note: "srt 是 node 脚本；给真实的 node 所在目录，不能是 mise shim" }
+  - { key: sandbox.read_paths,                        file: runtime.toml, type: string_list, default: "owner", source: D-081, note: "会话额外可读的路径（工具链安装目录等）；会话仓库、运行目录、镜像、harness 安装目录由程序自动加入" }
+  - { key: sandbox.deny_roots,                        file: runtime.toml, type: string_list, default: "owner", source: D-080, note: "整体禁读的根（owner 主目录、数据卷根）" }
+  - { key: session_git.name,                          file: runtime.toml, type: string,      default: "owner", source: D-082 }
+  - { key: session_git.email,                         file: runtime.toml, type: string,      default: "owner", source: D-082, note: "须为 noreply 地址（privguard P4）" }
   # roles.toml（role.<name>.<键>；未列出的 角色×键 组合取 unset）
   - { key: role.intake.model,                         file: roles.toml,   type: string,   default: "sonnet", source: "skills.yaml, D-065" }
   - { key: role.planner.model,                        file: roles.toml,   type: string,   default: "opus",   source: skills.yaml }

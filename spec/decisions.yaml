@@ -567,3 +567,9 @@ decisions:
     amends: D-080
     enforced_by: "test:sandbox-read-allowlist"
     status: active
+
+  - id: D-082
+    date: 2026-11-28
+    statement: "（owner 2026-11-28）会话里的 git 不读 owner 的 gitconfig，但要能像平常一样用客户端：foremand 在每次运行的 HOME（运行目录内）生成一份 foreman 自己的 .gitconfig，会话环境设 GIT_CONFIG_GLOBAL 指向它、GIT_CONFIG_NOSYSTEM=1。内容固定：user.name、user.email 取配置 session_git.*（noreply），init.defaultBranch 取项目默认分支，commit.gpgsign=false，core.editor=true，core.pager=cat，advice.detachedHead=false，push.default=nothing（会话不推送，推送只由 foremand 做）。取代 D-081 ④ 中 GIT_CONFIG_GLOBAL=/dev/null 的写法"
+    enforced_by: "test:session-gitconfig-generated"
+    status: active

@@ -20,6 +20,10 @@ func realConfig(t *testing.T) Config {
 	if _, err := os.Stat(srt); err != nil {
 		t.Skip("FOREMAN_TEST_SRT does not exist")
 	}
+	nodeDir := os.Getenv("FOREMAN_TEST_NODE_DIR") // srt is a node script (D-081)
+	if nodeDir == "" {
+		t.Skip("FOREMAN_TEST_NODE_DIR not set")
+	}
 	// Parent-env canaries: they must never reach the sandbox.
 	t.Setenv("FOREMAN_CANARY_TOKEN", "canary-token")
 	t.Setenv("GITHUB_TOKEN", "canary-gh")
@@ -48,15 +52,16 @@ func realConfig(t *testing.T) Config {
 		RunTmp:      root + "/run",
 		ForemanHome: root + "/home",
 		DenyRead:    []string{denied},
+		SessionGit:  policy.SessionGit{Name: "probe", Email: "probe@users.noreply.example", DefaultBranch: "main"},
 		Families:    []policy.Family{policy.FamilyGo},
 		LocalBind:   true,
-		Path:        os.Getenv("PATH"),
+		Path:        "/usr/bin:/bin:/usr/sbin:/sbin", // every PATH entry must exist (D-081)
 		Model:       &policy.ModelToken{Name: "FOREMAN_PROBE_MODEL_TOKEN", Value: "model"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Config{Launcher: launch.Launcher{SrtPath: srt}, Policy: pol, DeniedPath: denied}
+	return Config{Launcher: launch.Launcher{SrtPath: srt, NodeDir: nodeDir}, Policy: pol, DeniedPath: denied}
 }
 
 func requirePass(t *testing.T, r Report, name string) {

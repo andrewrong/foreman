@@ -28,6 +28,7 @@ type Dir struct {
 	mu     sync.Mutex
 	halted bool
 	store  HaltStore // nil: the halt lives in memory only
+	token  string    // push credential (UseToken); never written anywhere
 }
 
 // Init clones the mirror (--shared) into path. The "mirror" remote is the

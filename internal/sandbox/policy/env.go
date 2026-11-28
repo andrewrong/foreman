@@ -15,6 +15,7 @@ func reserved() map[string]bool {
 		"PATH": true, "HOME": true, "TMPDIR": true, "LANG": true, "TERM": true,
 		"GOCACHE": true, "GOMODCACHE": true, "GOFLAGS": true,
 		"CLAUDE_TMPDIR": true, "CLAUDE_CODE_TMPDIR": true, "TMPPREFIX": true,
+		"GIT_CONFIG_GLOBAL": true, "GIT_CONFIG_NOSYSTEM": true,
 	}
 }
 
@@ -79,6 +80,9 @@ func (p Policy) Env() []string {
 		"TERM":               "dumb",
 		"GOCACHE":            p.GoCache(),
 		"GOMODCACHE":         p.GoModCache(),
+		// D-082: git reads no owner or system config, only the generated file.
+		"GIT_CONFIG_GLOBAL":   p.GitConfigPath(),
+		"GIT_CONFIG_NOSYSTEM": "1",
 	}
 	if in.GoFlags != "" {
 		m["GOFLAGS"] = in.GoFlags

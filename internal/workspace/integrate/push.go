@@ -52,16 +52,20 @@ func (d *Dir) Push(ctx context.Context, reqID string) error {
 	if _, err := d.r.Run(ctx, d.Path, "checkout", "--quiet", "--force", branch); err != nil {
 		return err
 	}
-	before, err := d.remoteDefaultSHA(ctx)
+	pr, err := d.authRunner(ctx)
 	if err != nil {
 		return err
 	}
-	if _, err := d.r.Run(ctx, d.Path, "push", "origin", "HEAD:refs/heads/"+branch); err != nil {
-		return err
-	}
-	after, err := d.remoteDefaultSHA(ctx)
+	before, err := d.remoteDefaultSHA(ctx, pr)
 	if err != nil {
-		return err
+		return d.scrub(err)
+	}
+	if _, err := pr.Run(ctx, d.Path, "push", "origin", "HEAD:refs/heads/"+branch); err != nil {
+		return d.scrub(err)
+	}
+	after, err := d.remoteDefaultSHA(ctx, pr)
+	if err != nil {
+		return d.scrub(err)
 	}
 	if before != after {
 		d.mu.Lock()
@@ -80,8 +84,8 @@ func (d *Dir) Push(ctx context.Context, reqID string) error {
 }
 
 // remoteDefaultSHA returns the remote's default branch sha ("" if absent).
-func (d *Dir) remoteDefaultSHA(ctx context.Context) (string, error) {
-	out, err := d.r.Line(ctx, d.Path, "ls-remote", "origin", "refs/heads/"+d.Default)
+func (d *Dir) remoteDefaultSHA(ctx context.Context, r *git.Runner) (string, error) {
+	out, err := r.Line(ctx, d.Path, "ls-remote", "origin", "refs/heads/"+d.Default)
 	if err != nil {
 		return "", err
 	}

@@ -94,6 +94,9 @@ type Invocation struct {
 	Stdin   []byte
 	Files   []File
 	Timeout time.Duration
+	// ReadPaths are install paths the process must read (the harness binary
+	// and its directory); the sandbox adds them to allowRead (D-080).
+	ReadPaths []string
 }
 
 // Adapter is a model backend.

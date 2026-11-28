@@ -65,8 +65,27 @@ type Inputs struct {
 	// ProjectCacheDir is the per-project Go cache master (D-066); never
 	// writable from the session. The session works on a clone in RunTmp.
 	ProjectCacheDir string
-	OwnerHome       string   // owner home; ~/.ssh, ~/.config/gh ... are denyRead
-	DenyRead        []string // secrets dirs and other denied paths
+	OwnerHome       string   // owner home: denyRead as a whole, ~/.ssh ... listed too
+	DenyRead        []string // secrets dirs and other denied paths (must exist)
+
+	// Read allowlist (D-080, D-081). Everything under a deny root is
+	// unreadable except the allowRead paths: SessionRepo, RunTmp, MirrorRepo,
+	// HarnessPaths and ReadPaths. Nothing is inferred; the owner configures
+	// ReadPaths and DenyRoots (sandbox.read_paths, sandbox.deny_roots).
+	DenyRoots []string
+	// MirrorRepo is the project's mirror repo.git: allowRead (session repos
+	// borrow its objects, access.yaml R0). Its write protection comes from
+	// the caller listing it in DenyWrite.
+	MirrorRepo string
+	// HarnessPaths are the install paths the harness adapter declares
+	// (api.Invocation.ReadPaths).
+	HarnessPaths []string
+	ReadPaths    []string // toolchain directories, from sandbox.read_paths
+
+	// SessionGit fills the generated session .gitconfig (D-082).
+	SessionGit SessionGit
+
+	ownerSecrets []string // resolved by New: OwnerHome/<secret dirs>
 
 	Families   []Family // R0 package hosts
 	ModelHost  string   // declared by the harness adapter
@@ -97,7 +116,21 @@ func New(in Inputs) (Policy, error) {
 	if err != nil {
 		return Policy{}, err
 	}
+	in, err = resolveInputs(in)
+	if err != nil {
+		return Policy{}, err
+	}
+	denied = append([]string{}, in.DenyWrite...)
+	if in.ForemanHome != "" {
+		denied = append(denied, in.ForemanHome)
+	}
 	if err := checkSessionDirs(in, denied); err != nil {
+		return Policy{}, err
+	}
+	if err := checkAllowRead(in); err != nil {
+		return Policy{}, err
+	}
+	if err := checkSessionGit(in.SessionGit); err != nil {
 		return Policy{}, err
 	}
 	// srt creates a unix socket "<RunTmp>/srt-mux-<pid>-<n>.sock"; sun_path
@@ -143,16 +176,19 @@ func checkPaths(in Inputs) ([]string, error) {
 			return nil, err
 		}
 	}
-	for name, p := range map[string]string{"ProjectCacheDir": in.ProjectCacheDir, "OwnerHome": in.OwnerHome} {
+	for name, p := range map[string]string{"ProjectCacheDir": in.ProjectCacheDir, "OwnerHome": in.OwnerHome, "MirrorRepo": in.MirrorRepo} {
 		if p != "" {
 			if err := absPath(name, p); err != nil {
 				return nil, err
 			}
 		}
 	}
-	for _, p := range in.DenyRead {
-		if err := absPath("DenyRead", p); err != nil {
-			return nil, err
+	for name, list := range map[string][]string{"DenyRead": in.DenyRead, "DenyRoots": in.DenyRoots,
+		"HarnessPaths": in.HarnessPaths, "ReadPaths": in.ReadPaths} {
+		for _, p := range list {
+			if err := absPath(name, p); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return denied, nil
@@ -226,9 +262,27 @@ func (p Policy) DenyReadPaths() []string {
 	for _, d := range p.in.DenyRead {
 		set[d] = true
 	}
+	for _, d := range p.in.DenyRoots {
+		set[d] = true
+	}
 	if p.in.OwnerHome != "" {
-		for _, d := range ownerSecretDirs() {
-			set[filepath.Join(p.in.OwnerHome, d)] = true
+		set[p.in.OwnerHome] = true
+		for _, d := range p.in.ownerSecrets {
+			set[d] = true
+		}
+	}
+	return sortedKeys(set)
+}
+
+// AllowReadPaths returns the sorted allowRead list (D-080, D-081).
+func (p Policy) AllowReadPaths() []string {
+	set := map[string]bool{p.in.SessionRepo: true, p.in.RunTmp: true}
+	if p.in.MirrorRepo != "" {
+		set[p.in.MirrorRepo] = true
+	}
+	for _, l := range [][]string{p.in.HarnessPaths, p.in.ReadPaths} {
+		for _, d := range l {
+			set[d] = true
 		}
 	}
 	return sortedKeys(set)
@@ -285,6 +339,7 @@ type srtNetwork struct {
 
 type srtFilesystem struct {
 	DenyRead   []string `json:"denyRead"`
+	AllowRead  []string `json:"allowRead"`
 	AllowWrite []string `json:"allowWrite"`
 	DenyWrite  []string `json:"denyWrite"`
 }
@@ -300,6 +355,7 @@ func (p Policy) SettingsJSON() ([]byte, error) {
 		},
 		Filesystem: srtFilesystem{
 			DenyRead:   p.DenyReadPaths(),
+			AllowRead:  p.AllowReadPaths(),
 			AllowWrite: []string{p.in.RunTmp, p.in.SessionRepo},
 			DenyWrite:  p.DenyWritePaths(),
 		},

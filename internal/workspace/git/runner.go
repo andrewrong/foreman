@@ -89,6 +89,10 @@ type Config struct {
 	Exec   ExecFunc
 	Clock  clock.Clock // when set, GIT_AUTHOR_DATE/GIT_COMMITTER_DATE come from it
 	Ident  *Identity
+	// ExtraEnv entries (NAME=value) are appended to the environment of every
+	// invocation; WithEnv sets it. It carries per-process credentials
+	// (GIT_CONFIG_COUNT/KEY/VALUE), never argv and never a file.
+	ExtraEnv []string
 }
 
 // Runner runs hardened git commands.
@@ -132,6 +136,13 @@ func (r *Runner) WithIdentity(id Identity) *Runner {
 	return &c
 }
 
+// WithEnv returns a copy of r whose invocations also get kv (NAME=value).
+func (r *Runner) WithEnv(kv ...string) *Runner {
+	c := *r
+	c.cfg.ExtraEnv = append(append([]string(nil), r.cfg.ExtraEnv...), kv...)
+	return &c
+}
+
 // Env returns the complete, from-scratch environment for git.
 func (r *Runner) Env() []string {
 	env := []string{
@@ -146,7 +157,7 @@ func (r *Runner) Env() []string {
 		d := "@" + strconv.FormatInt(r.cfg.Clock.Now().Unix(), 10) + " +0000"
 		env = append(env, "GIT_AUTHOR_DATE="+d, "GIT_COMMITTER_DATE="+d)
 	}
-	return env
+	return append(env, r.cfg.ExtraEnv...)
 }
 
 // Argv returns the full argument vector (after the binary) for args.

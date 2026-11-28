@@ -113,6 +113,7 @@ func (e Env) Prepare(r Request) (Prepared, error) {
 	}
 	in := e.Policy
 	in.SessionRepo, in.RunTmp = r.SessionRepo, r.RunDir
+	in.HarnessPaths = append(append([]string{}, in.HarnessPaths...), inv.ReadPaths...)
 	pol, err := policy.New(in)
 	if err != nil {
 		return Prepared{}, err

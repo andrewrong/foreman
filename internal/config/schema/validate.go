@@ -56,6 +56,8 @@ func (c *checker) absPath(key, v string, required bool) {
 func validateRuntime(file string, r *Runtime) []error {
 	c := &checker{file: file}
 	c.absPath("secrets_dir", r.SecretsDir, false)
+	c.sandbox(r.Sandbox)
+	c.sessionGit(r.SessionGit)
 	// Owner-required keys at zero are reported by missingOwnerKeys, not here.
 	if r.Parallel.Workers != 0 {
 		c.rangeInt("parallel.workers", r.Parallel.Workers, 1, 64)
@@ -197,5 +199,29 @@ func (c *checker) databases(list []Database) {
 		if d.Path == "" || strings.Contains(d.Path, "://") && strings.Contains(d.Path, "@") {
 			c.bad(k+".path", "required, and must not embed credentials")
 		}
+	}
+}
+
+// sandbox checks the D-080/D-081 paths; emptiness is reported by
+// missingOwnerKeys, existence by the policy self-check at startup.
+func (c *checker) sandbox(s Sandbox) {
+	c.absPath("sandbox.srt_path", s.SrtPath, false)
+	c.absPath("sandbox.node_dir", s.NodeDir, false)
+	for i, p := range s.ReadPaths {
+		c.absPath(fmt.Sprintf("sandbox.read_paths[%d]", i), p, true)
+	}
+	for i, p := range s.DenyRoots {
+		c.absPath(fmt.Sprintf("sandbox.deny_roots[%d]", i), p, true)
+	}
+}
+
+var noreplyRE = regexp.MustCompile(`^[A-Za-z0-9._+-]+@(users\.)?noreply(\.[A-Za-z0-9.-]+)?$`)
+
+func (c *checker) sessionGit(g SessionGit) {
+	if g.Name != "" && (strings.ContainsAny(g.Name, "\n\r\x00") || strings.TrimSpace(g.Name) != g.Name) {
+		c.bad("session_git.name", "invalid name")
+	}
+	if g.Email != "" && !noreplyRE.MatchString(g.Email) {
+		c.bad("session_git.email", "must be a noreply address, got %q", g.Email)
 	}
 }
