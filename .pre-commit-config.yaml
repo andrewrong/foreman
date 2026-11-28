@@ -2,6 +2,7 @@
 # Each language a repository uses adds its own hooks here; this repository is Go.
 # A failing hook refuses the commit. Keep the set fast (seconds): the full
 # `go test ./...` stays a separate step.
+default_stages: [pre-commit]
 repos:
   - repo: local
     hooks:
@@ -32,6 +33,13 @@ repos:
       - id: privacy-grep
         name: no local paths or real addresses (AGENTS.md)
         language: system
-        entry: bash -c 'git grep -nE "/Users/|/Volumes/|/private/tmp|@gmail" -- . ":!spec/design/privguard.yaml" ":!AGENTS.md" ":!.pre-commit-config.yaml" && exit 1 || exit 0'  # privguard:allow rule-definition
+        entry: bash -c 'git grep -nE "/Users/|/Volumes/|/private/tmp|@gmail" -- . ":!spec/design/privguard.yaml" ":!AGENTS.md" ":!.pre-commit-config.yaml" ":!tools/hooks/prepush-scan.sh" && exit 1 || exit 0'  # privguard:allow rule-definition
         pass_filenames: false
         always_run: true
+      - id: prepush-history-scan
+        name: privacy scan of every commit being pushed (C-09)
+        language: system
+        entry: tools/hooks/prepush-scan.sh
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
