@@ -48,8 +48,7 @@ design:
     rule: "git push / fetch 走 git 协议（不计入 API 限额），凭据经 foremand 的一次性 credential helper 注入，不进沙箱"
     enforced_by: sandbox
 
-libraries:   # D-032：不自己写 HTTP 协议层
-  # D-069：v1 不使用下面两个库（以标准库实现）；保留记录供以后需要时参考
+libraries:   # D-032、D-075：不自己写 HTTP 协议层
   - id: LIB-1
     name: github.com/google/go-github
     use: "REST 客户端：类型化的请求/响应；Response.Rate 直接给出限额头；RateLimitError、AbuseRateLimitError 已是类型化错误（覆盖 FG-2、FG-5 的大部分）"

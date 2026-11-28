@@ -491,7 +491,7 @@ decisions:
     supersedes: D-032
     amends: [D-031]
     enforced_by: "test:module-deps；test:forge-error-mapping"
-    status: active
+    status: superseded
 
   - id: D-070
     date: 2026-11-28
@@ -521,4 +521,11 @@ decisions:
     date: 2026-11-28
     statement: "配置默认值只有一个来源：design/config.yaml 的 keys 表（键、文件、类型、默认值、出处）。代码中的默认值由 internal/config/schema/configgen 生成，不得手写；schema 中每个键必须在表中，表中每个键必须在 schema 中。spec 不给数值的键写 default: owner，owner 未设置时 foremand 拒绝启动，实现不得自行补值。起因：实现时 spec 未集中列出默认值，子代理补了与 D-054 冲突的 pr_split_lines=400、与 D-042 冲突的 steps_per_requirement=3。取代 config.yaml CD-05 中『default 值在代码里』"
     enforced_by: "test:config-defaults-generated；test:config-keys-match-schema；test:config-owner-keys-required"
+    status: active
+
+  - id: D-075
+    date: 2026-11-28
+    statement: "（取代 D-069，恢复 D-032 的做法，owner 2026-11-28 确认）internal/forge 的 REST 用 github.com/google/go-github（go.mod 固定一个大版本，升级走 PR），FG-8 的 GraphQL 批量查询用 github.com/shurcooL/githubv4；自写部分只有 ETag 条件请求 RoundTripper（LIB-3）、Gate 包装（LIB-4）与错误映射。起因：T9 任务简报写了『优先 net/http』，与 forge.yaml LIB-1 冲突；实现按简报手写了协议层，审查时没有对照 forge.yaml，反而写 D-069 让 spec 迁就代码"
+    supersedes: D-069
+    enforced_by: "test:module-deps；test:forge-error-mapping；test:forge-live-smoke"
     status: active

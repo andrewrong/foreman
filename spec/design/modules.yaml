@@ -15,7 +15,7 @@ modules:
   - { module: secrets,   layer: 1, packages: [internal/secrets],                                 duty: "密钥文件检查与读取（D-026）" }
 
   - { module: resource,  layer: 2, packages: [internal/resource/meter, internal/resource/ledger, internal/resource/gate, internal/resource/history], duty: "资源层（resources.yaml）" }
-  - { module: forge,     layer: 2, packages: [internal/forge/client, internal/forge/cache, internal/forge/ops], duty: "GitHub 访问（forge.yaml）；标准库 net/http 实现（D-069）；唯一可以导入 GitHub 客户端库的模块" }
+  - { module: forge,     layer: 2, packages: [internal/forge/client, internal/forge/cache, internal/forge/ops], duty: "GitHub 访问（forge.yaml）；REST 用 go-github、GraphQL 用 githubv4（D-075）；唯一可以导入 GitHub 客户端库的模块" }
   - { module: harness,   layer: 2, packages: [internal/harness/api, internal/harness/claude, internal/harness/scripted], duty: "模型适配；scripted 为测试用的脚本化假模型（真实进程）；codex、gemini 适配器 phase: v2（D-037）" }
   - { module: sandbox,   layer: 2, packages: [internal/sandbox/policy, internal/sandbox/launch, internal/sandbox/probe], duty: "OS 级沙箱策略、启动、探测（access.yaml）" }
   - { module: workspace, layer: 2, packages: [internal/workspace/git, internal/workspace/session, internal/workspace/integrate], duty: "foremand 自有镜像 repo.git；每个需求一个会话仓库（clone --shared）；以禁用钩子的 fetch 取回提交；在 foremand 自有的集成目录做 squash 合回与 rebase（D-045）" }
