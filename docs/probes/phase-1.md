@@ -85,3 +85,15 @@ Claude Code 2.1.332、srt（agent-crew 工具目录中的版本），haiku，for
 - osascript 向 Finder 发 Apple Event 失败（退出码 1）。
 - 网络：会话内 curl api.github.com 与 example.com 均被代理拒绝（403），会话不接触 GitHub。
 - 探测自身的坑：用宿主 git 克隆时 owner 的 init.templateDir 把 pre-commit 钩子复制进了仓库；foreman 用加固 git（GIT_CONFIG_GLOBAL=/dev/null）建会话仓库，不受影响，但会话内的 git 环境也应设 GIT_CONFIG_GLOBAL=/dev/null、GIT_CONFIG_NOSYSTEM=1。
+
+## P6 沙箱违规记录（2026-11-28，D-087 ⑤）
+
+- srt 命令行调用 `SandboxManager.initialize(config)` 时不打开违规监控，所以命令行版本拿不到违规记录；`--debug` 也不输出。
+- 改用 srt 的公开库接口：`initialize(config, undefined, true)` 打开监控（macOS 读系统沙箱日志，Linux 用 seccomp 观察器），再 `getSandboxViolationStore().subscribe(...)` 订阅，每条写一行 JSON 到文件。约 30 行 node 脚本，只调用 srt 导出的接口。
+- 实测：`cat ~/.zshrc` 与 `touch /etc/...` 都被拒，两条都记录下来，形如 `cat(pid) deny(1) file-read-data <路径>`、`touch(pid) deny(1) file-write-create <路径>`，附带命令文本与时间。
+- 噪音：shell 启动时会探测 PATH 上每个目录的元数据，PATH 里有不在白名单的目录就产生 file-read-metadata 记录。foreman 的会话 PATH 由程序生成，只含允许读的目录，噪音应很少。
+- 代价：
+  - 日志有延迟，命令结束后要等约 1.5 秒再收尾，否则最后几条会丢；
+  - 用脚本替代 srt 命令行后，命令行原有的信号转发、标准输入输出、control-fd 处理要由脚本自己做；
+  - 同一条记录会重复出现，写入前要去重。
+- 记录里有被拒的绝对路径，只写入运行目录，入库或进日志前要经过 privguard。
