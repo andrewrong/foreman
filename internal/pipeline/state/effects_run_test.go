@@ -26,7 +26,7 @@ func TestHold1AndHoldReleasedAssertion(t *testing.T) {
 	e := newEnv(t)
 	e.req("R-t-1", func(r *model.Requirement) { r.Hold = model.HoldOwner })
 	st := e.step("R-t-1", model.StepBuild, model.StateQueued, model.StageReview)
-	out := e.transition(st, dispatchOK)
+	out := e.transition(st, dispatchOK())
 	wantRow(t, out.RowID, "S01")
 	i := e.info(st)
 	wantInfo(t, i, "waiting", "review", "hold")
@@ -195,7 +195,7 @@ func TestOwnerAnswersAndDrops(t *testing.T) {
 		func(s *model.Step) { s.Counters = model.Counters{"infra": 6} })
 	s2 := e.step("R-t-1", model.StepBuild, model.StateQueued, model.StageCode)
 	wantRow(t, e.transition(s1, Event{Name: "infra"}).RowID, "S72")
-	wantRow(t, e.transition(s2, dispatchOK).RowID, "S01")
+	wantRow(t, e.transition(s2, dispatchOK()).RowID, "S01")
 
 	// H23: drop only the step the ask is about; the requirement continues.
 	ro := e.transitionReq("R-t-1", Event{Name: "owner_answer", Answer: "drop_step", DropReason: "owner: not needed"})

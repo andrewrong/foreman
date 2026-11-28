@@ -25,11 +25,17 @@ type row struct {
 	Phase   string `yaml:"phase"`
 }
 
-var (
-	knownTypes  = map[string]bool{"string": true, "int": true, "float": true, "bool": true, "duration": true, "path": true, "argv_list": true, "string_list": true, "table_list": true}
-	knownFiles  = map[string]bool{"runtime.toml": true, "roles.toml": true, "projects/<p>.toml": true}
-	knownPhases = map[string]bool{"": true, "v2": true}
-)
+func knownPhases() map[string]bool {
+	return map[string]bool{"": true, "v2": true}
+}
+
+func knownFiles() map[string]bool {
+	return map[string]bool{"runtime.toml": true, "roles.toml": true, "projects/<p>.toml": true}
+}
+
+func knownTypes() map[string]bool {
+	return map[string]bool{"string": true, "int": true, "float": true, "bool": true, "duration": true, "path": true, "argv_list": true, "string_list": true, "table_list": true}
+}
 
 func main() {
 	specPath := flag.String("spec", "../../../spec/design/config.yaml", "config.yaml path")
@@ -68,11 +74,11 @@ func generate(specYAML []byte) ([]byte, error) {
 		switch {
 		case r.Key == "" || r.Default == "" || r.Source == "":
 			return nil, fmt.Errorf("row %q: key, default and source are required", id)
-		case !knownFiles[r.File]:
+		case !knownFiles()[r.File]:
 			return nil, fmt.Errorf("row %q: unknown file %q", id, r.File)
-		case !knownTypes[r.Type]:
+		case !knownTypes()[r.Type]:
 			return nil, fmt.Errorf("row %q: unknown type %q", id, r.Type)
-		case !knownPhases[r.Phase]:
+		case !knownPhases()[r.Phase]:
 			return nil, fmt.Errorf("row %q: unknown phase %q", id, r.Phase)
 		case seen[id]:
 			return nil, fmt.Errorf("row %q: duplicate", id)

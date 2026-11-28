@@ -224,127 +224,133 @@ func (e *crashEnv) coderStarted(app *App) (runID, dir string, pid int) {
 // requirement reaches done without a second PR, a second Run for a stage, or
 // an inconsistent ledger.
 func TestRestartRecovery(t *testing.T) {
-	t.Run("coder session still alive at the restart", func(t *testing.T) {
-		e := newCrashEnv(t, true)
-		app1, led1 := e.open()
-		seed(t, app1, e.clk)
-		runID, dir, pid := e.coderStarted(app1)
-		held := openItems(led1)
-		if len(held) == 0 {
-			t.Fatal("no reservation held while the session runs")
-		}
-		e.crash(app1)
+	t.Run("coder session still alive at the restart", restartCoderAlive)
+	t.Run("coder session ended before the restart", restartCoderEnded)
+	t.Run("launch.lock without pid.json is relaunched once after 60 seconds", restartLaunchLockRelaunch)
+	t.Run("session killed with no result is an infra event, then the stage runs again", restartKilledNoResult)
+	t.Run("daemon killed while waiting for CI", restartKilledInCI)
+}
 
-		app2, led2 := e.open()
-		if got := openItems(led2); !sameItems(got, held) {
-			t.Errorf("ledger rebuilt from runs.reserved holds %+v, want %+v", got, held)
-		}
-		for i := 0; i < 3; i++ { // the session is alive: nothing to do, nothing launched
-			e.tick(app2)
-		}
-		if id, _, status, p := e.runRow(app2, "coder"); id != runID || status != "running" || p != pid {
-			t.Errorf("coder run after restart: %s %s pid %d, want %s running pid %d", id, status, p, runID, pid)
-		}
-		if pf, ok, err := launch.ReadPidFile(dir); err != nil || !ok || pf.Pid != pid {
-			t.Errorf("pid.json after restart: %+v ok=%v err=%v, want the original session %d", pf, ok, err, pid)
-		}
-		e.release()
-		app1.Sched.WaitSessions() // the old daemon's reaper: a real process exit
-		e.drive(app2, e.allDone(app2))
-		e.assertOnce(app2, led2, 1)
-	})
+func restartCoderAlive(t *testing.T) {
+	e := newCrashEnv(t, true)
+	app1, led1 := e.open()
+	seed(t, app1, e.clk)
+	runID, dir, pid := e.coderStarted(app1)
+	held := openItems(led1)
+	if len(held) == 0 {
+		t.Fatal("no reservation held while the session runs")
+	}
+	e.crash(app1)
 
-	t.Run("coder session ended before the restart", func(t *testing.T) {
-		e := newCrashEnv(t, true)
-		app1, _ := e.open()
-		seed(t, app1, e.clk)
-		_, dir, _ := e.coderStarted(app1)
-		e.release()
-		app1.Sched.WaitSessions()
-		if _, err := os.Stat(filepath.Join(dir, "result.json")); err != nil {
-			t.Fatalf("session ended without result.json: %v", err)
-		}
-		e.crash(app1) // result.json is on disk, its event was never applied
-
-		app2, led2 := e.open()
-		e.drive(app2, e.allDone(app2))
-		e.assertOnce(app2, led2, 1)
-	})
-
-	t.Run("launch.lock without pid.json is relaunched once after 60 seconds", func(t *testing.T) {
-		e := newCrashEnv(t, true)
-		app1, _ := e.open()
-		seed(t, app1, e.clk)
-		_, dir, pid := e.coderStarted(app1)
-		// The launcher died before it wrote pid.json: lose the session and the file.
-		if _, err := launch.KillRun(dir); err != nil {
-			t.Fatal(err)
-		}
-		app1.Sched.WaitSessions()
-		if err := os.Remove(filepath.Join(dir, launch.PidFileName)); err != nil {
-			t.Fatal(err)
-		}
-		e.crash(app1)
-
-		app2, led2 := e.open()
-		e.tick(app2) // the lock is a second old: the launcher may still be starting
-		if _, ok, _ := launch.ReadPidFile(dir); ok {
-			t.Fatal("session relaunched while launch.lock was younger than 60 s")
-		}
-		e.clk.Advance(recover.StartGrace)
-		e.tick(app2) // now it is a failed start: lock removed, one new session
-		pf, ok, err := launch.ReadPidFile(dir)
-		if err != nil || !ok || pf.Pid == pid {
-			t.Fatalf("relaunch: pid.json %+v ok=%v err=%v (old pid %d)", pf, ok, err, pid)
-		}
-		e.release()
-		e.drive(app2, e.allDone(app2))
-		e.assertOnce(app2, led2, 1)
-	})
-
-	t.Run("session killed with no result is an infra event, then the stage runs again", func(t *testing.T) {
-		e := newCrashEnv(t, true)
-		app1, _ := e.open()
-		seed(t, app1, e.clk)
-		firstID, dir, _ := e.coderStarted(app1)
-		if _, err := launch.KillRun(dir); err != nil {
-			t.Fatal(err)
-		}
-		app1.Sched.WaitSessions()
-		e.crash(app1)
-
-		app2, led2 := e.open()
+	app2, led2 := e.open()
+	if got := openItems(led2); !sameItems(got, held) {
+		t.Errorf("ledger rebuilt from runs.reserved holds %+v, want %+v", got, held)
+	}
+	for i := 0; i < 3; i++ { // the session is alive: nothing to do, nothing launched
 		e.tick(app2)
-		var outcome string
-		query(t, app2, `SELECT outcome FROM runs WHERE id = '`+firstID+`'`, &outcome)
-		if outcome != "infra" {
-			t.Fatalf("run %s outcome %q, want infra", firstID, outcome)
-		}
-		e.clk.Advance(24 * time.Hour) // past the infra wait deadline
-		for i := 0; i < 60 && e.count(app2, `SELECT COUNT(*) FROM runs WHERE role = 'coder'`) < 2; i++ {
-			e.tick(app2)
-		}
-		e.release() // the second coder session
-		e.drive(app2, e.allDone(app2))
-		e.assertOnce(app2, led2, 2)
-	})
+	}
+	if id, _, status, p := e.runRow(app2, "coder"); id != runID || status != "running" || p != pid {
+		t.Errorf("coder run after restart: %s %s pid %d, want %s running pid %d", id, status, p, runID, pid)
+	}
+	if pf, ok, err := launch.ReadPidFile(dir); err != nil || !ok || pf.Pid != pid {
+		t.Errorf("pid.json after restart: %+v ok=%v err=%v, want the original session %d", pf, ok, err, pid)
+	}
+	e.release()
+	app1.Sched.WaitSessions() // the old daemon's reaper: a real process exit
+	e.drive(app2, e.allDone(app2))
+	e.assertOnce(app2, led2, 1)
+}
 
-	t.Run("daemon killed while waiting for CI", func(t *testing.T) {
-		e := newCrashEnv(t, false)
-		app1, _ := e.open()
-		seed(t, app1, e.clk)
-		inCI := func() bool {
-			var st, reason string
-			query(t, app1, `SELECT state, COALESCE(reason, '') FROM steps WHERE id = 'R-m1/S2'`, &st, &reason)
-			e.gh.mu.Lock()
-			defer e.gh.mu.Unlock()
-			return st == "waiting" && reason == "ci" && len(e.gh.created) == 1
-		}
-		e.drive(app1, inCI)
-		e.crash(app1)
+func restartCoderEnded(t *testing.T) {
+	e := newCrashEnv(t, true)
+	app1, _ := e.open()
+	seed(t, app1, e.clk)
+	_, dir, _ := e.coderStarted(app1)
+	e.release()
+	app1.Sched.WaitSessions()
+	if _, err := os.Stat(filepath.Join(dir, "result.json")); err != nil {
+		t.Fatalf("session ended without result.json: %v", err)
+	}
+	e.crash(app1) // result.json is on disk, its event was never applied
 
-		app2, led2 := e.open()
-		e.drive(app2, e.allDone(app2))
-		e.assertOnce(app2, led2, 1)
-	})
+	app2, led2 := e.open()
+	e.drive(app2, e.allDone(app2))
+	e.assertOnce(app2, led2, 1)
+}
+
+func restartLaunchLockRelaunch(t *testing.T) {
+	e := newCrashEnv(t, true)
+	app1, _ := e.open()
+	seed(t, app1, e.clk)
+	_, dir, pid := e.coderStarted(app1)
+	// The launcher died before it wrote pid.json: lose the session and the file.
+	if _, err := launch.KillRun(dir); err != nil {
+		t.Fatal(err)
+	}
+	app1.Sched.WaitSessions()
+	if err := os.Remove(filepath.Join(dir, launch.PidFileName)); err != nil {
+		t.Fatal(err)
+	}
+	e.crash(app1)
+
+	app2, led2 := e.open()
+	e.tick(app2) // the lock is a second old: the launcher may still be starting
+	if _, ok, _ := launch.ReadPidFile(dir); ok {
+		t.Fatal("session relaunched while launch.lock was younger than 60 s")
+	}
+	e.clk.Advance(recover.StartGrace)
+	e.tick(app2) // now it is a failed start: lock removed, one new session
+	pf, ok, err := launch.ReadPidFile(dir)
+	if err != nil || !ok || pf.Pid == pid {
+		t.Fatalf("relaunch: pid.json %+v ok=%v err=%v (old pid %d)", pf, ok, err, pid)
+	}
+	e.release()
+	e.drive(app2, e.allDone(app2))
+	e.assertOnce(app2, led2, 1)
+}
+
+func restartKilledNoResult(t *testing.T) {
+	e := newCrashEnv(t, true)
+	app1, _ := e.open()
+	seed(t, app1, e.clk)
+	firstID, dir, _ := e.coderStarted(app1)
+	if _, err := launch.KillRun(dir); err != nil {
+		t.Fatal(err)
+	}
+	app1.Sched.WaitSessions()
+	e.crash(app1)
+
+	app2, led2 := e.open()
+	e.tick(app2)
+	var outcome string
+	query(t, app2, `SELECT outcome FROM runs WHERE id = '`+firstID+`'`, &outcome)
+	if outcome != "infra" {
+		t.Fatalf("run %s outcome %q, want infra", firstID, outcome)
+	}
+	e.clk.Advance(24 * time.Hour) // past the infra wait deadline
+	for i := 0; i < 60 && e.count(app2, `SELECT COUNT(*) FROM runs WHERE role = 'coder'`) < 2; i++ {
+		e.tick(app2)
+	}
+	e.release() // the second coder session
+	e.drive(app2, e.allDone(app2))
+	e.assertOnce(app2, led2, 2)
+}
+
+func restartKilledInCI(t *testing.T) {
+	e := newCrashEnv(t, false)
+	app1, _ := e.open()
+	seed(t, app1, e.clk)
+	inCI := func() bool {
+		var st, reason string
+		query(t, app1, `SELECT state, COALESCE(reason, '') FROM steps WHERE id = 'R-m1/S2'`, &st, &reason)
+		e.gh.mu.Lock()
+		defer e.gh.mu.Unlock()
+		return st == "waiting" && reason == "ci" && len(e.gh.created) == 1
+	}
+	e.drive(app1, inCI)
+	e.crash(app1)
+
+	app2, led2 := e.open()
+	e.drive(app2, e.allDone(app2))
+	e.assertOnce(app2, led2, 1)
 }

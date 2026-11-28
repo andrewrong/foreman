@@ -136,19 +136,7 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"core":    map[string]any{"limit": 5000, "remaining": 5000, "reset": 1_800_003_600},
 			"graphql": map[string]any{"limit": 5000, "remaining": 5000, "reset": 1_800_003_600}}})
 	case "GET " + base + "/pulls":
-		if f.limited {
-			w.Header().Set("X-RateLimit-Remaining", "0")
-			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(f.resetUnix+3600, 10))
-			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(`{"message":"API rate limit exceeded"}`))
-			return
-		}
-		list := []ops.PR{}
-		if f.pr != nil && f.pr.State == "open" {
-			f.refreshPR()
-			list = append(list, *f.pr)
-		}
-		out(list)
+		f.listPulls(w, out)
 	case "POST " + base + "/pulls":
 		var in ops.NewPR
 		_ = json.NewDecoder(r.Body).Decode(&in)
@@ -193,35 +181,7 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		out(map[string]any{"workflow_runs": []ops.Run{{ID: 1, Status: "completed", Conclusion: f.baseConclusion,
 			Event: "push", HeadBranch: "main"}}})
 	default:
-		switch {
-		case strings.HasPrefix(r.URL.Path, base+"/commits/") && strings.HasSuffix(r.URL.Path, "/check-runs"):
-			sha := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, base+"/commits/"), "/check-runs")
-			out(map[string]any{"check_runs": f.checkRuns(sha)})
-		case strings.HasPrefix(r.URL.Path, base+"/actions/jobs/") && strings.HasSuffix(r.URL.Path, "/logs"):
-			id, _ := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, base+"/actions/jobs/"), "/logs"), 10, 64)
-			if _, ok := f.logs[id]; ok { // like GitHub: 302 to blob storage
-				http.Redirect(w, r, "/blob-logs/"+strconv.FormatInt(id, 10), http.StatusFound)
-				return
-			}
-			http.NotFound(w, r)
-		case strings.HasPrefix(r.URL.Path, "/blob-logs/"):
-			id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/blob-logs/"), 10, 64)
-			if text, ok := f.logs[id]; ok {
-				_, _ = w.Write([]byte(text))
-				return
-			}
-			http.NotFound(w, r)
-		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, base+"/actions/runs/") && strings.HasSuffix(r.URL.Path, "/rerun-failed-jobs"):
-			for _, h := range f.heads {
-				if h.phase == 1 { // the failed jobs start again; the old check run lingers
-					h.attempt++
-					h.phase = -1
-				}
-			}
-			w.WriteHeader(http.StatusCreated)
-		default:
-			http.NotFound(w, r)
-		}
+		f.serveOther(w, r, base, out)
 	}
 }
 
@@ -255,4 +215,54 @@ func (f *fakeGitHub) set(fn func()) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	fn()
+}
+
+// serveOther routes the path-pattern endpoints (check runs, job logs, rerun).
+func (f *fakeGitHub) serveOther(w http.ResponseWriter, r *http.Request, base string, out func(any)) {
+	switch {
+	case strings.HasPrefix(r.URL.Path, base+"/commits/") && strings.HasSuffix(r.URL.Path, "/check-runs"):
+		sha := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, base+"/commits/"), "/check-runs")
+		out(map[string]any{"check_runs": f.checkRuns(sha)})
+	case strings.HasPrefix(r.URL.Path, base+"/actions/jobs/") && strings.HasSuffix(r.URL.Path, "/logs"):
+		id, _ := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, base+"/actions/jobs/"), "/logs"), 10, 64)
+		if _, ok := f.logs[id]; ok { // like GitHub: 302 to blob storage
+			http.Redirect(w, r, "/blob-logs/"+strconv.FormatInt(id, 10), http.StatusFound)
+			return
+		}
+		http.NotFound(w, r)
+	case strings.HasPrefix(r.URL.Path, "/blob-logs/"):
+		id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/blob-logs/"), 10, 64)
+		if text, ok := f.logs[id]; ok {
+			_, _ = w.Write([]byte(text))
+			return
+		}
+		http.NotFound(w, r)
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, base+"/actions/runs/") && strings.HasSuffix(r.URL.Path, "/rerun-failed-jobs"):
+		for _, h := range f.heads {
+			if h.phase == 1 { // the failed jobs start again; the old check run lingers
+				h.attempt++
+				h.phase = -1
+			}
+		}
+		w.WriteHeader(http.StatusCreated)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// listPulls serves GET /pulls, or a rate-limit refusal when limited.
+func (f *fakeGitHub) listPulls(w http.ResponseWriter, out func(any)) {
+	if f.limited {
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(f.resetUnix+3600, 10))
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"API rate limit exceeded"}`))
+		return
+	}
+	list := []ops.PR{}
+	if f.pr != nil && f.pr.State == "open" {
+		f.refreshPR()
+		list = append(list, *f.pr)
+	}
+	out(list)
 }

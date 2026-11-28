@@ -93,7 +93,7 @@ func TestRunnerEnvIsFromScratch(t *testing.T) {
 		}
 	}
 	// The hardened prefix is present and no cwd outside Home leaks in.
-	if got := strings.Join(rec.cmds[0].Args[:len(git.HardenedArgs)], " "); got != strings.Join(git.HardenedArgs, " ") {
+	if got := strings.Join(rec.cmds[0].Args[:len(git.HardenedArgs())], " "); got != strings.Join(git.HardenedArgs(), " ") {
 		t.Fatalf("argv prefix = %q", got)
 	}
 	if rec.cmds[0].Dir != r.Home() {

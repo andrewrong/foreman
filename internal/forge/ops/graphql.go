@@ -72,7 +72,7 @@ func (o *Ops) PRStatusBatch(ctx context.Context, call Call, r Repo, numbers []in
 	}))
 	vars := map[string]any{"owner": githubv4.String(r.Owner), "name": githubv4.String(r.Name)}
 
-	err := o.run(ctx, call, opGraphQL, func(ctx context.Context) (*http.Response, int64, error) {
+	err := o.run(ctx, call, opGraphQL(), func(ctx context.Context) (*http.Response, int64, error) {
 		err := o.c.GraphQL().Query(ctx, q.Interface(), vars)
 		var ue *url.Error
 		if errors.As(err, &ue) { // never reached the server: nothing was counted

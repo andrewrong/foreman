@@ -42,20 +42,24 @@ var prefixPattern = regexp.MustCompile(`\b([A-Z]{1,5})-\d+\b`)
 
 // externalPrefixes is the single list of id prefixes that name review
 // findings kept outside spec/ (docs/reviews/); they never need to resolve.
-var externalPrefixes = map[string]bool{
-	"ACR": true, // Opus review findings
-	"GEM": true, // Gemini review findings
+func externalPrefixes() map[string]bool {
+	return map[string]bool{
+		"ACR": true, // Opus review findings
+		"GEM": true, // Gemini review findings
+	}
 }
 
 // knownPrefixes are the hyphenated prefixes of idPattern (plus tokens that
 // merely look like ids and are not).
-var knownPrefixes = map[string]bool{
-	"D": true, "C": true, "Q": true, "G": true, "E": true, "M": true,
-	"OP": true, "CF": true, "MD": true, "PV": true, "PI": true, "GR": true,
-	"FG": true, "DT": true, "PP": true, "AC": true, "RT": true, "PA": true,
-	"CD": true, "RC": true, "GHP": true, "TX": true, "PR": true, "LIB": true,
-	"DI": true, "HOLD": true, "DO": true, "PF": true, "RES": true,
-	"SHA": true, "UTF": true, // not ids
+func knownPrefixes() map[string]bool {
+	return map[string]bool{
+		"D": true, "C": true, "Q": true, "G": true, "E": true, "M": true,
+		"OP": true, "CF": true, "MD": true, "PV": true, "PI": true, "GR": true,
+		"FG": true, "DT": true, "PP": true, "AC": true, "RT": true, "PA": true,
+		"CD": true, "RC": true, "GHP": true, "TX": true, "PR": true, "LIB": true,
+		"DI": true, "HOLD": true, "DO": true, "PF": true, "RES": true,
+		"SHA": true, "UTF": true, // not ids
+	}
 }
 
 type specFile struct {

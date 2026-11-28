@@ -24,7 +24,9 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-var t0 = time.Unix(1_800_000_000, 0)
+func t0() time.Time {
+	return time.Unix(1_800_000_000, 0)
+}
 
 func testLease(t *testing.T) *gate.Lease {
 	t.Helper()
@@ -110,7 +112,7 @@ const coderResult = `{"schema_version":1,"run_id":"{{RUN_ID}}","role":"coder","s
 	`"acceptance":[{"id":"A1","result":"pass","evidence":"scripted"}]}`
 
 func TestScriptedCoderEndToEnd(t *testing.T) {
-	rl := map[string]meter.ClaudeWindow{"seven_day": {Utilization: 0.5, ResetsAt: t0.Unix() + 3600, Status: "allowed"}}
+	rl := map[string]meter.ClaudeWindow{"seven_day": {Utilization: 0.5, ResetsAt: t0().Unix() + 3600, Status: "allowed"}}
 	s := run(t, api.RoleCoder, Script{Actions: []Action{
 		{Say: "working"},
 		{Write: &Write{Path: "hello.go", Content: "package hello\n"}},
@@ -150,7 +152,7 @@ func TestScriptedCoderEndToEnd(t *testing.T) {
 	// The stream parses with the same parser as claude's.
 	a, _ := New(testLease(t), Config{})
 	store := meter.NewStore()
-	sum := api.Collect(a.ParseStream(&s.out), api.MeterSink(store, "claude", "max-1", clock.NewFake(t0)))
+	sum := api.Collect(a.ParseStream(&s.out), api.MeterSink(store, "claude", "max-1", clock.NewFake(t0())))
 	if sum.Init == nil || sum.AssistantTurns != 1 || sum.Result == nil || sum.Result.Usage.Total() != 150 || sum.Result.CostUSD != 0.01 || len(sum.Errors) != 0 {
 		t.Fatalf("summary %+v", sum)
 	}

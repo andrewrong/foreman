@@ -5,14 +5,16 @@ import (
 	"strconv"
 )
 
-var aiRoles = map[string]bool{"intake": true, "planner": true, "coder": true, "reviewer": true,
-	"rescuer": true, "diagnoser": true, "improver": true}
+func aiRoles() map[string]bool {
+	return map[string]bool{"intake": true, "planner": true, "coder": true, "reviewer": true,
+		"rescuer": true, "diagnoser": true, "improver": true}
+}
 
 // modelFor picks Run.model: the configured model of the role, upgraded for a
 // coder Run once check_fail or review_rounds reached cap-1 (D-044 / skills.yaml
 // coder.retry_upgrade).
 func (c *txc) modelFor(role string, s *stepRec) string {
-	if !aiRoles[role] {
+	if !aiRoles()[role] {
 		return ""
 	}
 	if (role == "coder" || role == "diagnoser") && s != nil {
@@ -51,7 +53,7 @@ func (c *txc) createRun(role string, step *stepRec) (string, error) {
 			return "", err
 		}
 	}
-	if aiRoles[role] {
+	if aiRoles()[role] {
 		harness = c.e.cfg.Harness
 	}
 	model = nullStr(c.modelFor(role, step))

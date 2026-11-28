@@ -10,16 +10,18 @@ import (
 var envNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // reserved names the caller may not use for a credential.
-var reserved = map[string]bool{
-	"PATH": true, "HOME": true, "TMPDIR": true, "LANG": true, "TERM": true,
-	"GOCACHE": true, "GOMODCACHE": true, "GOFLAGS": true,
-	"CLAUDE_TMPDIR": true, "TMPPREFIX": true,
+func reserved() map[string]bool {
+	return map[string]bool{
+		"PATH": true, "HOME": true, "TMPDIR": true, "LANG": true, "TERM": true,
+		"GOCACHE": true, "GOMODCACHE": true, "GOFLAGS": true,
+		"CLAUDE_TMPDIR": true, "TMPPREFIX": true,
+	}
 }
 
 func checkCreds(in Inputs) error {
 	seen := map[string]bool{}
 	add := func(kind, name, value string) error {
-		if !envNameRE.MatchString(name) || reserved[name] {
+		if !envNameRE.MatchString(name) || reserved()[name] {
 			return fmt.Errorf("policy: invalid %s name %q", kind, name)
 		}
 		if seen[name] {

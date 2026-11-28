@@ -7,16 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/andrewrong/foreman/internal/harness/api"
 	"github.com/andrewrong/foreman/internal/pipeline/state"
 	"github.com/andrewrong/foreman/internal/resource/gate"
-	"github.com/andrewrong/foreman/internal/sandbox/policy"
 	"github.com/andrewrong/foreman/internal/spec/model"
-	stagecheck "github.com/andrewrong/foreman/internal/stage/check"
-	stagecode "github.com/andrewrong/foreman/internal/stage/code"
-	stageintegrate "github.com/andrewrong/foreman/internal/stage/integrate"
-	stagemerge "github.com/andrewrong/foreman/internal/stage/merge"
-	stagereview "github.com/andrewrong/foreman/internal/stage/review"
 )
 
 // reconcile runs the reconciler action of every step that has one:
@@ -139,35 +132,14 @@ func (s *Scheduler) leaseFor(ctx context.Context, st stepRow, req reqRow) (*gate
 	return dec.Lease, nil
 }
 
-func (s *Scheduler) sessionEnv(role api.Role, lease *gate.Lease) (stagecode.Env, error) {
-	ad, err := s.d.NewAdapter(role, lease)
+// sessionJob builds the Run of a session stage.
+func (s *Scheduler) sessionJob(ctx context.Context, st stepRow, req reqRow, run runRow, role, repo string, lease *gate.Lease) (SessionJob, error) {
+	brief, err := s.contextInput(ctx, st, req, role)
 	if err != nil {
-		return stagecode.Env{}, err
+		return SessionJob{}, err
 	}
-	return stagecode.Env{Launcher: s.d.Launcher, Adapter: ad, Policy: s.d.Policy}, nil
-}
-
-func (s *Scheduler) sessionRequest(ctx context.Context, st stepRow, req reqRow, run runRow, role api.Role, repo string) (stagecode.Request, error) {
-	in, err := s.contextInput(ctx, st, req, string(role))
-	if err != nil {
-		return stagecode.Request{}, err
-	}
-	prompt := coderPrompt
-	if role == api.RoleReviewer {
-		prompt = reviewerPrompt
-	}
-	return stagecode.Request{RunID: run.ID, StepID: st.ID, Role: role, Model: run.Model, RunDir: s.runDir(run.ID),
-		SessionRepo: repo, Context: renderContext(in), Prompt: prompt, AcceptanceIDs: st.Acceptance}, nil
-}
-
-// withExtra adds the adapter settings of a Run. It is called only when a
-// session is about to be launched, never per poll of a running one, so a
-// RunExtra that hands out one script per call sees one call per launch.
-func (s *Scheduler) withExtra(r stagecode.Request) stagecode.Request {
-	if s.d.RunExtra != nil {
-		r.Extra = s.d.RunExtra(r.Role, r.StepID)
-	}
-	return r
+	return SessionJob{RunID: run.ID, StepID: st.ID, Role: role, Model: run.Model, RunDir: s.runDir(run.ID),
+		SessionRepo: repo, Acceptance: st.Acceptance, Brief: brief, Lease: lease}, nil
 }
 
 func (s *Scheduler) runCode(ctx context.Context, st stepRow, req reqRow, run runRow) (*model.Event, error) {
@@ -179,19 +151,14 @@ func (s *Scheduler) runCode(ctx context.Context, st stepRow, req reqRow, run run
 	if err != nil {
 		return nil, err
 	}
-	env, err := s.sessionEnv(api.RoleCoder, lease)
+	job, err := s.sessionJob(ctx, st, req, run, RoleCoder, repo, lease)
 	if err != nil {
 		return nil, err
 	}
-	r, err := s.sessionRequest(ctx, st, req, run, api.RoleCoder, repo)
-	if err != nil {
-		return nil, err
-	}
-	res, done, err := s.driveSession(ctx, env, r)
+	ev, done, err := s.driveSession(ctx, s.d.Code, job)
 	if err != nil || !done {
 		return nil, err // session starting or running: look again next Tick
 	}
-	ev := stagecode.EventOf(res)
 	return &ev, nil
 }
 
@@ -200,53 +167,38 @@ func (s *Scheduler) runReview(ctx context.Context, st stepRow, req reqRow, run r
 	if err != nil || lease == nil {
 		return nil, err
 	}
-	env, err := s.sessionEnv(api.RoleReviewer, lease)
+	job, err := s.sessionJob(ctx, st, req, run, RoleReviewer, req.SessionRepo, lease)
 	if err != nil {
 		return nil, err
 	}
-	r, err := s.sessionRequest(ctx, st, req, run, api.RoleReviewer, req.SessionRepo)
-	if err != nil {
-		return nil, err
-	}
-	rr := stagereview.Request{Session: r}
 	if st.Type != "integrate" {
-		rr.MergeBack = &stagereview.MergeBack{ReqID: req.ID, StepID: st.ID, SessionRepo: req.SessionRepo,
-			SessionBranch: req.Branch, Subject: firstLine(st.Goal), Identity: s.d.SessionIdent}
+		job.MergeBack = &MergeBack{ReqID: req.ID, StepID: st.ID, SessionRepo: req.SessionRepo,
+			SessionBranch: req.Branch, Subject: firstLine(st.Goal)}
 	}
-	res, done, err := s.driveSession(ctx, env, r)
+	ev, done, err := s.driveSession(ctx, s.d.Review, job)
 	if err != nil || !done {
 		return nil, err
 	}
-	ev, err := stagereview.Finish(ctx, stagereview.Env{Session: env, Integ: s.d.Integ, Mirror: s.d.Mirror}, rr, res)
-	return &ev, err
+	return &ev, nil
 }
 
 func (s *Scheduler) runCheck(ctx context.Context, st stepRow, req reqRow, run runRow) (*model.Event, error) {
 	if lease, err := s.leaseFor(ctx, st, req); err != nil || lease == nil {
 		return nil, err // Gate wait: try again next Tick
 	}
-	ev, err := stagecheck.Run(ctx, stagecheck.Env{Integ: s.d.Integ, Launcher: s.d.Launcher, Policy: s.checkPolicy(), Forbidden: s.d.Forbidden},
-		stagecheck.Request{RunID: run.ID, StepID: st.ID, SessionRepo: req.SessionRepo, SessionBranch: req.Branch,
-			RunDir: s.runDir(run.ID), Commands: s.d.L0})
+	ev, err := s.d.Check.Run(ctx, CheckJob{RunID: run.ID, StepID: st.ID, SessionRepo: req.SessionRepo, SessionBranch: req.Branch,
+		RunDir: s.runDir(run.ID)})
 	return &ev, err
 }
-
-// checkPolicy is the sandbox policy of L0. The working directory is a
-// throwaway checkout under the Run's directory, so the deny-write list is the
-// session's own, integrate/ included: L0 runs AI-written code and must not be
-// able to alter the directory foremand runs git in.
-func (s *Scheduler) checkPolicy() policy.Inputs { return s.d.Policy }
 
 func (s *Scheduler) runIntegrate(ctx context.Context, st stepRow, req reqRow) (*model.Event, error) {
 	row, err := s.loadPRRow(ctx, req.ID)
 	if err != nil {
 		return nil, err
 	}
-	call := s.opsCall(req, st)
-	res, err := stageintegrate.Run(ctx, stageintegrate.Env{Integ: s.d.Integ, Ops: s.d.Ops, Repo: s.d.Repo},
-		stageintegrate.Request{ReqID: req.ID, Title: req.Spec.Title, Body: req.Spec.Goal, PR: row.Number, Priority: call.Priority,
-			Caller: call.Caller, DeadlinePassed: s.deadlinePassed(st), Reruns: row.Reruns,
-			MarkRerun: func(ctx context.Context, head string) error { return s.markRerun(ctx, req.ID, head) }})
+	res, err := s.d.Integrate.Run(ctx, IntegrateJob{ReqID: req.ID, Title: req.Spec.Title, Body: req.Spec.Goal, PR: row.Number,
+		Call: s.opsCall(req, st), DeadlinePassed: s.deadlinePassed(st), Reruns: row.Reruns,
+		MarkRerun: func(ctx context.Context, head string) error { return s.markRerun(ctx, req.ID, head) }})
 	if err != nil {
 		return nil, err
 	}
@@ -269,12 +221,10 @@ func (s *Scheduler) runMerge(ctx context.Context, st stepRow, req reqRow) (*mode
 	if row.Number == 0 {
 		return nil, fmt.Errorf("integrate step %s reached merge without a pull request", st.ID)
 	}
-	call := s.opsCall(req, st)
-	res, err := stagemerge.Run(ctx, stagemerge.Env{Ops: s.d.Ops, Repo: s.d.Repo, Integ: s.d.Integ, Mirror: s.d.Mirror, Guardrails: s.d.Guardrails},
-		stagemerge.Request{ReqID: req.ID, PR: row.Number, Head: row.Head, Priority: call.Priority, Caller: call.Caller,
-			LastReviewed: row.LastReviewed, GuardrailApproved: row.GuardrailApproved, Reruns: row.Reruns,
-			MarkRerun:      func(ctx context.Context, head string) error { return s.markRerun(ctx, req.ID, head) },
-			DeadlinePassed: s.deadlinePassed(st)})
+	res, err := s.d.Merge.Run(ctx, MergeJob{ReqID: req.ID, PR: row.Number, Head: row.Head, Call: s.opsCall(req, st),
+		LastReviewed: row.LastReviewed, GuardrailApproved: row.GuardrailApproved, Reruns: row.Reruns,
+		MarkRerun:      func(ctx context.Context, head string) error { return s.markRerun(ctx, req.ID, head) },
+		DeadlinePassed: s.deadlinePassed(st)})
 	// The head moves under update-branch; the merge pins it and S43 reads it
 	// back as last_reviewed_sha, so it is stored before any event is applied.
 	if res.Head != "" && res.Head != row.Head {

@@ -30,7 +30,7 @@ func TestM1L1FailBecomesFixStep(t *testing.T) {
 		}
 		return ciOutcome{Conclusion: "success"}
 	}
-	s.q.push("coder", coderCommits("implement Sum", okFiles))
+	s.q.push("coder", coderCommits("implement Sum", okFiles()))
 	s.atStep(step2, "waiting", "check", "fix", 80)
 	firstHead := s.remoteHead()
 

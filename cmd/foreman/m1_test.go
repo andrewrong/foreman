@@ -173,6 +173,34 @@ func query(t *testing.T, app *App, q string, dst ...any) {
 	}
 }
 
+// tickUntilDone ticks the scheduler (at most 40 times) until every step is done.
+func tickUntilDone(t *testing.T, ctx context.Context, app *App, clk *clock.Fake) bool {
+	t.Helper()
+	done := false
+	for tick := 1; tick <= 40 && !done; tick++ {
+		clk.Advance(time.Second)
+		if _, err := app.Sched.Tick(ctx); err != nil {
+			t.Fatalf("tick %d: %v", tick, err)
+		}
+		app.Sched.WaitSessions() // a real process exit, not a sleep
+		var open int
+		query(t, app, `SELECT COUNT(*) FROM steps WHERE state <> 'done'`, &open)
+		done = open == 0
+	}
+	return done
+}
+
+// containsInOrder reports whether want is a subsequence of rows.
+func containsInOrder(rows, want []string) bool {
+	pos := 0
+	for _, r := range rows {
+		if pos < len(want) && r == want[pos] {
+			pos++
+		}
+	}
+	return pos == len(want)
+}
+
 // TestM1FastLane runs one size-s requirement end to end: queued -> code (a
 // scripted model makes a real commit) -> check (real `go test` in the
 // integration checkout) -> review (scripted approve) -> merge-back with a
@@ -197,17 +225,7 @@ func TestM1FastLane(t *testing.T) {
 	t.Cleanup(func() { app.Close() })
 	seed(t, app, clk)
 
-	done := false
-	for tick := 1; tick <= 40 && !done; tick++ {
-		clk.Advance(time.Second)
-		if _, err := app.Sched.Tick(ctx); err != nil {
-			t.Fatalf("tick %d: %v", tick, err)
-		}
-		app.Sched.WaitSessions() // a real process exit, not a sleep
-		var open int
-		query(t, app, `SELECT COUNT(*) FROM steps WHERE state <> 'done'`, &open)
-		done = open == 0
-	}
+	done := tickUntilDone(t, ctx, app, clk)
 	t.Logf("RowIDs hit: %s", strings.Join(rows, " "))
 	if !done {
 		t.Fatalf("not done after 40 ticks; rows: %v", rows)
@@ -216,13 +234,7 @@ func TestM1FastLane(t *testing.T) {
 	// Every expected row, in order (S02 and S10 belong to the integrate step
 	// waiting for its dependency; other rows may be interleaved).
 	want := []string{"S04", "S40", "S05", "S41", "S06", "S42", "S10", "S07", "S29", "S08", "S44"}
-	pos := 0
-	for _, r := range rows {
-		if pos < len(want) && r == want[pos] {
-			pos++
-		}
-	}
-	if pos != len(want) {
+	if !containsInOrder(rows, want) {
 		t.Errorf("rows %v do not contain %v in order", rows, want)
 	}
 	if !slices.Contains(rows, "S02") {

@@ -24,7 +24,7 @@ func fixture(t *testing.T, name string) *os.File {
 
 func TestStreamGolden(t *testing.T) {
 	store := meter.NewStore()
-	clk := clock.NewFake(t0)
+	clk := clock.NewFake(t0())
 	a := newAdapter(t, nil)
 	sum := api.Collect(a.ParseStream(fixture(t, "coder_advisor_skill.jsonl")), api.MeterSink(store, "claude", "max-1", clk))
 

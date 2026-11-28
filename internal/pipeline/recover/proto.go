@@ -13,8 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/andrewrong/foreman/internal/sandbox/launch"
 )
 
 // Protocol constants.
@@ -45,12 +43,35 @@ const (
 	Exited                   // pid.json names a process that is gone, a zombie, or a recycled pid
 )
 
+// PidFile is the content of pid.json: the process and when it started, so a
+// recycled pid is told apart from the session (reconciler idempotency).
+type PidFile struct {
+	Pid       int
+	StartTime string
+}
+
+// Procs is the process side of a run directory: the pid.json the launcher
+// wrote, whether that process is still the session, and killing everything a
+// run left behind. The composition root supplies it (from the sandbox
+// launcher); this package never starts or signals a process itself.
+type Procs interface {
+	// ReadPid reads runDir/pid.json; ok is false when it does not exist.
+	ReadPid(runDir string) (pf PidFile, ok bool, err error)
+	// Alive reports whether the process of pf is still the running session:
+	// it exists, is not a zombie and started when pid.json says it did.
+	Alive(pf PidFile) bool
+	// ForgetPid removes runDir/pid.json.
+	ForgetPid(runDir string) error
+	// KillRun kills every process of the run and returns their pids.
+	KillRun(runDir string) ([]int, error)
+}
+
 // Probe is the result of Inspect.
 type Probe struct {
 	Phase   Phase
-	Pid     launch.PidFile // valid for Alive and Exited
-	Attempt int            // start attempt recorded in launch.lock (0 without a lock)
-	Since   time.Time      // when foremand took launch.lock (zero without a lock)
+	Pid     PidFile   // valid for Alive and Exited
+	Attempt int       // start attempt recorded in launch.lock (0 without a lock)
+	Since   time.Time // when foremand took launch.lock (zero without a lock)
 }
 
 type lockBody struct {
@@ -60,8 +81,8 @@ type lockBody struct {
 
 // Inspect classifies a run directory. Time comes from the caller's clock, so
 // the 60 s rule runs under a fake clock.
-func Inspect(runDir string, now time.Time) (Probe, error) {
-	pf, ok, err := launch.ReadPidFile(runDir)
+func Inspect(procs Procs, runDir string, now time.Time) (Probe, error) {
+	pf, ok, err := procs.ReadPid(runDir)
 	if err != nil {
 		return Probe{}, err
 	}
@@ -77,7 +98,7 @@ func Inspect(runDir string, now time.Time) (Probe, error) {
 	}
 	if ok {
 		p := Probe{Phase: Exited, Pid: pf, Attempt: lock.Attempt, Since: since}
-		if pf.Alive() {
+		if procs.Alive(pf) {
 			p.Phase = Alive
 		}
 		return p, nil
@@ -114,13 +135,11 @@ func TakeLock(runDir string, now time.Time, attempt int) error {
 
 // DropLock removes launch.lock (and a pid.json that cannot belong to a live
 // session) so the run can be started again.
-func DropLock(runDir string) error {
-	for _, n := range []string{LockFileName, launch.PidFileName} {
-		if err := os.Remove(filepath.Join(runDir, n)); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
+func DropLock(procs Procs, runDir string) error {
+	if err := os.Remove(filepath.Join(runDir, LockFileName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	return nil
+	return procs.ForgetPid(runDir)
 }
 
 func readLock(runDir string) (lockBody, bool, error) {

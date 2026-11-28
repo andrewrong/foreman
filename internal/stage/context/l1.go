@@ -1,4 +1,4 @@
-package integrate
+package context
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"github.com/andrewrong/foreman/internal/forge/ops"
 	"github.com/andrewrong/foreman/internal/privguard"
 	"github.com/andrewrong/foreman/internal/spec/model"
-	"github.com/andrewrong/foreman/internal/stage/check"
 )
 
 // L1State is what one reading of the L1 check runs of a head means.
@@ -49,8 +48,8 @@ type L1Result struct {
 // (exit 137), a job without a failing test, or the same job failing on the
 // default branch is rerun once per head with OP-09 and gives no event; only a
 // failure that survives the rerun, or is not transient, is l1_fail.
-func ReadL1(ctx context.Context, env Env, r L1Request) (L1Result, error) {
-	switch verdict(r.Checks) {
+func ReadL1(ctx context.Context, env L1Env, r L1Request) (L1Result, error) {
+	switch Verdict(r.Checks) {
 	case "pass":
 		return L1Result{State: L1Pass, Event: &model.Event{Name: model.EventL1Pass, Head: r.Head, PR: r.PR}}, nil
 	case "fail":
@@ -75,7 +74,7 @@ func pendingEvent(r L1Request) *model.Event {
 		Detail: "no L1 run in progress for the head"}
 }
 
-func readFailure(ctx context.Context, env Env, r L1Request) (L1Result, error) {
+func readFailure(ctx context.Context, env L1Env, r L1Request) (L1Result, error) {
 	runs, err := env.Ops.RunsList(ctx, r.Call, env.Repo, ops.RunsFilter{HeadSHA: r.Head, PerPage: 30})
 	if err != nil {
 		return L1Result{}, err
@@ -129,7 +128,7 @@ func failedRuns(checks []ops.CheckRun) []ops.CheckRun {
 
 // classify reports whether every failed job looks transient, and the failing
 // test names read from the logs.
-func classify(ctx context.Context, env Env, r L1Request, failed []ops.CheckRun) (bool, []string, error) {
+func classify(ctx context.Context, env L1Env, r L1Request, failed []ops.CheckRun) (bool, []string, error) {
 	baseNames, err := baseFailures(ctx, env, r)
 	if err != nil {
 		return false, nil, err
@@ -146,7 +145,7 @@ func classify(ctx context.Context, env Env, r L1Request, failed []ops.CheckRun) 
 			continue
 		}
 		text := privguard.Redact(string(log)) // job logs are untrusted text (C-09)
-		names := check.FailingTests(text)
+		names := FailingTests(text)
 		tests = append(tests, names...)
 		if len(names) > 0 && !killed(text) {
 			transient = false
@@ -162,7 +161,7 @@ func killed(log string) bool {
 
 // baseFailures lists the names of the check runs that failed on the latest
 // push run of the default branch.
-func baseFailures(ctx context.Context, env Env, r L1Request) ([]string, error) {
+func baseFailures(ctx context.Context, env L1Env, r L1Request) ([]string, error) {
 	if r.BaseRun == nil || r.BaseRun.Conclusion != "failure" || r.BaseRun.HeadSHA == "" {
 		return nil, nil
 	}
@@ -171,4 +170,10 @@ func baseFailures(ctx context.Context, env Env, r L1Request) ([]string, error) {
 		return nil, err
 	}
 	return failedChecks(checks), nil
+}
+
+// L1Env is what reading L1 needs: the forge operations and the repository.
+type L1Env struct {
+	Ops  *ops.Ops
+	Repo ops.Repo
 }

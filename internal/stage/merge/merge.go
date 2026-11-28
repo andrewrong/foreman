@@ -17,7 +17,7 @@ import (
 	"github.com/andrewrong/foreman/internal/forge/ops"
 	"github.com/andrewrong/foreman/internal/resource/gate"
 	"github.com/andrewrong/foreman/internal/spec/model"
-	stageintegrate "github.com/andrewrong/foreman/internal/stage/integrate"
+	ctxmd "github.com/andrewrong/foreman/internal/stage/context"
 	wsintegrate "github.com/andrewrong/foreman/internal/workspace/integrate"
 	"github.com/andrewrong/foreman/internal/workspace/session"
 )
@@ -205,18 +205,18 @@ func l1(ctx context.Context, env Env, r Request, call ops.Call, head string) (*m
 	if !ok || detail.PR.Head.SHA != head {
 		return pendingAtDeadline(r), false, nil
 	}
-	got, err := stageintegrate.ReadL1(ctx, stageintegrate.Env{Integ: env.Integ, Ops: env.Ops, Repo: env.Repo}, stageintegrate.L1Request{
+	got, err := ctxmd.ReadL1(ctx, ctxmd.L1Env{Ops: env.Ops, Repo: env.Repo}, ctxmd.L1Request{
 		Head: head, PR: r.PR, Call: call, Checks: detail.Checks, BaseRun: poll.BaseRun, Reruns: r.Reruns[head],
 		MarkRerun: r.MarkRerun, DeadlinePassed: r.DeadlinePassed})
 	if err != nil {
 		return nil, false, err
 	}
 	switch got.State {
-	case stageintegrate.L1Pass:
+	case ctxmd.L1Pass:
 		return nil, true, nil
-	case stageintegrate.L1Fail:
+	case ctxmd.L1Fail:
 		return got.Event, false, nil
-	case stageintegrate.L1Pending:
+	case ctxmd.L1Pending:
 		return pendingAtDeadline(r), false, nil
 	}
 	return nil, false, nil // rerun requested

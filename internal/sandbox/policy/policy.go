@@ -24,12 +24,14 @@ const (
 	FamilyGitHub Family = "github-download"
 )
 
-var familyHosts = map[Family][]string{
-	FamilyGo:     {"proxy.golang.org", "sum.golang.org", "*.googleapis.com"},
-	FamilyNPM:    {"registry.npmjs.org", "*.npmjs.org"},
-	FamilyPython: {"pypi.org", "files.pythonhosted.org"},
-	FamilyRust:   {"crates.io", "static.crates.io", "index.crates.io"},
-	FamilyGitHub: {"objects.githubusercontent.com", "codeload.github.com"},
+func familyHosts() map[Family][]string {
+	return map[Family][]string{
+		FamilyGo:     {"proxy.golang.org", "sum.golang.org", "*.googleapis.com"},
+		FamilyNPM:    {"registry.npmjs.org", "*.npmjs.org"},
+		FamilyPython: {"pypi.org", "files.pythonhosted.org"},
+		FamilyRust:   {"crates.io", "static.crates.io", "index.crates.io"},
+		FamilyGitHub: {"objects.githubusercontent.com", "codeload.github.com"},
+	}
 }
 
 // AllFamilies lists every R0 family in a fixed order.
@@ -38,7 +40,7 @@ func AllFamilies() []Family {
 }
 
 // Hosts returns the hosts of a family, or nil for an unknown family.
-func (f Family) Hosts() []string { return append([]string(nil), familyHosts[f]...) }
+func (f Family) Hosts() []string { return append([]string(nil), familyHosts()[f]...) }
 
 // Cred is one environment credential passed in by the caller. Only the two
 // C-08 classes exist: the model token and R1 test credentials.
@@ -83,51 +85,20 @@ type Inputs struct {
 type Policy struct{ in Inputs }
 
 // ownerSecretDirs are denied relative to OwnerHome.
-var ownerSecretDirs = []string{".ssh", ".config/gh", ".aws", ".gnupg", ".netrc"}
+func ownerSecretDirs() []string {
+	return []string{".ssh", ".config/gh", ".aws", ".gnupg", ".netrc"}
+}
 
 const maxRunTmpLen = 70
 
 // New validates inputs and returns a Policy.
 func New(in Inputs) (Policy, error) {
-	for name, p := range map[string]string{"SessionRepo": in.SessionRepo, "RunTmp": in.RunTmp} {
-		if err := absPath(name, p); err != nil {
-			return Policy{}, err
-		}
+	denied, err := checkPaths(in)
+	if err != nil {
+		return Policy{}, err
 	}
-	if in.ForemanHome == "" && len(in.DenyWrite) == 0 {
-		return Policy{}, errors.New("policy: ForemanHome or DenyWrite is required")
-	}
-	denied := append([]string{}, in.DenyWrite...)
-	if in.ForemanHome != "" {
-		denied = append(denied, in.ForemanHome)
-	}
-	for _, p := range denied {
-		if err := absPath("DenyWrite", p); err != nil {
-			return Policy{}, err
-		}
-	}
-	for name, p := range map[string]string{"ProjectCacheDir": in.ProjectCacheDir, "OwnerHome": in.OwnerHome} {
-		if p != "" {
-			if err := absPath(name, p); err != nil {
-				return Policy{}, err
-			}
-		}
-	}
-	for _, p := range in.DenyRead {
-		if err := absPath("DenyRead", p); err != nil {
-			return Policy{}, err
-		}
-	}
-	// A deny-write ancestor would silently override the allowWrite entry.
-	for name, p := range map[string]string{"SessionRepo": in.SessionRepo, "RunTmp": in.RunTmp} {
-		if in.ProjectCacheDir != "" && within(p, in.ProjectCacheDir) {
-			return Policy{}, fmt.Errorf("policy: %s is inside a deny-write directory", name)
-		}
-		for _, d := range denied {
-			if within(p, d) {
-				return Policy{}, fmt.Errorf("policy: %s is inside a deny-write directory", name)
-			}
-		}
+	if err := checkSessionDirs(in, denied); err != nil {
+		return Policy{}, err
 	}
 	// srt creates a unix socket "<RunTmp>/srt-mux-<pid>-<n>.sock"; sun_path
 	// holds ~104 bytes on macOS, so a long RunTmp breaks every launch.
@@ -143,7 +114,7 @@ func New(in Inputs) (Policy, error) {
 		}
 	}
 	for _, f := range in.Families {
-		if familyHosts[f] == nil {
+		if familyHosts()[f] == nil {
 			return Policy{}, fmt.Errorf("policy: unknown host family %q", f)
 		}
 	}
@@ -151,6 +122,56 @@ func New(in Inputs) (Policy, error) {
 		return Policy{}, err
 	}
 	return Policy{in: in}, nil
+}
+
+// checkPaths validates every path input and returns the deny-write list.
+func checkPaths(in Inputs) ([]string, error) {
+	for name, p := range map[string]string{"SessionRepo": in.SessionRepo, "RunTmp": in.RunTmp} {
+		if err := absPath(name, p); err != nil {
+			return nil, err
+		}
+	}
+	if in.ForemanHome == "" && len(in.DenyWrite) == 0 {
+		return nil, errors.New("policy: ForemanHome or DenyWrite is required")
+	}
+	denied := append([]string{}, in.DenyWrite...)
+	if in.ForemanHome != "" {
+		denied = append(denied, in.ForemanHome)
+	}
+	for _, p := range denied {
+		if err := absPath("DenyWrite", p); err != nil {
+			return nil, err
+		}
+	}
+	for name, p := range map[string]string{"ProjectCacheDir": in.ProjectCacheDir, "OwnerHome": in.OwnerHome} {
+		if p != "" {
+			if err := absPath(name, p); err != nil {
+				return nil, err
+			}
+		}
+	}
+	for _, p := range in.DenyRead {
+		if err := absPath("DenyRead", p); err != nil {
+			return nil, err
+		}
+	}
+	return denied, nil
+}
+
+// checkSessionDirs: a deny-write ancestor would silently override the
+// allowWrite entry.
+func checkSessionDirs(in Inputs, denied []string) error {
+	for name, p := range map[string]string{"SessionRepo": in.SessionRepo, "RunTmp": in.RunTmp} {
+		if in.ProjectCacheDir != "" && within(p, in.ProjectCacheDir) {
+			return fmt.Errorf("policy: %s is inside a deny-write directory", name)
+		}
+		for _, d := range denied {
+			if within(p, d) {
+				return fmt.Errorf("policy: %s is inside a deny-write directory", name)
+			}
+		}
+	}
+	return nil
 }
 
 func absPath(name, p string) error {
@@ -174,7 +195,7 @@ func validHost(h string) error {
 func hostList(in Inputs) []string {
 	set := map[string]bool{}
 	for _, f := range in.Families {
-		for _, h := range familyHosts[f] {
+		for _, h := range familyHosts()[f] {
 			set[h] = true
 		}
 	}
@@ -206,7 +227,7 @@ func (p Policy) DenyReadPaths() []string {
 		set[d] = true
 	}
 	if p.in.OwnerHome != "" {
-		for _, d := range ownerSecretDirs {
+		for _, d := range ownerSecretDirs() {
 			set[filepath.Join(p.in.OwnerHome, d)] = true
 		}
 	}

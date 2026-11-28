@@ -11,7 +11,9 @@ import (
 	"github.com/andrewrong/foreman/internal/workspace/git"
 )
 
-var sessionIdent = git.Identity{Name: "foreman-session", Email: "foreman-session@users.noreply.example"}
+func sessionIdent() git.Identity {
+	return git.Identity{Name: "foreman-session", Email: "foreman-session@users.noreply.example"}
+}
 
 func gitIdent(n, e string) git.Identity { return git.Identity{Name: n, Email: e} }
 

@@ -21,12 +21,21 @@ import (
 	"github.com/andrewrong/foreman/internal/store/sqlite"
 )
 
-var (
-	t0     = time.Unix(1_800_000_000, 0)
-	repo   = Repo{"acme", "widgets"}
-	call   = Call{Priority: gate.P1, Caller: gate.Caller{Project: "p", Stage: "test"}}
-	resetS = strconv.FormatInt(t0.Add(time.Hour).Unix(), 10)
-)
+func resetS() string {
+	return strconv.FormatInt(t0().Add(time.Hour).Unix(), 10)
+}
+
+func call() Call {
+	return Call{Priority: gate.P1, Caller: gate.Caller{Project: "p", Stage: "test"}}
+}
+
+func repo() Repo {
+	return Repo{"acme", "widgets"}
+}
+
+func t0() time.Time {
+	return time.Unix(1_800_000_000, 0)
+}
 
 // route answers one "METHOD /path" with a status, body and optional ETag.
 type route struct {
@@ -59,7 +68,7 @@ func (f *fake) handler(w http.ResponseWriter, r *http.Request) {
 		rt = route{status: 404, body: `{"message":"Not Found"}`}
 	}
 	w.Header().Set("X-RateLimit-Limit", "5000")
-	w.Header().Set("X-RateLimit-Reset", resetS)
+	w.Header().Set("X-RateLimit-Reset", resetS())
 	w.Header().Set("X-RateLimit-Resource", "core")
 	if rt.etag != "" && r.Header.Get("If-None-Match") == rt.etag {
 		w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(5000-f.used))
@@ -118,10 +127,10 @@ func newRig(t *testing.T, withCache bool) *rig {
 	f := &fake{routes: map[string]route{}, bodies: map[string]string{}}
 	srv := httptest.NewServer(http.HandlerFunc(f.handler))
 	t.Cleanup(srv.Close)
-	clk := clock.NewFake(t0)
+	clk := clock.NewFake(t0())
 	m := meter.NewStore()
-	m.IngestGitHub(client.ResREST, meter.GitHubLimits{Limit: 5000, Remaining: 5000, ResetUnix: t0.Add(time.Hour).Unix()}, t0)
-	m.IngestGitHub(client.ResGraphQL, meter.GitHubLimits{Limit: 5000, Remaining: 5000, ResetUnix: t0.Add(time.Hour).Unix()}, t0)
+	m.IngestGitHub(client.ResREST, meter.GitHubLimits{Limit: 5000, Remaining: 5000, ResetUnix: t0().Add(time.Hour).Unix()}, t0())
+	m.IngestGitHub(client.ResGraphQL, meter.GitHubLimits{Limit: 5000, Remaining: 5000, ResetUnix: t0().Add(time.Hour).Unix()}, t0())
 	rec := &recorder{sums: map[string]int64{}}
 	g := gate.New(gate.Options{Clock: clk, Config: meter.DefaultConfig(), Meters: m, Recorder: rec})
 	cfg := client.Config{BaseURL: srv.URL, Token: "tok", Meters: m, Clock: clk}
@@ -180,7 +189,7 @@ func TestForgeRequiresLease(t *testing.T) {
 	_ = d.Lease.Release()
 
 	// An op acquires the lease itself and settles the real consumption.
-	if _, err := r.o.PRGet(ctx, call, repo, 7); err != nil {
+	if _, err := r.o.PRGet(ctx, call(), repo(), 7); err != nil {
 		t.Fatal(err)
 	}
 	if r.settled(client.ResREST) != 1 {
@@ -192,7 +201,7 @@ func TestForgeRequiresLease(t *testing.T) {
 
 	// A write op also consumes RES-GH-WRITE.
 	r.f.routes["PATCH /repos/acme/widgets/pulls/7"] = route{body: `{}`}
-	if err := r.o.PRClose(ctx, call, repo, 7); err != nil {
+	if err := r.o.PRClose(ctx, call(), repo(), 7); err != nil {
 		t.Fatal(err)
 	}
 	if r.settled(client.ResWrite) != 1 || r.settled(client.ResREST) != 2 {
@@ -207,16 +216,16 @@ func TestForgeRequiresLeaseGateWaitSendsNothing(t *testing.T) {
 	r.f.routes["PATCH /repos/acme/widgets/pulls/7"] = route{body: `{}`}
 	// 800 of 5000 left: below the floor plus the essential reserve, but above
 	// the floor alone.
-	r.m.IngestGitHub(client.ResREST, meter.GitHubLimits{Limit: 5000, Remaining: 800, ResetUnix: t0.Add(time.Hour).Unix()}, t0)
+	r.m.IngestGitHub(client.ResREST, meter.GitHubLimits{Limit: 5000, Remaining: 800, ResetUnix: t0().Add(time.Hour).Unix()}, t0())
 
-	_, err := r.o.PRGet(ctx, call, repo, 7)
+	_, err := r.o.PRGet(ctx, call(), repo(), 7)
 	if _, ok := err.(Waiting); !ok {
 		t.Fatalf("non-essential read: err = %v, want Waiting", err)
 	}
 	if len(r.f.log) != 0 {
 		t.Fatalf("request sent despite Wait: %v", r.f.log)
 	}
-	if err := r.o.PRClose(ctx, call, repo, 7); err != nil {
+	if err := r.o.PRClose(ctx, call(), repo(), 7); err != nil {
 		t.Fatalf("essential PRClose: %v", err)
 	}
 	if r.f.count("PATCH") != 1 {
@@ -229,11 +238,11 @@ func TestForgeRequiresLeaseExhaustedAfterRateLimited(t *testing.T) {
 	r := newRig(t, false)
 	r.f.routes["GET /repos/acme/widgets/pulls/7"] = route{status: 403, body: `{"message":"API rate limit exceeded"}`,
 		hdr: map[string]string{"X-RateLimit-Remaining": "0"}}
-	if _, err := r.o.PRGet(ctx, call, repo, 7); err == nil {
+	if _, err := r.o.PRGet(ctx, call(), repo(), 7); err == nil {
 		t.Fatal("want rate limit error")
 	}
 	r.f.reset()
-	_, err := r.o.PRGet(ctx, call, repo, 7)
+	_, err := r.o.PRGet(ctx, call(), repo(), 7)
 	w, ok := err.(Waiting)
 	if !ok || w.Wait.Reasons[0].Code != "exhausted" {
 		t.Fatalf("err = %#v, want exhausted wait", err)
@@ -262,13 +271,13 @@ func TestForgeOpsPaths(t *testing.T) {
 	} {
 		r.f.routes[k] = v
 	}
-	if p, err := r.o.PRCreate(ctx, call, repo, NewPR{Title: "t", Head: "foreman/r1", Base: "main"}); err != nil || p.Number != 7 || p.Head.SHA != "abc" {
+	if p, err := r.o.PRCreate(ctx, call(), repo(), NewPR{Title: "t", Head: "foreman/r1", Base: "main"}); err != nil || p.Number != 7 || p.Head.SHA != "abc" {
 		t.Fatalf("PRCreate: %+v %v", p, err)
 	}
 	if !strings.Contains(r.f.bodies["POST /repos/acme/widgets/pulls"], `"head":"foreman/r1"`) {
 		t.Fatalf("create body = %s", r.f.bodies["POST /repos/acme/widgets/pulls"])
 	}
-	if m, err := r.o.PRMerge(ctx, call, repo, 7, "abc", ""); err != nil || !m.Merged {
+	if m, err := r.o.PRMerge(ctx, call(), repo(), 7, "abc", ""); err != nil || !m.Merged {
 		t.Fatalf("PRMerge: %+v %v", m, err)
 	}
 	var sent map[string]string
@@ -276,25 +285,25 @@ func TestForgeOpsPaths(t *testing.T) {
 	if sent["sha"] != "abc" || sent["merge_method"] != "squash" {
 		t.Fatalf("merge body = %v", sent)
 	}
-	if msg, err := r.o.PRUpdateBranch(ctx, call, repo, 7, "abc"); err != nil || msg == "" {
+	if msg, err := r.o.PRUpdateBranch(ctx, call(), repo(), 7, "abc"); err != nil || msg == "" {
 		t.Fatalf("PRUpdateBranch: %q %v", msg, err)
 	}
-	if err := r.o.PRComment(ctx, call, repo, 7, "hi"); err != nil {
+	if err := r.o.PRComment(ctx, call(), repo(), 7, "hi"); err != nil {
 		t.Fatal(err)
 	}
-	if cs, err := r.o.ChecksForRef(ctx, call, repo, "abc"); err != nil || len(cs) != 1 || cs[0].Conclusion != "success" {
+	if cs, err := r.o.ChecksForRef(ctx, call(), repo(), "abc"); err != nil || len(cs) != 1 || cs[0].Conclusion != "success" {
 		t.Fatalf("ChecksForRef: %+v %v", cs, err)
 	}
-	if err := r.o.RunRerunFailed(ctx, call, repo, 9); err != nil {
+	if err := r.o.RunRerunFailed(ctx, call(), repo(), 9); err != nil {
 		t.Fatal(err)
 	}
-	if b, err := r.o.JobLogs(ctx, call, repo, 5); err != nil || string(b) != "line1\nline2\n" {
+	if b, err := r.o.JobLogs(ctx, call(), repo(), 5); err != nil || string(b) != "line1\nline2\n" {
 		t.Fatalf("JobLogs: %q %v", b, err)
 	}
-	if err := r.o.RefDelete(ctx, call, repo, "foreman/r1"); err != nil {
+	if err := r.o.RefDelete(ctx, call(), repo(), "foreman/r1"); err != nil {
 		t.Fatal(err)
 	}
-	if p, err := r.o.BranchProtectionGet(ctx, call, repo, "main"); err != nil || p.Available {
+	if p, err := r.o.BranchProtectionGet(ctx, call(), repo(), "main"); err != nil || p.Available {
 		t.Fatalf("BranchProtectionGet: %+v %v", p, err)
 	}
 	if err := r.o.RateLimit(ctx); err != nil {
@@ -311,7 +320,7 @@ func TestForgeOpsPaths(t *testing.T) {
 func TestForgeOpsMergeNotMergeableIsConflict(t *testing.T) {
 	r := newRig(t, false)
 	r.f.routes["PUT /repos/acme/widgets/pulls/7/merge"] = route{status: 405, body: `{"message":"Pull Request is not mergeable"}`}
-	_, err := r.o.PRMerge(context.Background(), call, repo, 7, "abc", "squash")
+	_, err := r.o.PRMerge(context.Background(), call(), repo(), 7, "abc", "squash")
 	if _, ok := err.(client.Conflict); !ok {
 		t.Fatalf("err = %#v", err)
 	}

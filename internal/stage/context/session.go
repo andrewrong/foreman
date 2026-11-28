@@ -1,9 +1,9 @@
-// Package code runs the code stage of work steps: it prepares the run
+// Session machinery shared by the code and review stages: it prepares the run
 // directory (context.md, prompt), builds the harness Invocation, launches it
-// through sandbox/launch and turns result.json into an event value (MD-7:
-// the caller, not this package, calls state.Transition). The session
-// machinery here is shared with stage/review.
-package code
+// through sandbox/launch and turns result.json into a Result (MD-7: the
+// caller, not this package, calls state.Transition).
+
+package context
 
 import (
 	"bytes"
@@ -23,10 +23,12 @@ import (
 // ErrNeedsSandbox is returned instead of launching an adapter that relies on
 // the OS sandbox (claude uses --permission-mode bypassPermissions, D-056)
 // when the launcher has no srt.
-var ErrNeedsSandbox = errors.New("code: adapter needs the srt sandbox but the launcher has none")
+var ErrNeedsSandbox = errors.New("context: adapter needs the srt sandbox but the launcher has none")
 
 // sandboxRequired lists the adapters that must never run unsandboxed.
-var sandboxRequired = map[string]bool{"claude": true}
+func sandboxRequired() map[string]bool {
+	return map[string]bool{"claude": true}
+}
 
 // Defaults for the PP-5 fallback bounds (no adapter can stop mid-run).
 const (
@@ -78,7 +80,7 @@ type Prepared struct {
 // directory and resolves the invocation and sandbox policy. It does not start
 // anything, so it is safe to repeat.
 func (e Env) Prepare(r Request) (Prepared, error) {
-	if sandboxRequired[e.Adapter.Name()] && !e.Launcher.Sandboxed() {
+	if sandboxRequired()[e.Adapter.Name()] && !e.Launcher.Sandboxed() {
 		return Prepared{}, ErrNeedsSandbox
 	}
 	if err := os.MkdirAll(r.RunDir, 0o700); err != nil {
@@ -102,7 +104,7 @@ func (e Env) Prepare(r Request) (Prepared, error) {
 		WorkDir: r.SessionRepo, RunDir: r.RunDir, PromptFiles: []string{promptFile, ctxFile}, Extra: r.Extra,
 	})
 	if err != nil {
-		return Prepared{}, fmt.Errorf("code: build invocation: %w", err)
+		return Prepared{}, fmt.Errorf("context: build invocation: %w", err)
 	}
 	for _, f := range inv.Files {
 		if err := os.WriteFile(f.Path, f.Content, os.FileMode(f.Mode)); err != nil {
@@ -175,7 +177,7 @@ func (e Env) RunSession(ctx context.Context, r Request) (Result, error) {
 	})
 	timedOut := runCtx.Err() != nil && ctx.Err() == nil
 	if err != nil && !timedOut {
-		return Result{Exit: exit}, fmt.Errorf("code: launch: %w", err)
+		return Result{Exit: exit}, fmt.Errorf("context: launch: %w", err)
 	}
 	return e.Collect(r, &exit, timedOut), nil
 }

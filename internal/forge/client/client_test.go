@@ -17,7 +17,9 @@ import (
 	"github.com/andrewrong/foreman/internal/resource/meter"
 )
 
-var t0 = time.Unix(1_800_000_000, 0)
+func t0() time.Time {
+	return time.Unix(1_800_000_000, 0)
+}
 
 type env struct {
 	t   *testing.T
@@ -31,8 +33,8 @@ func newEnv(t *testing.T, h http.HandlerFunc) *env {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	e := &env{t: t, clk: clock.NewFake(t0), m: meter.NewStore()}
-	e.m.IngestGitHub(ResREST, meter.GitHubLimits{Limit: 5000, Remaining: 5000, ResetUnix: t0.Add(time.Hour).Unix()}, t0)
+	e := &env{t: t, clk: clock.NewFake(t0()), m: meter.NewStore()}
+	e.m.IngestGitHub(ResREST, meter.GitHubLimits{Limit: 5000, Remaining: 5000, ResetUnix: t0().Add(time.Hour).Unix()}, t0())
 	e.g = gate.New(gate.Options{Clock: e.clk, Config: meter.DefaultConfig(), Meters: e.m})
 	e.c = New(Config{BaseURL: srv.URL, Token: "tok-123", Meters: e.m, Clock: e.clk})
 	return e
@@ -70,7 +72,7 @@ func TestForgeUpdatesMeterFromHeaders(t *testing.T) {
 		gotAuth, gotVer = r.Header.Get("Authorization"), r.Header.Get("X-GitHub-Api-Version")
 		w.Header().Set("X-RateLimit-Limit", "5000")
 		w.Header().Set("X-RateLimit-Remaining", "4321")
-		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(t0.Add(30*time.Minute).Unix(), 10))
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(t0().Add(30*time.Minute).Unix(), 10))
 		w.Header().Set("X-RateLimit-Resource", "core")
 		_, _ = w.Write([]byte(`{}`))
 	})
@@ -78,7 +80,7 @@ func TestForgeUpdatesMeterFromHeaders(t *testing.T) {
 		t.Fatal(err)
 	}
 	rd, ok := e.m.Get(ResREST)
-	if !ok || rd.Capacity != 5000 || rd.Used != 679 || !rd.ResetsAt.Equal(t0.Add(30*time.Minute)) {
+	if !ok || rd.Capacity != 5000 || rd.Used != 679 || !rd.ResetsAt.Equal(t0().Add(30*time.Minute)) {
 		t.Fatalf("reading = %+v", rd)
 	}
 	if gotAuth != "Bearer tok-123" || gotVer == "" {
@@ -94,7 +96,7 @@ func TestForgeUpdatesMeterFromHeadersGraphQLResource(t *testing.T) {
 		w.Header().Set("X-RateLimit-Resource", "graphql")
 		_, _ = w.Write([]byte(`{"data":{"viewer":{"login":"x"}}}`))
 	})
-	e.m.IngestGitHub(ResGraphQL, meter.GitHubLimits{Limit: 5000, Remaining: 5000, ResetUnix: 1800003600}, t0)
+	e.m.IngestGitHub(ResGraphQL, meter.GitHubLimits{Limit: 5000, Remaining: 5000, ResetUnix: 1800003600}, t0())
 	ctx := WithUse(context.Background(), e.use(ResGraphQL))
 	var q struct {
 		Viewer struct{ Login githubv4.String }
@@ -113,7 +115,7 @@ func TestForgeUpdatesMeterFromHeadersGraphQLResource(t *testing.T) {
 const secondaryDoc = "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api#about-secondary-rate-limits"
 
 func TestForgeErrorMapping(t *testing.T) {
-	reset := strconv.FormatInt(t0.Add(20*time.Minute).Unix(), 10)
+	reset := strconv.FormatInt(t0().Add(20*time.Minute).Unix(), 10)
 	cases := []struct {
 		name   string
 		status int
@@ -124,17 +126,17 @@ func TestForgeErrorMapping(t *testing.T) {
 		{"primary", 403, map[string]string{"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": reset, "X-RateLimit-Resource": "core"},
 			`{"message":"API rate limit exceeded"}`, func(t *testing.T, err error, e *env) {
 				var rl RateLimited
-				if !errors.As(err, &rl) || !rl.Reset.Equal(t0.Add(20*time.Minute)) {
+				if !errors.As(err, &rl) || !rl.Reset.Equal(t0().Add(20*time.Minute)) {
 					t.Fatalf("err = %#v", err)
 				}
-				if until, ok := e.m.ExhaustedUntil(ResREST, t0); !ok || !until.Equal(rl.Reset) {
+				if until, ok := e.m.ExhaustedUntil(ResREST, t0()); !ok || !until.Equal(rl.Reset) {
 					t.Fatalf("meter not marked exhausted: %v %v", until, ok)
 				}
 			}},
 		{"primary-429", 429, map[string]string{"X-RateLimit-Reset": reset}, `{"message":"slow down"}`,
 			func(t *testing.T, err error, e *env) {
 				var rl RateLimited
-				if !errors.As(err, &rl) || !rl.Reset.Equal(t0.Add(20*time.Minute)) {
+				if !errors.As(err, &rl) || !rl.Reset.Equal(t0().Add(20*time.Minute)) {
 					t.Fatalf("err = %#v", err)
 				}
 			}},
@@ -145,7 +147,7 @@ func TestForgeErrorMapping(t *testing.T) {
 				if !errors.As(err, &sl) || sl.RetryAfter != 90*time.Second {
 					t.Fatalf("err = %#v", err)
 				}
-				if until, ok := e.m.ExhaustedUntil(ResREST, t0); !ok || !until.Equal(t0.Add(90*time.Second)) {
+				if until, ok := e.m.ExhaustedUntil(ResREST, t0()); !ok || !until.Equal(t0().Add(90*time.Second)) {
 					t.Fatalf("meter not marked: %v %v", until, ok)
 				}
 			}},

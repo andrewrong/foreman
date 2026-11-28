@@ -32,7 +32,9 @@ func ParseClaudeRateLimitInfo(raw []byte) (ClaudeRateLimitInfo, error) {
 // claudeWindowName maps claude's window keys to resource window names. Keys
 // not listed are used verbatim so they are gated too (D-051: every reported
 // window is checked).
-var claudeWindowName = map[string]string{"five_hour": "5h", "seven_day": "7d"}
+func claudeWindowName() map[string]string {
+	return map[string]string{"five_hour": "5h", "seven_day": "7d"}
+}
 
 // IngestClaude records the windows reported by one rate_limit_event for
 // model/claude/<account>/<window>. Only reported windows are updated; windows
@@ -47,7 +49,7 @@ func (s *Store) IngestModel(harness, account string, info ClaudeRateLimitInfo, a
 	var out []string
 	for key, w := range info.UnifiedWindows {
 		name := key
-		if n, ok := claudeWindowName[key]; ok {
+		if n, ok := claudeWindowName()[key]; ok {
 			name = n
 		}
 		res := "model/" + harness + "/" + account + "/" + name

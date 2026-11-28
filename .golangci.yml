@@ -1,0 +1,15 @@
+# MD-13, MD-14 (D-078). Only these two linters run; run it with
+# `go tool golangci-lint run ./...` (the version is pinned by the tool
+# directive in go.mod). check:golangci-lint runs it from internal/repocheck.
+version: "2"
+linters:
+  default: none
+  enable:
+    - gochecknoglobals # MD-13: no package-level mutable variables
+    - gocognit # MD-14: cognitive complexity of a function <= 30
+  settings:
+    gocognit:
+      min-complexity: 30
+issues:
+  max-issues-per-linter: 0 # report every issue, never truncate
+  max-same-issues: 0

@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/andrewrong/foreman/internal/spec/model"
-	"github.com/andrewrong/foreman/internal/stage/code"
+	ctxmd "github.com/andrewrong/foreman/internal/stage/context"
 	wsgit "github.com/andrewrong/foreman/internal/workspace/git"
 	"github.com/andrewrong/foreman/internal/workspace/integrate"
 	"github.com/andrewrong/foreman/internal/workspace/session"
@@ -19,7 +19,7 @@ import (
 
 // Env is what the stage needs besides the request.
 type Env struct {
-	Session code.Env
+	Session ctxmd.Env
 	Integ   *integrate.Dir
 	Mirror  *session.Mirror
 }
@@ -35,7 +35,7 @@ type MergeBack struct {
 
 // Request is one review Run.
 type Request struct {
-	Session   code.Request
+	Session   ctxmd.Request
 	MergeBack *MergeBack // nil for integrate steps (S43)
 }
 
@@ -50,7 +50,7 @@ func Run(ctx context.Context, env Env, req Request) (model.Event, error) {
 
 // Finish maps a finished reviewer session to an event and, for an approved
 // work step, performs the merge-back.
-func Finish(ctx context.Context, env Env, req Request, res code.Result) (model.Event, error) {
+func Finish(ctx context.Context, env Env, req Request, res ctxmd.Result) (model.Event, error) {
 	if res.Parsed == nil {
 		return res.Event, nil
 	}

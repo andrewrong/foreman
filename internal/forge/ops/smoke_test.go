@@ -37,10 +37,10 @@ func TestForgeLiveSmoke(t *testing.T) {
 		t.Fatalf("RateLimit: %v", err)
 	}
 	r := Repo{owner, name}
-	if _, err := o.PRListOpen(ctx, call, r); err != nil {
+	if _, err := o.PRListOpen(ctx, call(), r); err != nil {
 		t.Fatalf("PRListOpen: %v", err)
 	}
-	if _, err := o.RunsList(ctx, call, r, RunsFilter{PerPage: 1}); err != nil {
+	if _, err := o.RunsList(ctx, call(), r, RunsFilter{PerPage: 1}); err != nil {
 		t.Fatalf("RunsList: %v", err)
 	}
 }

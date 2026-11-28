@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/andrewrong/foreman/internal/spec/model"
-	"github.com/andrewrong/foreman/internal/workspace/session"
 )
 
 // markRunning moves a pending Run to running (the reconciler handshake of
@@ -58,20 +57,16 @@ func (s *Scheduler) ensureSessionRepo(ctx context.Context, req reqRow) (string, 
 	if req.SessionRepo != "" {
 		return req.SessionRepo, nil
 	}
-	if err := s.d.Mirror.Update(ctx); err != nil {
-		return "", err
-	}
 	dir := filepath.Join(s.d.Home, "projects", s.d.Project, "sessions", req.ID)
-	repo, err := session.Create(ctx, s.d.Git, s.d.Mirror, dir, session.Spec{ReqID: req.ID, BaseBranch: s.d.Integ.Default,
-		Identity: s.d.SessionIdent})
+	repo, err := s.d.Workspace.CreateSessionRepo(ctx, req.ID, dir)
 	if err != nil {
 		return "", err
 	}
 	err = s.d.DB.Write(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `UPDATE requirements SET session_repo = ?, session_repo_state = 'active' WHERE id = ?`, repo.Dir, req.ID)
+		_, err := tx.ExecContext(ctx, `UPDATE requirements SET session_repo = ?, session_repo_state = 'active' WHERE id = ?`, repo, req.ID)
 		return err
 	})
-	return repo.Dir, err
+	return repo, err
 }
 
 // savePR upserts the E-PR row (one PR per requirement, D-042).

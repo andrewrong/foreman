@@ -19,7 +19,7 @@ func TestSessionRepoNoUpstream(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(t.TempDir(), "sess")
-	repo, err := Create(ctx, r, m, dir, Spec{ReqID: "r1", BaseBranch: "main", Identity: sessionIdent})
+	repo, err := Create(ctx, r, m, dir, Spec{ReqID: "r1", BaseBranch: "main", Identity: sessionIdent()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestSessionGitIdentity(t *testing.T) {
 		t.Fatalf("non-noreply identity accepted: %v", err)
 	}
 	dir := filepath.Join(t.TempDir(), "sess")
-	if _, err := Create(ctx, r, m, dir, Spec{ReqID: "r1", BaseBranch: "main", Identity: sessionIdent}); err != nil {
+	if _, err := Create(ctx, r, m, dir, Spec{ReqID: "r1", BaseBranch: "main", Identity: sessionIdent()}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -88,7 +88,7 @@ func TestSessionGitIdentity(t *testing.T) {
 	}
 	run(env, "commit", "--allow-empty", "-m", "session work")
 	got := run(env, "log", "-1", "--format=%an <%ae>|%cn <%ce>")
-	want := sessionIdent.Name + " <" + sessionIdent.Email + ">"
+	want := sessionIdent().Name + " <" + sessionIdent().Email + ">"
 	if got != want+"|"+want {
 		t.Fatalf("session commit identity = %q, want %q", got, want)
 	}
@@ -106,7 +106,7 @@ func TestSessionRemove(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(t.TempDir(), "sess")
-	if _, err := Create(ctx, r, m, dir, Spec{ReqID: "r1", BaseBranch: "main", Identity: sessionIdent}); err != nil {
+	if _, err := Create(ctx, r, m, dir, Spec{ReqID: "r1", BaseBranch: "main", Identity: sessionIdent()}); err != nil {
 		t.Fatal(err)
 	}
 	if err := Remove(dir); err != nil {

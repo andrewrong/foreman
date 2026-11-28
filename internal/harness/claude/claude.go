@@ -25,14 +25,16 @@ type Config struct {
 // DefaultTools are the built-in tools per role (D-066 ②). Every role writes
 // result.json, so Write is always present. Reviewer and planner get no Edit.
 // The sub-agent tool ("Task") is added only when RunSpec.Subagents is set.
-var DefaultTools = map[api.Role][]string{
-	api.RoleIntake:    {"Read", "Write", "Glob", "Grep"},
-	api.RolePlanner:   {"Read", "Write", "Glob", "Grep", "Bash"},
-	api.RoleCoder:     {"Bash", "Read", "Edit", "Write", "Glob", "Grep"},
-	api.RoleReviewer:  {"Bash", "Read", "Write", "Glob", "Grep"},
-	api.RoleRescuer:   {"Bash", "Read", "Write", "Glob", "Grep"},
-	api.RoleDiagnoser: {"Bash", "Read", "Write", "Glob", "Grep"},
-	api.RoleImprover:  {"Bash", "Read", "Edit", "Write", "Glob", "Grep"},
+func DefaultTools() map[api.Role][]string {
+	return map[api.Role][]string{
+		api.RoleIntake:    {"Read", "Write", "Glob", "Grep"},
+		api.RolePlanner:   {"Read", "Write", "Glob", "Grep", "Bash"},
+		api.RoleCoder:     {"Bash", "Read", "Edit", "Write", "Glob", "Grep"},
+		api.RoleReviewer:  {"Bash", "Read", "Write", "Glob", "Grep"},
+		api.RoleRescuer:   {"Bash", "Read", "Write", "Glob", "Grep"},
+		api.RoleDiagnoser: {"Bash", "Read", "Write", "Glob", "Grep"},
+		api.RoleImprover:  {"Bash", "Read", "Edit", "Write", "Glob", "Grep"},
+	}
 }
 
 // SubagentTool is the claude tool name that spawns sub-agents (D-041).
@@ -82,7 +84,7 @@ func (a *Adapter) tools(s api.RunSpec) []string {
 		t = a.cfg.Tools[s.Role]
 	}
 	if t == nil {
-		t = DefaultTools[s.Role]
+		t = DefaultTools()[s.Role]
 	}
 	out := append([]string(nil), t...)
 	if s.Subagents {

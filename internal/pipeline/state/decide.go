@@ -22,7 +22,9 @@ func expandGuards(base, over []guard) []guard {
 }
 
 // xrows is step_table with every to: escalate row replaced by its expansions.
-var xrows = expandRows()
+func xrows() []stepRow {
+	return expandRows()
+}
 
 func expandRows() []stepRow {
 	var out []stepRow
@@ -43,9 +45,8 @@ func expandRows() []stepRow {
 	return out
 }
 
-// Derived once from the table, for the rule-based ignored entries.
-var exitByReason, runningEvents = deriveExits()
-
+// deriveExits reads the rule-based ignored entries off the table: the exit
+// events of each waiting reason, and the events a running step answers.
 func deriveExits() (map[string][]string, []string) {
 	by := map[string][]string{}
 	var running []string
@@ -74,6 +75,7 @@ func (r *stepRow) matchesConfig(s StepView) bool {
 }
 
 func isIgnored(s StepView, ev string) bool {
+	exitByReason, runningEvents := deriveExits()
 	for _, ig := range ignoreEntries {
 		if ig.States != nil {
 			if !slices.Contains(ig.States, s.State) {
@@ -212,8 +214,8 @@ func resolveTo(s StepView, t target) (To, error) {
 // one, is an error; for valid inputs that never happens.
 func Decide(step StepView, req ReqView, ev Event) (Outcome, error) {
 	var cands, hits []*stepRow
-	for i := range xrows {
-		r := &xrows[i]
+	for i := range xrows() {
+		r := &xrows()[i]
 		if r.Event == ev.Name && r.matchesConfig(step) {
 			cands = append(cands, r)
 			if guardsHold(r.Guard, &step, req, ev) {

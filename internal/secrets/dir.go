@@ -25,13 +25,15 @@ func validName(name string) bool {
 }
 
 // copySuffixes mark a file as a copy of another file's secret.
-var copySuffixes = []string{".old", ".orig", ".save", ".new", ".tmp", "~"}
+func copySuffixes() []string {
+	return []string{".old", ".orig", ".save", ".new", ".tmp", "~"}
+}
 
 func baseKey(name string) string {
 	n := strings.ToLower(name)
 	for changed := true; changed; {
 		changed = false
-		for _, s := range copySuffixes {
+		for _, s := range copySuffixes() {
 			if t := strings.TrimSuffix(n, s); t != n {
 				n, changed = t, true
 			}

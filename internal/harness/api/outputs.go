@@ -10,15 +10,19 @@ import (
 // Files a session may write in its run directory (D-002: AI output is only
 // structured result files). The .tmp names are the PP-2 atomic-write staging
 // files.
-var sessionWritable = map[string]bool{
-	"result.json": true, "result.json.tmp": true,
-	"todo.json": true, "todo.json.tmp": true,
+func sessionWritable() map[string]bool {
+	return map[string]bool{
+		"result.json": true, "result.json.tmp": true,
+		"todo.json": true, "todo.json.tmp": true,
+	}
 }
 
 // Files foremand itself keeps in the run directory.
-var foremandOwned = map[string]bool{
-	"context.md": true, "todo.last-valid.json": true,
-	"stdout.log": true, "stderr.log": true,
+func foremandOwned() map[string]bool {
+	return map[string]bool{
+		"context.md": true, "todo.last-valid.json": true,
+		"stdout.log": true, "stderr.log": true,
+	}
 }
 
 // StrayOutputs lists entries of the run directory that neither the session
@@ -31,7 +35,7 @@ func StrayOutputs(runDir fs.FS) ([]string, error) {
 	}
 	var stray []string
 	for _, e := range ents {
-		if n := e.Name(); !sessionWritable[n] && !foremandOwned[n] {
+		if n := e.Name(); !sessionWritable()[n] && !foremandOwned()[n] {
 			stray = append(stray, n)
 		}
 	}

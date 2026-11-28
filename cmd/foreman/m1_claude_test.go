@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/andrewrong/foreman/internal/clock"
-	"github.com/andrewrong/foreman/internal/stage/code"
+	ctxmd "github.com/andrewrong/foreman/internal/stage/context"
 )
 
 // The claude adapter uses bypassPermissions (D-056) and may only run inside
@@ -30,7 +30,7 @@ func TestClaudeHarnessWithoutSrtIsRefused(t *testing.T) {
 
 	clk.Advance(time.Second)
 	_, err = app.Sched.Tick(ctx)
-	if !errors.Is(err, code.ErrNeedsSandbox) {
+	if !errors.Is(err, ctxmd.ErrNeedsSandbox) {
 		t.Fatalf("tick error = %v, want ErrNeedsSandbox", err)
 	}
 	var runs int

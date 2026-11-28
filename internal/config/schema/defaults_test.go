@@ -45,7 +45,7 @@ func TestConfigKeysMatchSchema(t *testing.T) {
 	// need not list every role x key pair (unlisted pairs are unset).
 	tableKeys := map[string]map[string]bool{RuntimeFile: {}, RolesFile: {}, projectFileKey: {}}
 	known := map[string]bool{}
-	for _, n := range RoleNames {
+	for _, n := range RoleNames() {
 		known[n] = true
 	}
 	for _, r := range keyTable {
@@ -83,7 +83,7 @@ func TestConfigOwnerKeysRequired(t *testing.T) {
 		t.Fatal("Load without owner keys must fail")
 	}
 	want := []string{"runtime.toml: secrets_dir", "runtime.toml: parallel.workers"}
-	for _, n := range RoleNames {
+	for _, n := range RoleNames() {
 		want = append(want, "roles.toml: role."+n+".timeout")
 	}
 	for _, w := range want {

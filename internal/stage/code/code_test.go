@@ -19,6 +19,7 @@ import (
 	"github.com/andrewrong/foreman/internal/sandbox/launch"
 	"github.com/andrewrong/foreman/internal/sandbox/policy"
 	"github.com/andrewrong/foreman/internal/spec/model"
+	ctxmd "github.com/andrewrong/foreman/internal/stage/context"
 	wsgit "github.com/andrewrong/foreman/internal/workspace/git"
 )
 
@@ -33,7 +34,7 @@ type world struct {
 	repo, run string
 	git       *wsgit.Runner
 	lease     *gate.Lease
-	env       Env
+	env       ctxmd.Env
 }
 
 // newWorld builds a session repo with one commit, a short run dir (RunTmp is
@@ -79,21 +80,21 @@ func newWorld(t *testing.T, adapterName string) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.env = Env{
+	w.env = ctxmd.Env{
 		Launcher: launch.Launcher{PassThrough: true}, Adapter: ad, Timeout: time.Minute,
 		Policy: policy.Inputs{DenyWrite: []string{filepath.Join(root, "db")}, Path: wsgit.DefaultPath},
 	}
 	return w
 }
 
-func (w *world) request(actions ...scripted.Action) Request {
+func (w *world) request(actions ...scripted.Action) ctxmd.Request {
 	w.t.Helper()
 	raw, _ := json.Marshal(scripted.Script{Actions: actions})
 	script := filepath.Join(w.root, "script.json")
 	if err := os.WriteFile(script, raw, 0o600); err != nil {
 		w.t.Fatal(err)
 	}
-	return Request{RunID: "r1", StepID: "r1/S1", Role: api.RoleCoder, Model: "scripted", RunDir: w.run,
+	return ctxmd.Request{RunID: "r1", StepID: "r1/S1", Role: api.RoleCoder, Model: "scripted", RunDir: w.run,
 		SessionRepo: w.repo, Context: "# ctx\n", Prompt: "you are the coder\n", AcceptanceIDs: []string{"A1"},
 		Extra: map[string]string{scripted.ExtraScript: script}}
 }
@@ -154,7 +155,7 @@ func TestCodeStageFailureModes(t *testing.T) {
 func TestClaudeSessionRefusedWithoutSandbox(t *testing.T) {
 	w := newWorld(t, "claude")
 	_, err := Run(context.Background(), w.env, w.request())
-	if !errors.Is(err, ErrNeedsSandbox) {
+	if !errors.Is(err, ctxmd.ErrNeedsSandbox) {
 		t.Fatalf("err = %v, want ErrNeedsSandbox", err)
 	}
 	if _, serr := os.Stat(w.run); !os.IsNotExist(serr) {
@@ -163,7 +164,7 @@ func TestClaudeSessionRefusedWithoutSandbox(t *testing.T) {
 	// With srt configured the same request passes the guard (and fails later
 	// only because no srt binary exists here).
 	w.env.Launcher = launch.Launcher{SrtPath: filepath.Join(w.root, "no-such-srt")}
-	if _, err := Run(context.Background(), w.env, w.request()); errors.Is(err, ErrNeedsSandbox) {
+	if _, err := Run(context.Background(), w.env, w.request()); errors.Is(err, ctxmd.ErrNeedsSandbox) {
 		t.Fatal("sandboxed launcher refused")
 	}
 }

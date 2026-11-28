@@ -11,7 +11,9 @@ import (
 	"github.com/andrewrong/foreman/internal/resource/gate"
 )
 
-var t0 = time.Unix(1_800_000_000, 0)
+func t0() time.Time {
+	return time.Unix(1_800_000_000, 0)
+}
 
 func testLease(t *testing.T) *gate.Lease {
 	t.Helper()
@@ -38,8 +40,10 @@ func newAdapter(t *testing.T, fs map[string]string) *Adapter {
 	return a
 }
 
-var promptFS = map[string]string{
-	"role.md": "ROLE PROMPT\n", "context.md": "CONTEXT\n", "tdd.md": "TDD BODY\n",
+func promptFS() map[string]string {
+	return map[string]string{
+		"role.md": "ROLE PROMPT\n", "context.md": "CONTEXT\n", "tdd.md": "TDD BODY\n",
+	}
 }
 
 func coderSpec() api.RunSpec {
@@ -52,7 +56,7 @@ func coderSpec() api.RunSpec {
 }
 
 func TestHarnessClaudeArgv(t *testing.T) {
-	a := newAdapter(t, promptFS)
+	a := newAdapter(t, promptFS())
 	inv, err := a.BuildInvocation(coderSpec())
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +90,7 @@ func TestHarnessClaudeArgv(t *testing.T) {
 }
 
 func TestArgvOptionalParts(t *testing.T) {
-	a := newAdapter(t, promptFS)
+	a := newAdapter(t, promptFS())
 	s := coderSpec()
 	s.AdvisorModel, s.Effort, s.Role = "", "", api.RoleReviewer
 	inv, err := a.BuildInvocation(s)
@@ -115,7 +119,7 @@ func TestEscalatedRunUsesOpusArgv(t *testing.T) {
 	}
 	s := coderSpec()
 	s.Model, s.AdvisorModel = p.Model, p.AdvisorModel
-	inv, err := newAdapter(t, promptFS).BuildInvocation(s)
+	inv, err := newAdapter(t, promptFS()).BuildInvocation(s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,8 +152,8 @@ func indexOf(s []string, v string) int {
 }
 
 func TestHarnessSubagentDefaultOff(t *testing.T) {
-	a := newAdapter(t, promptFS)
-	for role := range DefaultTools {
+	a := newAdapter(t, promptFS())
+	for role := range DefaultTools() {
 		s := coderSpec()
 		s.Role = role
 		inv, err := a.BuildInvocation(s)
@@ -172,7 +176,7 @@ func TestHarnessSubagentDefaultOff(t *testing.T) {
 }
 
 func TestPromptAssembly(t *testing.T) {
-	inv, err := newAdapter(t, promptFS).BuildInvocation(coderSpec())
+	inv, err := newAdapter(t, promptFS()).BuildInvocation(coderSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +192,7 @@ func TestPromptAssembly(t *testing.T) {
 }
 
 func TestBuildInvocationRejects(t *testing.T) {
-	a := newAdapter(t, promptFS)
+	a := newAdapter(t, promptFS())
 	mod := func(f func(*api.RunSpec)) error {
 		s := coderSpec()
 		f(&s)
@@ -214,7 +218,7 @@ func TestBuildInvocationRejects(t *testing.T) {
 }
 
 func TestBudgetFallbackDefault(t *testing.T) {
-	a := newAdapter(t, promptFS)
+	a := newAdapter(t, promptFS())
 	if a.Capabilities().CanStopMidrun {
 		t.Fatal("claude must default to can_stop_midrun=false (PP-5)")
 	}

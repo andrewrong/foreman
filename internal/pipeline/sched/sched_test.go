@@ -7,9 +7,8 @@ import (
 	"time"
 
 	"github.com/andrewrong/foreman/internal/clock"
-	"github.com/andrewrong/foreman/internal/harness/api"
 	"github.com/andrewrong/foreman/internal/pipeline/recover"
-	stagecode "github.com/andrewrong/foreman/internal/stage/code"
+	"github.com/andrewrong/foreman/internal/spec/model"
 )
 
 func TestNewReportsEveryMissingDependency(t *testing.T) {
@@ -17,34 +16,52 @@ func TestNewReportsEveryMissingDependency(t *testing.T) {
 	if err == nil {
 		t.Fatal("New accepted empty deps")
 	}
-	for _, name := range []string{"DB", "Engine", "Clock", "Gate", "Meters", "Home", "Ops", "Git", "Mirror", "Integ", "NewAdapter"} {
+	for _, name := range []string{"DB", "Engine", "Clock", "Gate", "Meters", "Home", "Forge", "Workspace", "Procs", "Code", "Review", "Check", "Integrate", "Merge"} {
 		if !strings.Contains(err.Error(), name) {
 			t.Errorf("error %q does not name %s", err, name)
 		}
 	}
 }
 
-// A session that is already starting must not consult RunExtra: a script
-// queue handing out one script per call would otherwise be drained by polls.
-func TestDriveSessionPollsDoNotConsultRunExtra(t *testing.T) {
+// countingStage is a SessionStage that only counts launches.
+type countingStage struct{ starts int }
+
+func (c *countingStage) Timeout() time.Duration { return time.Minute }
+func (c *countingStage) Start(context.Context, SessionJob, func() error) (Proc, error) {
+	c.starts++
+	return nil, nil
+}
+func (c *countingStage) Collect(context.Context, SessionJob, Proc, bool) (model.Event, error) {
+	return model.Event{}, nil
+}
+
+// noPids is a recover.Procs without any process.
+type noPids struct{}
+
+func (noPids) ReadPid(string) (recover.PidFile, bool, error) { return recover.PidFile{}, false, nil }
+func (noPids) Alive(recover.PidFile) bool                    { return false }
+func (noPids) ForgetPid(string) error                        { return nil }
+func (noPids) KillRun(string) ([]int, error)                 { return nil, nil }
+
+// A session that is already starting must not be launched again by polls: a
+// stage that hands out one script per launch would otherwise be drained.
+func TestDriveSessionPollsDoNotRelaunch(t *testing.T) {
 	dir := t.TempDir()
 	clk := clock.NewFake(time.Unix(1_800_000_000, 0))
 	if err := recover.TakeLock(dir, clk.Now(), 1); err != nil {
 		t.Fatal(err)
 	}
-	calls := 0
-	s := &Scheduler{d: Deps{Clock: clk, RunExtra: func(api.Role, string) map[string]string { calls++; return nil }}}
+	stage := &countingStage{}
+	s := &Scheduler{d: Deps{Clock: clk, Procs: noPids{}}}
+	job := SessionJob{RunID: "r1", Role: RoleCoder, StepID: "S1", RunDir: dir}
 	for i := 0; i < 3; i++ {
-		_, done, err := s.driveSession(context.Background(), stagecode.Env{}, stagecode.Request{RunID: "r1", Role: api.RoleCoder, StepID: "S1", RunDir: dir})
+		_, done, err := s.driveSession(context.Background(), stage, job)
 		if err != nil || done {
 			t.Fatalf("poll %d: done=%v err=%v, want a session still starting", i, done, err)
 		}
 	}
-	if calls != 0 {
-		t.Errorf("RunExtra called %d times while polling a starting session, want 0", calls)
-	}
-	if got := s.withExtra(stagecode.Request{Role: api.RoleCoder, StepID: "S1"}); got.Extra != nil || calls != 1 {
-		t.Errorf("withExtra: Extra=%v calls=%d, want one call at launch", got.Extra, calls)
+	if stage.starts != 0 {
+		t.Errorf("stage started %d times while polling a starting session, want 0", stage.starts)
 	}
 }
 

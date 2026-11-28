@@ -19,15 +19,22 @@ const (
 // Whitespace around the <placeholder> is optional; the clause parts must
 // be non-blank. Optional is tried before State so that "在具备…" is never
 // read as a State sentence.
-var forms = []struct {
+var (
+	optionalRE   = regexp.MustCompile(`^在具备\s*\S.*?\s*的情况下，系统应当\s*\S.*$`)
+	stateRE      = regexp.MustCompile(`^在\s*\S.*?\s*期间，系统应当\s*\S.*$`)
+	unwantedRE   = regexp.MustCompile(`^如果\s*\S.*?\s*，那么系统应当\s*\S.*$`)
+	eventRE      = regexp.MustCompile(`^当\s*\S.*?\s*时，系统应当\s*\S.*$`)
+	ubiquitousRE = regexp.MustCompile(`^系统应当\s*\S.*$`)
+)
+
+// form pairs a pattern with its expression; forms lists them in the order they are tried.
+type form struct {
 	p  Pattern
 	re *regexp.Regexp
-}{
-	{Optional, regexp.MustCompile(`^在具备\s*\S.*?\s*的情况下，系统应当\s*\S.*$`)},
-	{State, regexp.MustCompile(`^在\s*\S.*?\s*期间，系统应当\s*\S.*$`)},
-	{Unwanted, regexp.MustCompile(`^如果\s*\S.*?\s*，那么系统应当\s*\S.*$`)},
-	{Event, regexp.MustCompile(`^当\s*\S.*?\s*时，系统应当\s*\S.*$`)},
-	{Ubiquitous, regexp.MustCompile(`^系统应当\s*\S.*$`)},
+}
+
+func forms() []form {
+	return []form{{Optional, optionalRE}, {State, stateRE}, {Unwanted, unwantedRE}, {Event, eventRE}, {Ubiquitous, ubiquitousRE}}
 }
 
 // Match reports which EARS form s is written in. Leading and trailing
@@ -37,7 +44,7 @@ func Match(s string) (Pattern, bool) {
 	if strings.ContainsAny(s, "\r\n") {
 		return "", false
 	}
-	for _, f := range forms {
+	for _, f := range forms() {
 		if f.re.MatchString(s) {
 			return f.p, true
 		}

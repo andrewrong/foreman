@@ -11,7 +11,6 @@ import (
 
 	"github.com/andrewrong/foreman/internal/resource/gate"
 	"github.com/andrewrong/foreman/internal/resource/ledger"
-	"github.com/andrewrong/foreman/internal/sandbox/launch"
 	"github.com/andrewrong/foreman/internal/store/sqlite"
 )
 
@@ -85,6 +84,8 @@ type Deps struct {
 	Ledger  *ledger.Ledger
 	Project string
 	Home    string
+	// Procs kills the processes of Runs marked killing.
+	Procs Procs
 }
 
 // Report is what Startup found and rebuilt.
@@ -154,7 +155,7 @@ func reclaimOrphans(ctx context.Context, d Deps) (int, error) {
 		return 0, err
 	}
 	for i, dir := range dirs {
-		if _, err := launch.KillRun(dir); err != nil {
+		if _, err := d.Procs.KillRun(dir); err != nil {
 			return i, err
 		}
 		if err := d.Stores.Work.Write(ctx, func(tx *sql.Tx) error {

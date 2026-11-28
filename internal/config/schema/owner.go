@@ -38,7 +38,7 @@ func missingOwnerKeys(e *Effective, kind Kind, rel, name string) []string {
 			check(reflect.ValueOf(&p).Elem(), r.Key, r.Key)
 		case kind == KindRoles && r.File == RolesFile:
 			parts := strings.SplitN(r.Key, ".", 3)
-			for _, n := range RoleNames {
+			for _, n := range RoleNames() {
 				if parts[1] == "*" || parts[1] == n {
 					role := e.Roles[n]
 					check(reflect.ValueOf(&role).Elem(), parts[2], "role."+n+"."+parts[2])

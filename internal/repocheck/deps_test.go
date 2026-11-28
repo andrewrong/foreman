@@ -2,11 +2,7 @@ package repocheck
 
 import (
 	"fmt"
-	"go/ast"
-	"go/token"
-	"path"
 	"sort"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -26,19 +22,21 @@ type crossEdge struct {
 // allowedCrossEdges: same-layer cross-module edges. Everything else on the same
 // layer is forbidden (modules.yaml header). Cross-layer downward imports are
 // always allowed, except where noted in the restriction functions below.
-var allowedCrossEdges = []crossEdge{
-	// MD-6: layer 2 modules may not import each other, except forge and harness
-	// may import resource/gate and resource/meter.
-	{"MD-6", "forge", "resource", nil, []string{"internal/resource/gate", "internal/resource/meter"}},
-	{"MD-6", "harness", "resource", nil, []string{"internal/resource/gate", "internal/resource/meter"}},
-	// MD-7: layer 3 cross-module edges: pipeline -> stage, role (called from
-	// sched and recover); role -> stage only internal/stage/context.
-	// stage, role, prod never import pipeline (no edge listed).
-	{"MD-7", "pipeline", "stage", []string{"internal/pipeline/sched", "internal/pipeline/recover"}, nil},
-	{"MD-7", "pipeline", "role", []string{"internal/pipeline/sched", "internal/pipeline/recover"}, nil},
-	{"MD-7", "role", "stage", nil, []string{"internal/stage/context"}},
-	// MD-9: layer 1 cross-module edge: config -> store (config/revision writes global.db).
-	{"MD-9", "config", "store", []string{"internal/config/revision"}, nil},
+func allowedCrossEdges() []crossEdge {
+	return []crossEdge{
+		// MD-6: layer 2 modules may not import each other, except forge and harness
+		// may import resource/gate and resource/meter.
+		{"MD-6", "forge", "resource", nil, []string{"internal/resource/gate", "internal/resource/meter"}},
+		{"MD-6", "harness", "resource", nil, []string{"internal/resource/gate", "internal/resource/meter"}},
+		// MD-7: layer 3 cross-module edges: pipeline -> stage, role (called from
+		// sched and recover); role -> stage only internal/stage/context.
+		// stage, role, prod never import pipeline (no edge listed).
+		{"MD-7", "pipeline", "stage", []string{"internal/pipeline/sched", "internal/pipeline/recover"}, nil},
+		{"MD-7", "pipeline", "role", []string{"internal/pipeline/sched", "internal/pipeline/recover"}, nil},
+		{"MD-7", "role", "stage", nil, []string{"internal/stage/context"}},
+		// MD-9: layer 1 cross-module edge: config -> store (config/revision writes global.db).
+		{"MD-9", "config", "store", []string{"internal/config/revision"}, nil},
+	}
 }
 
 // MD-1: internal/web may import only internal/api/client and layer 0 packages.
@@ -46,6 +44,16 @@ const (
 	md1Module = "web"
 	md1Allow  = "internal/api/client"
 )
+
+// MD-11: in the stage and role modules sibling packages do not import each
+// other; shared code lives only in the named package of each module.
+func md11Shared() map[string]string {
+	return map[string]string{"stage": "internal/stage/context", "role": "internal/role/shared"}
+}
+
+// MD-12: a package outside cli and repocheck imports at most this many
+// repository packages from non-test files.
+const md12MaxFanOut = 8
 
 // MD-8: internal/pipeline/state imports no other package of the pipeline module.
 const md8Pkg = "internal/pipeline/state"
@@ -120,127 +128,21 @@ func findCycle(g map[string][]string) []string {
 	return nil
 }
 
-// depViolations implements C-04 / C-10 for the module rooted at root.
-func depViolations(root string) ([]string, error) {
-	mods, err := loadModules(root)
-	if err != nil {
-		return nil, err
+// usesViolation implements MD-10 (module uses whitelist) and MD-11 (stage and
+// role sibling packages do not import each other).
+func usesViolation(from, to string, fm, tm *moduleDef) string {
+	if fm == tm {
+		if shared, ok := md11Shared()[fm.Module]; ok && from != to && to != shared {
+			return fmt.Sprintf("%s imports sibling package %s: shared code goes only in %s (MD-11)", from, to, shared)
+		}
+		return ""
 	}
-	modPath, err := modulePath(root)
-	if err != nil {
-		return nil, err
-	}
-	pkgMod := map[string]*moduleDef{}
-	for i := range mods.Modules {
-		for _, p := range mods.Modules[i].Packages {
-			pkgMod[p] = &mods.Modules[i]
+	for _, u := range fm.Uses {
+		if u == "*" || u == tm.Module {
+			return ""
 		}
 	}
-	// imports[pkg] = set of import paths used by any file (tests included).
-	// External test packages (package foo_test) form their own node in the
-	// cycle graph: they may import foo, and foo_test -> bar -> foo is not a
-	// cycle. Their imports still count for layer and edge rules under foo.
-	imports := map[string]map[string]bool{}
-	extImports := map[string]map[string]bool{}
-	err = eachGoFile(root, func(rel string) bool {
-		return inPrefix(rel, "internal") || inPrefix(rel, "cmd")
-	}, func(rel string, _ *token.FileSet, f *ast.File) {
-		dir := path.Dir(rel)
-		set := imports
-		if isTestFile(rel) && strings.HasSuffix(f.Name.Name, "_test") {
-			set = extImports
-		}
-		if imports[dir] == nil {
-			imports[dir] = map[string]bool{} // keeps the package known even if only external tests exist
-		}
-		if set[dir] == nil {
-			set[dir] = map[string]bool{}
-		}
-		for _, imp := range f.Imports {
-			if p, err := strconv.Unquote(imp.Path.Value); err == nil {
-				set[dir][p] = true
-			}
-		}
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	var out []string
-	pkgGraph := map[string][]string{}
-	modGraph := map[string][]string{}
-	pkgs := make([]string, 0, len(imports))
-	for p := range imports {
-		pkgs = append(pkgs, p)
-	}
-	sort.Strings(pkgs)
-	for _, from := range pkgs {
-		fromMod := pkgMod[from]
-		exempt := from == repocheckPkg
-		if fromMod == nil && !exempt {
-			out = append(out, fmt.Sprintf("%s: package not listed in %s", from, modulesPath))
-		}
-		type impEdge struct {
-			path string
-			ext  bool
-		}
-		var imps []impEdge
-		for i := range imports[from] {
-			imps = append(imps, impEdge{i, false})
-		}
-		for i := range extImports[from] {
-			imps = append(imps, impEdge{i, true})
-		}
-		sort.Slice(imps, func(a, b int) bool {
-			if imps[a].path != imps[b].path {
-				return imps[a].path < imps[b].path
-			}
-			return !imps[a].ext && imps[b].ext
-		})
-		for _, ie := range imps {
-			imp := ie.path
-			node := from
-			if ie.ext {
-				node = from + "_test"
-			}
-			if isGithubClientImport(imp) && !inPrefix(from, "internal/forge") {
-				out = append(out, fmt.Sprintf("%s imports %s: only internal/forge/* may (MD-2, C-10)", from, imp))
-			}
-			rel, ok := strings.CutPrefix(imp, modPath+"/")
-			if !ok || !(inPrefix(rel, "internal") || inPrefix(rel, "cmd")) {
-				continue
-			}
-			if rel == repocheckPkg {
-				out = append(out, fmt.Sprintf("%s imports %s: repocheck must not be imported", from, rel))
-				continue
-			}
-			if exempt {
-				continue
-			}
-			toMod := pkgMod[rel]
-			if toMod == nil {
-				out = append(out, fmt.Sprintf("%s imports %s: package not listed in %s", from, rel, modulesPath))
-				continue
-			}
-			pkgGraph[node] = append(pkgGraph[node], rel)
-			if fromMod == nil {
-				continue
-			}
-			if fromMod != toMod {
-				modGraph[fromMod.Module] = append(modGraph[fromMod.Module], toMod.Module)
-			}
-			if msg := edgeViolation(from, rel, fromMod, toMod); msg != "" {
-				out = append(out, msg)
-			}
-		}
-	}
-	if c := findCycle(pkgGraph); c != nil {
-		out = append(out, "package import cycle: "+strings.Join(c, " -> "))
-	}
-	if c := findCycle(modGraph); c != nil {
-		out = append(out, "module import cycle: "+strings.Join(c, " -> "))
-	}
-	return out, nil
+	return fmt.Sprintf("%s (%s) imports %s (%s): module %s is not in uses of %s (MD-10)", from, fm.Module, to, tm.Module, tm.Module, fm.Module)
 }
 
 // edgeViolation checks layer direction and the MD-* edge rules for one import.
@@ -257,7 +159,7 @@ func edgeViolation(from, to string, fm, tm *moduleDef) string {
 	}
 	if fm.Layer == tm.Layer {
 		allowed := false
-		for _, e := range allowedCrossEdges {
+		for _, e := range allowedCrossEdges() {
 			if e.from == fm.Module && e.to == tm.Module && matches(from, e.fromPkgs) && matches(to, e.toPkgs) {
 				allowed = true
 			}
@@ -284,18 +186,20 @@ func TestModuleDeps(t *testing.T) {
 
 const fixtureModules = `
 modules:
-  - { module: clock,    layer: 0, packages: [internal/clock] }
-  - { module: spec,     layer: 0, packages: [internal/spec/model] }
-  - { module: store,    layer: 1, packages: [internal/store/sqlite] }
-  - { module: config,   layer: 1, packages: [internal/config/revision, internal/config/schema] }
-  - { module: resource, layer: 2, packages: [internal/resource/gate, internal/resource/ledger] }
-  - { module: forge,    layer: 2, packages: [internal/forge/client] }
-  - { module: harness,  layer: 2, packages: [internal/harness/api] }
-  - { module: pipeline, layer: 3, packages: [internal/pipeline/state, internal/pipeline/sched] }
-  - { module: stage,    layer: 3, packages: [internal/stage/code] }
-  - { module: api,      layer: 4, packages: [internal/api/client, internal/api/server] }
-  - { module: web,      layer: 5, packages: [internal/web] }
-  - { module: cli,      layer: 5, packages: [cmd/foreman] }
+  - { module: clock,    layer: 0, uses: [], packages: [internal/clock] }
+  - { module: spec,     layer: 0, uses: [clock], packages: [internal/spec/model] }
+  - { module: big,      layer: 0, uses: [], packages: [internal/big/main, internal/big/p1, internal/big/p2, internal/big/p3, internal/big/p4, internal/big/p5, internal/big/p6, internal/big/p7, internal/big/p8, internal/big/p9] }
+  - { module: store,    layer: 1, uses: [clock], packages: [internal/store/sqlite] }
+  - { module: config,   layer: 1, uses: [clock, store, spec], packages: [internal/config/revision, internal/config/schema] }
+  - { module: resource, layer: 2, uses: [clock, store], packages: [internal/resource/gate, internal/resource/ledger] }
+  - { module: forge,    layer: 2, uses: [clock, resource, store], packages: [internal/forge/client] }
+  - { module: harness,  layer: 2, uses: [clock, resource, spec], packages: [internal/harness/api] }
+  - { module: pipeline, layer: 3, uses: [clock, spec, store, resource], packages: [internal/pipeline/state, internal/pipeline/sched] }
+  - { module: stage,    layer: 3, uses: [clock, spec, store, resource, forge, harness], packages: [internal/stage/code, internal/stage/check, internal/stage/context] }
+  - { module: role,     layer: 3, uses: [clock, spec], packages: [internal/role/intake, internal/role/rescuer, internal/role/shared] }
+  - { module: api,      layer: 4, uses: [clock, spec, store, config, pipeline], packages: [internal/api/client, internal/api/server] }
+  - { module: web,      layer: 5, uses: [api, clock], packages: [internal/web] }
+  - { module: cli,      layer: 5, uses: ["*"], packages: [cmd/foreman] }
 package_limits: { non_test_lines: 3000, test_lines: 4500, file_lines: 600 }
 `
 
@@ -342,12 +246,30 @@ func TestModuleDepsDetectsViolations(t *testing.T) {
 	}{
 		{"clean", map[string][]string{
 			"cmd/foreman":              {"internal/api/server", "internal/pipeline/sched", "internal/clock"},
-			"internal/pipeline/sched":  {"internal/stage/code", "internal/resource/gate", "internal/pipeline/state"},
+			"internal/pipeline/sched":  {"internal/resource/gate", "internal/pipeline/state"},
 			"internal/forge/client":    {"internal/resource/gate"},
 			"internal/config/revision": {"internal/store/sqlite", "internal/config/schema"},
 			"internal/web":             {"internal/api/client", "internal/clock"},
-			"internal/stage/code":      {"internal/spec/model"},
+			"internal/stage/code":      {"internal/spec/model", "internal/stage/context", "internal/forge/client"},
+			"internal/stage/check":     {"internal/stage/context"},
+			"internal/stage/context":   {"internal/harness/api"},
+			"internal/role/intake":     {"internal/role/shared"},
+			"internal/role/rescuer":    {"internal/role/shared", "internal/spec/model"},
+			"internal/big/main":        {"internal/big/p1", "internal/big/p2", "internal/big/p3", "internal/big/p4", "internal/big/p5", "internal/big/p6", "internal/big/p7", "internal/big/p8"},
 		}, nil, ""},
+		{"MD-10 pipeline to stage", map[string][]string{"internal/pipeline/sched": {"internal/stage/code"}}, nil, "MD-10"},
+		{"MD-10 pipeline to forge", map[string][]string{"internal/pipeline/sched": {"internal/forge/client"}}, nil, "module forge is not in uses of pipeline (MD-10)"},
+		{"MD-10 in a test file", map[string][]string{"internal/pipeline/sched": nil}, map[string]string{
+			"internal/pipeline/sched/x_test.go": "package p\nimport _ \"" + fixtureMod + "/internal/harness/api\"\n",
+		}, "MD-10"},
+		{"MD-11 stage siblings", map[string][]string{"internal/stage/code": {"internal/stage/check"}}, nil, "sibling package internal/stage/check"},
+		{"MD-11 shared imports a sibling", map[string][]string{"internal/stage/context": {"internal/stage/code"}}, nil, "MD-11"},
+		{"MD-11 role siblings", map[string][]string{"internal/role/intake": {"internal/role/rescuer"}}, nil, "MD-11"},
+		{"MD-12 fan-out", map[string][]string{"internal/big/main": {"internal/big/p1", "internal/big/p2", "internal/big/p3", "internal/big/p4", "internal/big/p5", "internal/big/p6", "internal/big/p7", "internal/big/p8", "internal/big/p9"}}, nil, "imports 9 repository packages, more than 8 (MD-12)"},
+		{"MD-12 test imports do not count", map[string][]string{"internal/big/main": {"internal/big/p1"}}, map[string]string{
+			"internal/big/main/x_test.go": "package p\nimport (\n_ \"" + fixtureMod + "/internal/big/p2\"\n_ \"" + fixtureMod + "/internal/big/p3\"\n_ \"" + fixtureMod + "/internal/big/p4\"\n_ \"" + fixtureMod + "/internal/big/p5\"\n_ \"" + fixtureMod + "/internal/big/p6\"\n_ \"" + fixtureMod + "/internal/big/p7\"\n_ \"" + fixtureMod + "/internal/big/p8\"\n_ \"" + fixtureMod + "/internal/big/p9\"\n)\n",
+		}, ""},
+		{"MD-12 cli is exempt", map[string][]string{"cmd/foreman": {"internal/big/p1", "internal/big/p2", "internal/big/p3", "internal/big/p4", "internal/big/p5", "internal/big/p6", "internal/big/p7", "internal/big/p8", "internal/big/p9"}}, nil, ""},
 		{"unlisted package", map[string][]string{"internal/mystery": nil}, nil, "internal/mystery: package not listed"},
 		{"import of unlisted", map[string][]string{"internal/clock": nil, "cmd/foreman": {"internal/mystery"}}, nil, "imports internal/mystery: package not listed"},
 		{"upward import", map[string][]string{"internal/clock": {"internal/store/sqlite"}}, nil, "lower layer imports higher layer"},

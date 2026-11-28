@@ -114,7 +114,7 @@ func loadRoles(rel string, data []byte, e *Effective) []error {
 	for _, n := range names {
 		base, ok := e.Roles[n]
 		if !ok {
-			errs = append(errs, fmt.Errorf("%s: unknown role %q (known: %s)", rel, n, strings.Join(RoleNames, ", ")))
+			errs = append(errs, fmt.Errorf("%s: unknown role %q (known: %s)", rel, n, strings.Join(RoleNames(), ", ")))
 			continue
 		}
 		if err := md.PrimitiveDecode(raw.Role[n], &base); err != nil {

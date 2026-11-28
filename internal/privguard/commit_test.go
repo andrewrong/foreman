@@ -16,7 +16,7 @@ func TestPrivguardCommitMetadata(t *testing.T) {
 	}
 
 	badAuthor := good
-	badAuthor.AuthorEmail = email
+	badAuthor.AuthorEmail = email()
 	if fs := CheckCommit(badAuthor); len(fs) != 1 || fs[0].Kind != "author-email" || fs[0].Rule != RuleCommit {
 		t.Fatalf("author: %v", fs)
 	}
@@ -34,7 +34,7 @@ func TestPrivguardCommitMetadata(t *testing.T) {
 	}
 
 	msg := good
-	msg.Message = "fix in " + homePath + "\n\ntoken " + ghToken
+	msg.Message = "fix in " + homePath() + "\n\ntoken " + ghToken()
 	fs := CheckCommit(msg)
 	if len(fs) != 2 || fs[0].Kind != "abs-path" || fs[1].Kind != "token" {
 		t.Fatalf("message: %v", fs)
@@ -74,8 +74,8 @@ func TestPrivguardCommitMetadataRange(t *testing.T) {
 	commit("base", noreply, noreply)
 	gitIn(t, dir, nil, "tag", "base")
 	commit("ok", noreply, noreply)
-	commit("leaks "+homePath, noreply, noreply)
-	commit("wrong author", email, noreply)
+	commit("leaks "+homePath(), noreply, noreply)
+	commit("wrong author", email(), noreply)
 
 	sc, err := New(Config{})
 	if err != nil {

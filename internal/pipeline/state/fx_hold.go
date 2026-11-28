@@ -8,10 +8,12 @@ import (
 
 // triggerEvents maps the req_hold:<x> effect of a step row to its table B
 // event (req_hold.triggers).
-var triggerEvents = map[string]string{
-	"replan": "replan_trigger",
-	"rescue": "rescue_trigger",
-	"owner":  "owner_trigger",
+func triggerEvents() map[string]string {
+	return map[string]string{
+		"replan": "replan_trigger",
+		"rescue": "rescue_trigger",
+		"owner":  "owner_trigger",
+	}
 }
 
 // fxReqHold runs table B for the trigger a step row raises: req_hold:<hold>
@@ -19,7 +21,7 @@ var triggerEvents = map[string]string{
 // the precedence rules all apply.
 func fxReqHold(c *txc, arg string) error {
 	hold, hitem, _ := strings.Cut(arg, ":")
-	ev, ok := triggerEvents[hold]
+	ev, ok := triggerEvents()[hold]
 	if !ok {
 		return fmt.Errorf("req_hold: unknown hold %q", hold)
 	}

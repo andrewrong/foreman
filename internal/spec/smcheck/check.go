@@ -162,29 +162,7 @@ func (s *Spec) validTarget(cf Config, to Target) bool {
 func (c *checker) coverage() {
 	for _, cf := range c.Configs {
 		for _, ev := range c.Events {
-			var m []*Row
-			for i := range c.xrows {
-				if r := &c.xrows[i]; r.Event == ev && rowMatches(r, cf) {
-					m = append(m, r)
-				}
-			}
-			if len(m) == 0 {
-				if !c.isIgnored(cf, ev) {
-					c.errorf("uncovered: %s event=%s", cf, ev)
-				}
-				continue
-			}
-			gs := make([]guards, len(m))
-			for i, r := range m {
-				gs[i] = r.Guard
-			}
-			gaps(gs, c.DimValues, func(label string, hit int) {
-				if hit < 0 {
-					c.errorf("guard gap: %s event=%s %s", cf, ev, label)
-				} else if !c.validTarget(cf, m[hit].To) {
-					c.errorf("invalid target: %s from %s -> %s", m[hit].ID, cf, m[hit].To)
-				}
-			})
+			c.coverEvent(cf, ev)
 		}
 		if !active(cf.State) {
 			continue
@@ -201,6 +179,34 @@ func (c *checker) coverage() {
 			c.errorf("no exit: %s", cf)
 		}
 	}
+}
+
+// coverEvent checks that event ev in configuration cf is handled by a row
+// (or ignored), that guards leave no gap, and that targets are valid.
+func (c *checker) coverEvent(cf Config, ev string) {
+	var m []*Row
+	for i := range c.xrows {
+		if r := &c.xrows[i]; r.Event == ev && rowMatches(r, cf) {
+			m = append(m, r)
+		}
+	}
+	if len(m) == 0 {
+		if !c.isIgnored(cf, ev) {
+			c.errorf("uncovered: %s event=%s", cf, ev)
+		}
+		return
+	}
+	gs := make([]guards, len(m))
+	for i, r := range m {
+		gs[i] = r.Guard
+	}
+	gaps(gs, c.DimValues, func(label string, hit int) {
+		if hit < 0 {
+			c.errorf("guard gap: %s event=%s %s", cf, ev, label)
+		} else if !c.validTarget(cf, m[hit].To) {
+			c.errorf("invalid target: %s from %s -> %s", m[hit].ID, cf, m[hit].To)
+		}
+	})
 }
 
 // incName returns the counter of an inc:<counter> effect.
@@ -302,19 +308,7 @@ func (c *checker) reqHold() {
 	events = uniq(events)
 	for _, v := range c.HoldValues {
 		for _, ev := range events {
-			var gs []guards
-			for _, r := range c.HoldRows {
-				if r.Event == ev && slices.Contains(r.From, v) {
-					gs = append(gs, r.Guard)
-				}
-			}
-			if gs != nil {
-				gaps(gs, c.HoldDimValues, func(label string, hit int) {
-					if hit < 0 {
-						c.errorf("req guard gap: %s %s %s", v, ev, label)
-					}
-				})
-			}
+			c.reqHoldGaps(v, ev)
 		}
 		if v != "none" && !slices.ContainsFunc(c.HoldRows, func(r HoldRow) bool { return slices.Contains(r.From, v) && r.To != v }) {
 			c.errorf("req hold no exit: %s", v)
@@ -327,6 +321,24 @@ func (c *checker) reqHold() {
 			}
 		}
 	}
+}
+
+// reqHoldGaps reports guard gaps among table B rows leaving hold v on ev.
+func (c *checker) reqHoldGaps(v, ev string) {
+	var gs []guards
+	for _, r := range c.HoldRows {
+		if r.Event == ev && slices.Contains(r.From, v) {
+			gs = append(gs, r.Guard)
+		}
+	}
+	if gs == nil {
+		return
+	}
+	gaps(gs, c.HoldDimValues, func(label string, hit int) {
+		if hit < 0 {
+			c.errorf("req guard gap: %s %s %s", v, ev, label)
+		}
+	})
 }
 
 func (c *checker) reqCoverage() {

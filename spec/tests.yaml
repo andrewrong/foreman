@@ -19,6 +19,7 @@ tests:
 - name: check:golangci-lint
   covers:
   - D-078
+  - modules:modules
 - name: check:no-gh-exec
   covers:
   - D-031
@@ -323,7 +324,6 @@ not_testable_or_v2:
 - 'D-023 (phase: v2)'
 - 'D-028 (none: 交付流程，记录在 docs/reviews/)'
 not_in_code:
-- check:golangci-lint
 - check:no-text-pin-tests
 - check:privguard
 - check:prompts-size

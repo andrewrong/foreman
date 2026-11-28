@@ -16,13 +16,15 @@ var (
 	nameRe      = regexp.MustCompile(`\b(?:test|check):[a-z0-9][a-z0-9-]*`)
 	parenRe     = regexp.MustCompile(`（[^）]*）|\([^)]*\)`)
 	enforcePart = regexp.MustCompile(`^(?:none|sandbox|program:[a-z0-9/_-]+|(?:sandbox \+ )?(?:test|check):[a-z0-9][a-z0-9-]*)$`)
+)
 
-	decisionKeys = map[string]bool{
+func decisionKeys() map[string]bool {
+	return map[string]bool{
 		"id": true, "date": true, "statement": true, "rationale": true,
 		"params": true, "enforced_by": true, "status": true, "coverage": true,
 		"supersedes": true, "amends": true, "resolves": true,
 	}
-)
+}
 
 // enforcement is the parsed form of an enforced_by value plus coverage.
 type enforcement struct {
@@ -82,64 +84,16 @@ func checkDecisions(files []specFile) []Finding {
 	for _, d := range decs {
 		byID[str(d["id"])] = d
 	}
-	qids := map[string]bool{}
-	for _, q := range items(files, questionsFile, "questions") {
-		qids[str(q["id"])] = true
-	}
-	for _, q := range items(files, questionsFile, "resolved") {
-		qids[str(q["id"])] = true
-	}
+	qids := questionIDs(files)
 
 	supersededBy := map[string]int{}
 	for _, d := range decs {
 		id := str(d["id"])
-		// F7: only the three link fields; targets exist.
-		for _, k := range sortedKeys(d) {
-			if !decisionKeys[k] {
-				out = append(out, Finding{"F7", decisionsFile, id, "unknown field " + k + " (links are only supersedes, amends, resolves)"})
-			}
-		}
-		if s := str(d["status"]); s != "active" && s != "superseded" {
-			out = append(out, Finding{"F7", decisionsFile, id, "status must be active or superseded"})
-		}
-		for _, t := range strList(d["supersedes"]) {
-			supersededBy[t]++
-			if byID[t] == nil {
-				out = append(out, Finding{"F7", decisionsFile, id, "supersedes target " + t + " does not exist"})
-			} else if !isSuperseded(byID[t]) {
-				out = append(out, Finding{"F7", decisionsFile, id, "supersedes target " + t + " does not have status superseded"})
-			}
-		}
-		for _, t := range strList(d["amends"]) {
-			if byID[t] == nil {
-				out = append(out, Finding{"F7", decisionsFile, id, "amends target " + t + " does not exist"})
-			}
-		}
-		for _, t := range strList(d["resolves"]) {
-			if !qids[t] {
-				out = append(out, Finding{"F7", decisionsFile, id, "resolves target " + t + " does not exist in open-questions"})
-			}
-		}
-
+		out = append(out, checkDecisionLinks(d, byID, qids, supersededBy)...)
 		if isSuperseded(d) {
 			continue
 		}
-		// F3 / F4 for active decisions.
-		eb := str(d["enforced_by"])
-		c := cov[id]
-		if strings.TrimSpace(eb) == "" {
-			if c == "" {
-				out = append(out, Finding{"F3", decisionsFile, id, "missing enforced_by (and no coverage entry)"})
-			}
-			continue
-		}
-		e := parseEnforced(eb, c)
-		if !e.valid {
-			out = append(out, Finding{"F3", decisionsFile, id, "enforced_by has a form that is not test:<name> | check:<name> | sandbox + test:<name> | none"})
-		}
-		if e.program && !e.covered() {
-			out = append(out, Finding{"F4", decisionsFile, id, "enforced_by names only program:<module>; counts as none"})
-		}
+		out = append(out, checkDecisionEnforced(id, d, cov[id])...)
 	}
 
 	for _, d := range decs {
@@ -149,6 +103,73 @@ func checkDecisions(files []specFile) []Finding {
 		}
 	}
 	return append(out, checkAmends(decs, byID)...)
+}
+
+// questionIDs collects the ids of open and resolved questions.
+func questionIDs(files []specFile) map[string]bool {
+	qids := map[string]bool{}
+	for _, q := range items(files, questionsFile, "questions") {
+		qids[str(q["id"])] = true
+	}
+	for _, q := range items(files, questionsFile, "resolved") {
+		qids[str(q["id"])] = true
+	}
+	return qids
+}
+
+// checkDecisionLinks implements F7 for one decision: only the three link
+// fields; targets exist. It counts supersedes targets in supersededBy.
+func checkDecisionLinks(d map[string]any, byID map[string]map[string]any, qids map[string]bool, supersededBy map[string]int) []Finding {
+	var out []Finding
+	id := str(d["id"])
+	for _, k := range sortedKeys(d) {
+		if !decisionKeys()[k] {
+			out = append(out, Finding{"F7", decisionsFile, id, "unknown field " + k + " (links are only supersedes, amends, resolves)"})
+		}
+	}
+	if s := str(d["status"]); s != "active" && s != "superseded" {
+		out = append(out, Finding{"F7", decisionsFile, id, "status must be active or superseded"})
+	}
+	for _, t := range strList(d["supersedes"]) {
+		supersededBy[t]++
+		if byID[t] == nil {
+			out = append(out, Finding{"F7", decisionsFile, id, "supersedes target " + t + " does not exist"})
+		} else if !isSuperseded(byID[t]) {
+			out = append(out, Finding{"F7", decisionsFile, id, "supersedes target " + t + " does not have status superseded"})
+		}
+	}
+	for _, t := range strList(d["amends"]) {
+		if byID[t] == nil {
+			out = append(out, Finding{"F7", decisionsFile, id, "amends target " + t + " does not exist"})
+		}
+	}
+	for _, t := range strList(d["resolves"]) {
+		if !qids[t] {
+			out = append(out, Finding{"F7", decisionsFile, id, "resolves target " + t + " does not exist in open-questions"})
+		}
+	}
+	return out
+}
+
+// checkDecisionEnforced implements F3/F4 for one active decision; c is its
+// coverage addendum.
+func checkDecisionEnforced(id string, d map[string]any, c string) []Finding {
+	var out []Finding
+	eb := str(d["enforced_by"])
+	if strings.TrimSpace(eb) == "" {
+		if c == "" {
+			out = append(out, Finding{"F3", decisionsFile, id, "missing enforced_by (and no coverage entry)"})
+		}
+		return out
+	}
+	e := parseEnforced(eb, c)
+	if !e.valid {
+		out = append(out, Finding{"F3", decisionsFile, id, "enforced_by has a form that is not test:<name> | check:<name> | sandbox + test:<name> | none"})
+	}
+	if e.program && !e.covered() {
+		out = append(out, Finding{"F4", decisionsFile, id, "enforced_by names only program:<module>; counts as none"})
+	}
+	return out
 }
 
 // checkAmends implements F8 over active entries.

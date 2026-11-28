@@ -81,7 +81,9 @@ var credLike = regexp.MustCompile(`(?i)(token|key|secret|passw|credential|auth|c
 
 // srtInjected are credential-looking names srt itself adds for its local
 // filtering proxy (observed 2026-11-28); they authenticate only to that proxy.
-var srtInjected = map[string]bool{"CLOUDSDK_PROXY_PASSWORD": true, "CLOUDSDK_PROXY_USERNAME": true}
+func srtInjected() map[string]bool {
+	return map[string]bool{"CLOUDSDK_PROXY_PASSWORD": true, "CLOUDSDK_PROXY_USERNAME": true}
+}
 
 var envLine = regexp.MustCompile(`(?m)^([A-Za-z_][A-Za-z0-9_]*)=`)
 
@@ -202,7 +204,9 @@ func checkDeniedRead(ctx context.Context, cfg Config) Result {
 }
 
 // blockedCodes are what curl reports when the sandbox proxy refuses a host.
-var blockedCodes = map[string]bool{"": true, "000": true, "403": true, "407": true, "502": true}
+func blockedCodes() map[string]bool {
+	return map[string]bool{"": true, "000": true, "403": true, "407": true, "502": true}
+}
 
 func checkBlockedHost(ctx context.Context, cfg Config) Result {
 	for _, h := range cfg.Policy.AllowedHosts() {
@@ -215,7 +219,7 @@ func checkBlockedHost(ctx context.Context, cfg Config) Result {
 		return res(CheckHostBlock, false, "launch: "+o.err.Error())
 	}
 	code := strings.TrimSpace(o.stdout)
-	return res(CheckHostBlock, blockedCodes[code], "http code "+code)
+	return res(CheckHostBlock, blockedCodes()[code], "http code "+code)
 }
 
 func checkEnv(ctx context.Context, cfg Config) Result {
@@ -229,7 +233,7 @@ func checkEnv(ctx context.Context, cfg Config) Result {
 	}
 	var bad []string
 	for _, m := range envLine.FindAllStringSubmatch(o.stdout, -1) {
-		if credLike.MatchString(m[1]) && !allowed[m[1]] && !srtInjected[m[1]] {
+		if credLike.MatchString(m[1]) && !allowed[m[1]] && !srtInjected()[m[1]] {
 			bad = append(bad, m[1])
 		}
 	}

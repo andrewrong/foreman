@@ -12,7 +12,9 @@ import (
 	"github.com/andrewrong/foreman/internal/resource/meter"
 )
 
-var t0 = time.Unix(1_800_000_000, 0)
+func t0() time.Time {
+	return time.Unix(1_800_000_000, 0)
+}
 
 const acct = "model/claude/max-1/"
 
@@ -30,7 +32,7 @@ func newEnv(t *testing.T, mod ...func(*meter.Config)) *env {
 	for _, f := range mod {
 		f(&cfg)
 	}
-	e := &env{t: t, clk: clock.NewFake(t0), m: meter.NewStore(), l: ledger.New()}
+	e := &env{t: t, clk: clock.NewFake(t0()), m: meter.NewStore(), l: ledger.New()}
 	e.g = New(Options{Clock: e.clk, Config: cfg, Meters: e.m, Ledger: e.l})
 	return e
 }
@@ -74,9 +76,9 @@ func wantAllowed(t *testing.T, d Decision) {
 
 func TestQuotaAllWindowsGate(t *testing.T) {
 	e := newEnv(t)
-	r5 := t0.Add(3 * time.Hour)
+	r5 := t0().Add(3 * time.Hour)
 	e.claude(map[string]meter.ClaudeWindow{
-		"seven_day": {Utilization: 0.50, ResetsAt: t0.Add(7 * 24 * time.Hour).Unix()},
+		"seven_day": {Utilization: 0.50, ResetsAt: t0().Add(7 * 24 * time.Hour).Unix()},
 		"five_hour": {Utilization: 0.95, ResetsAt: r5.Unix()},
 	})
 	// The demand names only the 7d window, but the 5h window is below floor.
@@ -88,7 +90,7 @@ func TestQuotaAllWindowsGate(t *testing.T) {
 	// An event reporting only seven_day keeps the 5h value.
 	e.clk.Advance(time.Minute)
 	e.claude(map[string]meter.ClaudeWindow{
-		"seven_day": {Utilization: 0.50, ResetsAt: t0.Add(7 * 24 * time.Hour).Unix()},
+		"seven_day": {Utilization: 0.50, ResetsAt: t0().Add(7 * 24 * time.Hour).Unix()},
 	})
 	wantWait(t, e.acquire(P1, 2, acct+"7d"), "below_floor", acct+"5h")
 	// Nothing was held by the refused demands.
@@ -102,7 +104,7 @@ func TestQuotaAllWindowsGate(t *testing.T) {
 
 func TestQuotaDailyPacing(t *testing.T) {
 	e := newEnv(t)
-	reset := t0.Add(7 * 24 * time.Hour)
+	reset := t0().Add(7 * 24 * time.Hour)
 	seven := func(u float64) map[string]meter.ClaudeWindow {
 		return map[string]meter.ClaudeWindow{"seven_day": {Utilization: u, ResetsAt: reset.Unix()}}
 	}
@@ -111,7 +113,7 @@ func TestQuotaDailyPacing(t *testing.T) {
 	wantAllowed(t, first)
 	d := e.acquire(P1, 5, acct+"7d")
 	wantWait(t, d, "over_daily_pace", acct+"7d")
-	if want := t0.Add(24 * time.Hour); !d.Wait.Until.Equal(want) {
+	if want := t0().Add(24 * time.Hour); !d.Wait.Until.Equal(want) {
 		t.Fatalf("Until = %v, want next day %v", d.Wait.Until, want)
 	}
 	p0 := e.acquire(P0, 5, acct+"7d")
@@ -204,7 +206,7 @@ func TestEssentialUsesReservedGitHubShare(t *testing.T) {
 func TestMarkExhaustedWaitsUntilReset(t *testing.T) {
 	e := newEnv(t)
 	e.claude(map[string]meter.ClaudeWindow{"seven_day": {Utilization: 0.10}})
-	reset := t0.Add(2 * time.Hour)
+	reset := t0().Add(2 * time.Hour)
 	e.m.MarkExhausted(acct+"7d", reset)
 	d := e.acquire(P0, 1, acct+"7d")
 	wantWait(t, d, "exhausted", acct+"7d")
@@ -331,7 +333,7 @@ func TestContentCreateCounter(t *testing.T) {
 	}
 	w := e.acquire(P1, 1, "github/content-create")
 	wantWait(t, w, "counter_full", "github/content-create")
-	if want := t0.Add(time.Minute); !w.Wait.Until.Equal(want) {
+	if want := t0().Add(time.Minute); !w.Wait.Until.Equal(want) {
 		t.Fatalf("Until = %v, want %v", w.Wait.Until, want)
 	}
 	e.clk.Advance(time.Minute)

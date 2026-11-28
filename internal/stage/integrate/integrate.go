@@ -9,12 +9,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/andrewrong/foreman/internal/forge/client"
 	"github.com/andrewrong/foreman/internal/forge/ops"
 	"github.com/andrewrong/foreman/internal/resource/gate"
 	"github.com/andrewrong/foreman/internal/spec/model"
+	ctxmd "github.com/andrewrong/foreman/internal/stage/context"
 	"github.com/andrewrong/foreman/internal/workspace/git"
 	wsintegrate "github.com/andrewrong/foreman/internal/workspace/integrate"
 )
@@ -37,7 +37,7 @@ type Request struct {
 	// events (state-machine dims.counters.ci_extensions).
 	DeadlinePassed bool
 	// Reruns is E-PR.l1_reruns (head sha -> count); MarkRerun records one
-	// before it is issued (see L1Request).
+	// before it is issued (see ctxmd.L1Request).
 	Reruns    map[string]int
 	MarkRerun func(ctx context.Context, head string) error
 }
@@ -93,7 +93,7 @@ func Run(ctx context.Context, env Env, r Request) (Result, error) {
 	if !ok || detail.PR.Head.SHA != head {
 		return res, pending(r, &res) // GitHub has not seen our head yet
 	}
-	l1, err := ReadL1(ctx, env, L1Request{Head: head, PR: pr.Number, Call: call, Checks: detail.Checks, BaseRun: poll.BaseRun,
+	l1, err := ctxmd.ReadL1(ctx, ctxmd.L1Env{Ops: env.Ops, Repo: env.Repo}, ctxmd.L1Request{Head: head, PR: pr.Number, Call: call, Checks: detail.Checks, BaseRun: poll.BaseRun,
 		Reruns: r.Reruns[head], MarkRerun: r.MarkRerun, DeadlinePassed: r.DeadlinePassed})
 	if err != nil {
 		return res, quotaOrError(err, r, &res)
@@ -125,37 +125,4 @@ func quotaOrError(err error, r Request, res *Result) error {
 		return nil
 	}
 	return err
-}
-
-// verdict folds the check runs of the head commit: "pass" only when there is
-// at least one run and all have completed successfully (zero runs is not a
-// pass); "fail" when any completed run failed; otherwise "pending".
-func verdict(checks []ops.CheckRun) string {
-	if len(checks) == 0 {
-		return "pending"
-	}
-	pass := true
-	for _, c := range checks {
-		if c.Status != "completed" {
-			pass = false
-			continue
-		}
-		if !slices.Contains([]string{"success", "neutral", "skipped"}, c.Conclusion) {
-			return "fail"
-		}
-	}
-	if pass {
-		return "pass"
-	}
-	return "pending"
-}
-
-func failedChecks(checks []ops.CheckRun) []string {
-	var out []string
-	for _, c := range checks {
-		if c.Status == "completed" && !slices.Contains([]string{"success", "neutral", "skipped"}, c.Conclusion) {
-			out = append(out, c.Name)
-		}
-	}
-	return out
 }
