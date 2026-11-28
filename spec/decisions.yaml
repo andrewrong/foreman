@@ -538,7 +538,7 @@ decisions:
 
   - id: D-077
     date: 2026-11-28
-    statement: "（owner 2026-11-28）选库不需要 owner 审批，按以下标准自查后直接登记：满足其一即为主流库：① 近 12 个月有发版或提交，且被广泛使用（star 或 pkg.go.dev 导入数在千级以上）；② 由大厂或知名组织维护且被广泛使用，即使近期不更新。另须许可证兼容（MIT、BSD、Apache-2.0、MPL-2.0）；原库停止维护而有维护中的继任者时用继任者。登记时在 deps 写 evidence（维护方、最近发版、使用规模）。据此把 gopkg.in/yaml.v3（2022 年后无发版）换为继任者 go.yaml.in/yaml/v3，并取消 D-076 中『owner 确认后保留』"
+    statement: "（owner 2026-11-28）选库不需要 owner 审批，按以下标准自查后直接登记：满足其一即为主流库：① 近 12 个月有发版或提交，且被广泛使用（star 或 pkg.go.dev 导入数在千级以上）；② 由大厂或知名组织维护且被广泛使用，即使近期不更新。另须许可证兼容（MIT、BSD、Apache 2.0、MPL 2.0）；原库停止维护而有维护中的继任者时用继任者。登记时在 deps 写 evidence（维护方、最近发版、使用规模）。据此把 gopkg.in/yaml.v3（2022 年后无发版）换为继任者 go.yaml.in/yaml/v3，并取消 D-076 中『owner 确认后保留』"
     amends: D-076
     enforced_by: "check:deps-registry"
     status: active
