@@ -26,6 +26,6 @@ func TestStateTableExhaustive(t *testing.T) {
 		t.Fatalf("%d errors:\n%s", len(res.Errors), strings.Join(res.Errors, "\n"))
 	}
 	if res.Configs != 101 || res.Events != 33 || res.Rows != 77 || res.Expanded != 84 {
-		t.Fatalf("counts differ from the ruby tool: %s", res.Summary())
+		t.Fatalf("counts changed: %s", res.Summary())
 	}
 }

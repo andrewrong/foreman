@@ -9,14 +9,12 @@ import (
 // inc of a counter that no edge inside the set resets. Waits on external
 // clocks (deps, quota, hold) are exempt.
 
-type node struct{ state, stage, typ, reason string }
-
 type edge struct {
-	to node
-	r  *row
+	to Config
+	r  *Row
 }
 
-type graph map[node][]edge
+type graph map[Config][]edge
 
 var (
 	exemptReasons = []string{"deps", "quota", "hold"}
@@ -26,42 +24,16 @@ var (
 		"access_request", "l1_pass", "l1_fail"}
 )
 
-// splitColon is ruby `e.split(':')[1]`.
-func splitColon(e string) string {
-	parts := strings.Split(e, ":")
-	if len(parts) < 2 {
-		return ""
-	}
-	return parts[1]
-}
-
-func resetsOf(r *row) []string {
-	var out []string
-	for _, e := range r.effects {
-		if hasPrefixStr(e, "reset:") {
-			for _, n := range strings.Split(strings.SplitN(e, ":", 2)[1], ",") {
-				if n != "" {
-					out = append(out, n)
-				}
-			}
-		}
-	}
-	return out
-}
-
 // tarjan returns the strongly connected components of the nodes listed in
 // order; with a non-nil allow only allowed nodes are followed.
-func tarjan(order []node, allow map[node]bool, adj graph) [][]node {
-	index := map[node]int{}
-	low := map[node]int{}
-	on := map[node]bool{}
-	var stack []node
-	var out [][]node
-	i := 0
-	var visit func(v node)
-	visit = func(v node) {
-		index[v], low[v] = i, i
-		i++
+func tarjan(order []Config, allow map[Config]bool, adj graph) [][]Config {
+	index, low, on := map[Config]int{}, map[Config]int{}, map[Config]bool{}
+	var stack []Config
+	var out [][]Config
+	var visit func(v Config)
+	visit = func(v Config) {
+		index[v] = len(index)
+		low[v] = index[v]
 		stack = append(stack, v)
 		on[v] = true
 		for _, e := range adj[v] {
@@ -77,15 +49,12 @@ func tarjan(order []node, allow map[node]bool, adj graph) [][]node {
 			}
 		}
 		if low[v] == index[v] {
-			var comp []node
-			for {
-				w := stack[len(stack)-1]
+			var comp []Config
+			for w := (Config{}); w != v; {
+				w = stack[len(stack)-1]
 				stack = stack[:len(stack)-1]
 				on[w] = false
 				comp = append(comp, w)
-				if w == v {
-					break
-				}
 			}
 			out = append(out, comp)
 		}
@@ -100,34 +69,30 @@ func tarjan(order []node, allow map[node]bool, adj graph) [][]node {
 
 func (c *checker) cycles() {
 	edges := graph{}
-	var keys []node
-	for _, cf := range c.configs {
-		if cf.state != "queued" && cf.state != "running" && cf.state != "waiting" {
+	var keys []Config
+	for _, from := range c.Configs {
+		if !active(from.State) {
 			continue
 		}
-		from := node{cf.state, cf.stage, cf.typ, cf.reason}
-		for _, r := range c.xrows {
-			if !c.rowMatches(r, cf) || slices.Contains(r.effects, "alert_starved") { // S09: starvation alarm timer, exit is dispatch
+		for i := range c.xrows {
+			r := &c.xrows[i]
+			if !rowMatches(r, from) || slices.Contains(r.Effects, "alert_starved") { // S09: starvation alarm timer, exit is dispatch
 				continue
 			}
-			t := r.to
-			ts := str(t.get("state"))
-			if ts != "queued" && ts != "running" && ts != "waiting" {
-				continue
-			}
-			stage := str(t.get("stage"))
+			t, stage := r.To, r.To.Stage
 			switch stage {
 			case "", "same":
-				stage = cf.stage
+				stage = from.Stage
 			case "first_stage":
-				stage = c.firstStage(cf.typ)
-			case "resume_stage":
+				stage = c.typeDef(from.Type).FirstStage
+			}
+			if !active(t.State) || t.Stage == "resume_stage" {
 				continue
 			}
 			if _, ok := edges[from]; !ok {
 				keys = append(keys, from)
 			}
-			edges[from] = append(edges[from], edge{node{ts, stage, cf.typ, str(t.get("reason"))}, r})
+			edges[from] = append(edges[from], edge{Config{t.State, stage, from.Type, t.Reason}, r})
 		}
 	}
 	for _, comp := range tarjan(keys, nil, edges) {
@@ -135,11 +100,13 @@ func (c *checker) cycles() {
 	}
 }
 
-func (c *checker) counterResets() map[string][]string {
-	out := map[string][]string{}
-	counters := asMap(c.d.get("counters"), "counters")
-	for _, k := range counters.keys {
-		out[k] = listOrEmpty(asMap(counters.get(k), "counter").get("reset"))
+// resetsOf lists the counters a reset:<a,b> effect clears.
+func resetsOf(r *Row) []string {
+	var out []string
+	for _, e := range r.Effects {
+		if names, ok := strings.CutPrefix(e, "reset:"); ok {
+			out = append(out, strings.FieldsFunc(names, func(r rune) bool { return r == ',' })...)
+		}
 	}
 	return out
 }
@@ -148,12 +115,12 @@ func (c *checker) counterResets() map[string][]string {
 // increments a counter which no edge of that set resets lies only on bounded
 // cycles, so drop it and re-examine what remains (the remaining, smaller sets
 // may have lost the edges that used to reset other counters).
-func (c *checker) checkSCC(comp []node, adjIn graph) {
-	set := map[node]bool{}
+func (c *checker) checkSCC(comp []Config, adjIn graph) {
+	set := map[Config]bool{}
 	for _, v := range comp {
 		set[v] = true
 	}
-	var inner []*row
+	var inner []*Row
 	for _, v := range comp {
 		for _, e := range adjIn[v] {
 			if set[e.to] {
@@ -164,83 +131,65 @@ func (c *checker) checkSCC(comp []node, adjIn graph) {
 	if len(inner) == 0 {
 		return
 	}
-	var innerEvents, innerResets []string
+	var events, resets []string
 	for _, r := range inner {
-		innerEvents = append(innerEvents, r.event)
-		innerResets = append(innerResets, resetsOf(r)...)
+		events = append(events, r.Event)
+		resets = append(resets, resetsOf(r)...)
 	}
-	counterReset := c.counterResets()
+	anyResult := func(except string) bool {
+		return slices.ContainsFunc(events, func(e string) bool { return slices.Contains(resultEvents, e) && e != except })
+	}
 	resetInside := func(cn string) bool {
-		rs := counterReset[cn]
-		for _, e := range rs {
-			if slices.Contains(innerEvents, e) {
-				return true
+		for _, k := range c.Counters {
+			if k.Name != cn {
+				continue
 			}
+			return slices.ContainsFunc(k.Reset, func(e string) bool { return slices.Contains(events, e) }) ||
+				slices.Contains(resets, cn) ||
+				slices.Contains(k.Reset, "any_valid_result") && anyResult("bad_result") ||
+				slices.Contains(k.Reset, "any_non_infra_result") && anyResult("")
 		}
-		if slices.Contains(innerResets, cn) {
-			return true
-		}
-		if slices.Contains(rs, "any_valid_result") &&
-			slices.ContainsFunc(innerEvents, func(e string) bool { return slices.Contains(resultEvents, e) && e != "bad_result" }) {
-			return true
-		}
-		return slices.Contains(rs, "any_non_infra_result") &&
-			slices.ContainsFunc(innerEvents, func(e string) bool { return slices.Contains(resultEvents, e) })
+		return slices.Contains(resets, cn)
 	}
-	bounding := func(r *row) bool {
-		for _, e := range incsOf(r.effects) {
-			if !resetInside(splitColon(e)) {
-				return true
-			}
-		}
-		return false
-	}
-	adj := graph{}
+	adj, kept := graph{}, 0
 	for _, v := range comp {
 		for _, e := range adjIn[v] {
-			if set[e.to] && !bounding(e.r) {
+			bounding := slices.ContainsFunc(e.r.Effects, func(f string) bool {
+				n, ok := incName(f)
+				return ok && !resetInside(n)
+			})
+			if set[e.to] && !bounding {
 				adj[v] = append(adj[v], e)
-			}
-		}
-	}
-	live := map[node]bool{}
-	var liveOrder []node
-	for _, n := range comp {
-		if n.state == "waiting" && slices.Contains(exemptReasons, n.reason) {
-			continue
-		}
-		live[n] = true
-		liveOrder = append(liveOrder, n)
-	}
-	kept := 0
-	for _, v := range comp {
-		for _, e := range adj[v] {
-			if set[e.to] {
 				kept++
 			}
 		}
 	}
-	removedAny := len(inner) != kept
+	live := map[Config]bool{}
+	var liveOrder []Config
+	for _, n := range comp {
+		if n.State != "waiting" || !slices.Contains(exemptReasons, n.Reason) {
+			live[n] = true
+			liveOrder = append(liveOrder, n)
+		}
+	}
 	for _, sub := range tarjan(liveOrder, live, adj) {
-		s2 := map[node]bool{}
+		in := map[Config]bool{}
 		for _, x := range sub {
-			s2[x] = true
+			in[x] = true
 		}
 		var loopRows []string
 		for _, v := range sub {
 			for _, e := range adj[v] {
-				if s2[e.to] {
-					loopRows = append(loopRows, e.r.id)
+				if in[e.to] {
+					loopRows = append(loopRows, e.r.ID)
 				}
 			}
 		}
-		loopRows = uniq(loopRows)
-		if len(loopRows) == 0 {
-			continue
-		}
-		if removedAny {
+		switch loopRows = uniq(loopRows); {
+		case len(loopRows) == 0:
+		case len(inner) != kept:
 			c.checkSCC(sub, adj) // smaller set: re-evaluate resets with only its own edges
-		} else {
+		default:
 			slices.Sort(loopRows)
 			c.errorf("unbounded cycle: %s", strings.Join(loopRows, ","))
 		}
