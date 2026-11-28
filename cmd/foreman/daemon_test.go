@@ -56,7 +56,7 @@ func TestDaemonRefusesMissingOwnerKeys(t *testing.T) {
 		"projects/demo.toml": "repo_path = \"/srv/x\"\n",
 	})
 	var out, errb bytes.Buffer
-	if code := runDaemon(context.Background(), home, &out, &errb); code == 0 {
+	if code := runDaemon(context.Background(), home, DefaultTick, &out, &errb); code == 0 {
 		t.Fatalf("daemon started without owner keys; stdout %q", out.String())
 	}
 	lines := strings.Split(strings.TrimSpace(errb.String()), "\n")

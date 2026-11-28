@@ -17,6 +17,8 @@ func TestRun(t *testing.T) {
 		{"version", []string{"version"}, 0, "foreman dev\n", ""},
 		{"no args", nil, 2, "", "usage: foreman version | daemon\n"},
 		{"unknown", []string{"bogus"}, 2, "", "usage: foreman version | daemon\n"},
+		{"daemon extra arg", []string{"daemon", "x"}, 2, "", "usage: foreman daemon [--tick <duration>]\n"},
+		{"daemon zero tick", []string{"daemon", "--tick", "0s"}, 2, "", "usage: foreman daemon [--tick <duration>]\n"},
 		{"version extra arg", []string{"version", "x"}, 2, "", "usage: foreman version | daemon\n"},
 	}
 	for _, tt := range tests {

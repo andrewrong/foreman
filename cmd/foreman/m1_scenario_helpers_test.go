@@ -117,6 +117,7 @@ type scenario struct {
 	rows []string
 	// trace is "<step id> <RowID>" per step transition, in order.
 	trace []string
+	cfg   Config
 }
 
 func newScenario(t *testing.T) *scenario { return newScenarioSeeded(t, seed) }
@@ -138,6 +139,7 @@ func newScenarioSeeded(t *testing.T, seedFn func(*testing.T, *App, clock.Clock))
 	cfg.Models = map[string]string{"coder": "sonnet", "reviewer": "opus"}
 	cfg.ScriptFor = s.q.pick
 	cfg.Guardrails = repoGuardrails(t)
+	s.cfg = cfg
 	app, err := Compose(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)

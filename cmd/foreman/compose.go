@@ -106,6 +106,9 @@ type App struct {
 	Integ     *integrate.Dir
 	ProjectID string
 	cacheDir  string // FOREMAN_HOME/cache/<project>, the warm cache master
+	// warmFailed is the head whose warm-up failed; it is not retried until
+	// the head moves (only one goroutine at a time touches it).
+	warmFailed string
 	// Startup is the list of D-047 check lines (what `foreman status` prints).
 	Startup []recover.Check
 }

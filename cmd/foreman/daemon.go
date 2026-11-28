@@ -6,14 +6,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/andrewrong/foreman/internal/clock"
 	"github.com/andrewrong/foreman/internal/config/schema"
 	"github.com/andrewrong/foreman/internal/forge/ops"
 	"github.com/andrewrong/foreman/internal/harness/claude"
+	"github.com/andrewrong/foreman/internal/pipeline/state"
 	"github.com/andrewrong/foreman/internal/resource/ledger"
 	"github.com/andrewrong/foreman/internal/sandbox/launch"
 	"github.com/andrewrong/foreman/internal/secrets"
@@ -57,11 +61,15 @@ func configFromFiles(home, ownerHome string, eff *schema.Effective) (Config, err
 	}, nil
 }
 
+// DefaultTick is the scheduler period when --tick is not given. The spec does
+// not fix it; sessions run for minutes, so a few seconds is prompt enough.
+const DefaultTick = 5 * time.Second
+
 // runDaemon is `foreman daemon`: it loads and validates the configuration,
 // checks that the harness is on PATH, and only then touches the database and
 // the network (Compose). Any missing owner key refuses the start with one line
 // per key (D-074). Returns the exit code.
-func runDaemon(ctx context.Context, home string, stdout, stderr io.Writer) int {
+func runDaemon(ctx context.Context, home string, tick time.Duration, stdout, stderr io.Writer) int {
 	fail := func(err error) int {
 		for _, l := range strings.Split(strings.TrimSpace(err.Error()), "\n") {
 			fmt.Fprintf(stderr, "foreman daemon: %s\n", strings.TrimSpace(l))
@@ -91,6 +99,11 @@ func runDaemon(ctx context.Context, home string, stdout, stderr io.Writer) int {
 		return fail(err)
 	}
 	cfg.GitHubToken = tok.Reveal()
+	cfg.OnTransition = func(stepID string, ev state.Event, out state.Outcome) {
+		if !out.Ignored {
+			fmt.Fprintf(stdout, "%s %s -> %s/%s %s\n", stepID, ev.Name, out.To.State, out.To.Stage, out.To.Reason)
+		}
+	}
 	app, err := Compose(ctx, cfg)
 	if err != nil {
 		return fail(err)
@@ -98,6 +111,14 @@ func runDaemon(ctx context.Context, home string, stdout, stderr io.Writer) int {
 	defer app.Close()
 	for _, c := range app.Startup {
 		fmt.Fprintln(stdout, c)
+	}
+	// The first signal ends the loop; stop() then restores the default
+	// action, so a second one kills the process at once.
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	go func() { <-ctx.Done(); stop() }()
+	defer stop()
+	if err := app.Serve(ctx, cfg, LoopOptions{Tick: tick, Out: stdout}); err != nil {
+		return fail(err)
 	}
 	return 0
 }
