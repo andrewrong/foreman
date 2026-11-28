@@ -37,6 +37,7 @@ type FindingLine struct {
 // Input is everything a context.md is rendered from. The scheduler fills it
 // from the database; the renderer reads nothing else.
 type Input struct {
+	RunID        string // this session's run id, to be copied into result.json (D-091); it varies per Run, so it is only in the last section
 	Role         string // coder|diagnoser|reviewer
 	Constitution string
 	Goal         string
@@ -118,11 +119,13 @@ func Render(in Input) string {
 	section("Open findings", open...)
 	if reviewer {
 		section("Diff since last review", "```diff", strings.TrimRight(in.Diff, "\n"), "```")
+		section("Writing result.json", resultSection(in)...)
 		return b.String()
 	}
 	section("Available resources", bullets(in.Resources)...)
 	section("Relevant files", bullets(in.Files)...)
 	section("Package headroom (C-03)", bullets(in.Headroom)...)
+	section("Writing result.json", resultSection(in)...)
 	return b.String()
 }
 

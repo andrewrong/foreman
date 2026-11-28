@@ -196,8 +196,7 @@ func (s *Scheduler) overBudget(ctx context.Context, r reqRow) (bool, error) {
 	}
 	var used int64
 	err := s.d.DB.Read(ctx, func(tx *sql.Tx) error {
-		return tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(COALESCE(json_extract(usage, '$.input'), 0) + COALESCE(json_extract(usage, '$.output'), 0)), 0)
-			FROM runs WHERE req_id = ?`, r.ID).Scan(&used)
+		return tx.QueryRowContext(ctx, `SELECT `+usageTokensSQL+` FROM runs WHERE req_id = ?`, r.ID).Scan(&used)
 	})
 	limit := int64(r.BudgetTokens) * int64(1+r.BudgetExtensions) * 2
 	return used > limit, err

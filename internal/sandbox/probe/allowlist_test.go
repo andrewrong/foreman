@@ -120,6 +120,8 @@ func newAllowlistEnv(t *testing.T) *allowlistEnv {
 	mustWrite(t, filepath.Join(e.data, "sibling/secret.txt"), "sibling-secret")
 	mustWrite(t, filepath.Join(e.home, "db/global.db"), "db-secret")
 	mustWrite(t, filepath.Join(e.harness, "bin/tool"), "harness-binary")
+	// Another program's file in a sibling temp directory (D-090 ⑥).
+	mustWrite(t, filepath.Join(e.outside, "other-program/secret.txt"), "temp-secret")
 	mustMkdir(t, e.outside, filepath.Join(e.home, "config"), filepath.Join(e.home, "cache/p"), e.runDir)
 
 	// Mirror and a --shared session clone: the session's objects live in the mirror.
@@ -210,6 +212,7 @@ func TestSandboxReadAllowlist(t *testing.T) {
 		t.Errorf("mirror objects/ (alternates target) not readable: %+v", r)
 	}
 	t.Run("denied reads", e.deniedReads)
+	t.Run("system roots denied", e.systemRootsDenied)
 	t.Run("denied writes", e.deniedWrites)
 	t.Run("allowed read and write", e.allowedReadWrite)
 	t.Run("git log and commit with the mirror read-only", e.gitLogAndCommit)
@@ -228,6 +231,7 @@ func (e *allowlistEnv) deniedReads(t *testing.T) {
 		"foreman db":          filepath.Join(e.home, "db/global.db"),
 		"mirror config":       filepath.Join(e.mirror, "config"),
 		"mirror HEAD":         filepath.Join(e.mirror, "HEAD"),
+		"other temp dir":      filepath.Join(e.outside, "other-program/secret.txt"),
 	}
 	for name, p := range files {
 		if r := e.sh(readFile, p); r.code == 0 {
@@ -236,11 +240,44 @@ func (e *allowlistEnv) deniedReads(t *testing.T) {
 	}
 	dirs := map[string]string{"owner home": e.owner, ".ssh": filepath.Join(e.owner, ".ssh"),
 		"Library": filepath.Join(e.owner, "Library"), "data root": e.data, "config dir": filepath.Join(e.home, "config"),
-		"mirror refs": filepath.Join(e.mirror, "refs"), "mirror root": e.mirror}
+		"mirror refs": filepath.Join(e.mirror, "refs"), "mirror root": e.mirror,
+		"other temp dir": filepath.Join(e.outside, "other-program"), "temp root": e.root}
 	for name, p := range dirs {
 		if r := e.sh(listDir, p); r.code == 0 {
 			t.Errorf("%s: listable, want denied", name)
 		}
+	}
+}
+
+// D-090 ⑥: the system temp areas and volume roots are denied by the program,
+// not by configuration; find / must not list another program's files, while
+// the session's own paths inside the same area stay readable (allowRead).
+func (e *allowlistEnv) systemRootsDenied(t *testing.T) {
+	// find from the system temp area (the whole of / would take minutes): it
+	// cannot even list the area, so it finds none of the other files. The
+	// same find inside the run dir lists the session's own secret.txt, which
+	// shows that find works and an empty result is the sandbox's doing.
+	own := filepath.Join(e.runDir, "secret.txt")
+	mustWrite(t, own, "own")
+	if r := e.sh(`find "$1" -name secret.txt`, e.runDir); r.code != 0 || r.stdout != own {
+		t.Fatalf("positive control: find in the run dir = %+v, want %s", r, own)
+	}
+	r := e.sh(`find "$1" -name secret.txt 2>/dev/null`, filepath.Dir(e.root))
+	if strings.TrimSpace(r.stdout) != "" {
+		t.Errorf("find from the system temp area lists %q", r.stdout)
+	}
+	denied := e.pol.DenyReadPaths()
+	for _, root := range policy.SystemDenyRoots() {
+		found := false
+		for _, d := range denied {
+			found = found || d == root
+		}
+		if !found {
+			t.Errorf("system root %s missing from denyRead", root)
+		}
+	}
+	if r := e.sh(readFile, filepath.Join(e.session, "README")); r.code != 0 {
+		t.Errorf("session repo inside a denied system root not re-opened: %+v", r)
 	}
 }
 

@@ -36,17 +36,37 @@ func outcomeOf(name string) string {
 	return "ok"
 }
 
+// The token keys of runs.usage; usageTokensSQL sums them over the selected
+// runs (the budget guard), so writer and reader cannot drift apart.
+const (
+	usageKeyInput  = "input_tokens"
+	usageKeyOutput = "output_tokens"
+	usageTokensSQL = `COALESCE(SUM(COALESCE(json_extract(usage, '$.` + usageKeyInput + `'), 0) + COALESCE(json_extract(usage, '$.` + usageKeyOutput + `'), 0)), 0)`
+)
+
+// usageJSON is the runs.usage column: NULL when the model reported nothing
+// (unknown is not zero, D-091), otherwise the keys of entities.yaml E-RUN plus
+// the turns and cost of the stream's result event.
+func usageJSON(u model.Usage) (any, error) {
+	if !u.Known {
+		return nil, nil
+	}
+	raw, err := json.Marshal(map[string]any{usageKeyInput: u.Input, usageKeyOutput: u.Output,
+		"cache_read_tokens": u.CacheRead, "cache_creation_tokens": u.CacheWrite, "turns": u.Turns, "cost_usd": u.CostUSD})
+	return string(raw), err
+}
+
 // endRun closes a Run once its event was applied (PP-3: a Run is ended once;
 // the status filter makes a repeat a no-op).
 func (s *Scheduler) endRun(ctx context.Context, runID string, ev model.Event) error {
-	usage, err := json.Marshal(map[string]int64{"input": ev.Usage.Input, "output": ev.Usage.Output})
+	usage, err := usageJSON(ev.Usage)
 	if err != nil {
 		return err
 	}
 	return s.d.DB.Write(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `UPDATE runs SET status = 'ended', ended_at = ?, outcome = ?, usage = ?, reserved = '[]'
 			WHERE id = ? AND status IN ('pending', 'running')`,
-			s.d.Clock.Now().UTC().Format(timeLayout), outcomeOf(ev.Name), string(usage), runID)
+			s.d.Clock.Now().UTC().Format(timeLayout), outcomeOf(ev.Name), usage, runID)
 		return err
 	})
 }

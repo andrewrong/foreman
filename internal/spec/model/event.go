@@ -47,8 +47,12 @@ type Finding struct {
 	CloseWhen string
 }
 
-// Usage is the token usage of the Run behind an event, as the model reported
-// it; the zero value means "not reported".
+// Usage is the usage of the Run behind an event, as the model reported it
+// (D-091). Known is false when the stream had no result event: the usage is
+// then unknown, which is not the same as zero, and runs.usage stays NULL.
 type Usage struct {
-	Input, Output int64
+	Known                                bool
+	Input, Output, CacheRead, CacheWrite int64
+	Turns                                int
+	CostUSD                              float64
 }

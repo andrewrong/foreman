@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/andrewrong/foreman/internal/sandbox/policy"
 )
@@ -228,15 +229,27 @@ func (ExecRunner) Start(ctx context.Context, s Spec) (Process, error) {
 	}
 	cmd.Dir = s.Dir
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = s.Stdin, s.Stdout, s.Stderr
+	// D-091: the process leads its own group and a cancelled context (a
+	// timeout) kills the whole group, not just srt: the sandboxed children
+	// must not outlive their parent.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return killGroup(cmd) }
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 	return &execProc{cmd: cmd}, nil
 }
 
+func killGroup(cmd *exec.Cmd) error {
+	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
+		return cmd.Process.Kill()
+	}
+	return nil
+}
+
 func (p *execProc) Pid() int { return p.cmd.Process.Pid }
 
-func (p *execProc) Kill() error { return p.cmd.Process.Kill() }
+func (p *execProc) Kill() error { return killGroup(p.cmd) }
 
 func (p *execProc) Wait() (Exit, error) {
 	err := p.cmd.Wait()

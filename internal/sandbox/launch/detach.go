@@ -11,8 +11,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
+	"time"
 
+	"github.com/andrewrong/foreman/internal/clock"
 	"github.com/andrewrong/foreman/internal/sandbox/policy"
 )
 
@@ -92,7 +95,13 @@ type Handle struct {
 	Pid  int
 	done chan struct{}
 	exit Exit
+
+	timedOut atomic.Bool
 }
+
+// TimedOut reports whether the launcher killed the session for exceeding
+// Detached.Timeout. Valid after Done is closed.
+func (h *Handle) TimedOut() bool { return h.timedOut.Load() }
 
 // Done is closed when the process has exited.
 func (h *Handle) Done() <-chan struct{} { return h.done }
@@ -111,6 +120,14 @@ type Detached struct {
 	StderrPath string
 	// NoGoCache: see IO.NoGoCache.
 	NoGoCache bool
+	// Timeout is the hard session limit (D-091): when it passes, the whole
+	// process group (and any leftover with TMPDIR in the run dir, KillRun) is
+	// killed, whether or not the scheduler ticks. Zero means none. The timer
+	// lives in the foremand process; after a restart the scheduler's own
+	// deadline check is the only enforcement.
+	Timeout time.Duration
+	// Clock times Timeout; nil means the real clock.
+	Clock clock.Clock
 }
 
 // StartDetached starts argv through a launcher in its own session so that it
@@ -166,6 +183,26 @@ func (l Launcher) StartDetached(pol policy.Policy, argv []string, d Detached) (*
 	}
 	_ = pw.Close()
 	h := &Handle{Pid: cmd.Process.Pid, done: make(chan struct{})}
+	if d.Timeout > 0 {
+		clk := d.Clock
+		if clk == nil {
+			clk = clock.Real()
+		}
+		timer := clk.NewTimer(d.Timeout) // created here so a fake clock sees it before any Advance
+		go func() {
+			defer timer.Stop()
+			select {
+			case <-h.done:
+			case <-timer.C():
+				select {
+				case <-h.done: // ended just before the deadline
+				default:
+					h.timedOut.Store(true)
+					_, _ = KillRun(d.RunDir)
+				}
+			}
+		}()
+	}
 	go func() {
 		h.exit = exitOf(cmd.Wait())
 		close(h.done)

@@ -321,7 +321,7 @@ func TestM1FastLane(t *testing.T) {
 	}
 	var usage string
 	query(t, app, `SELECT usage FROM runs WHERE role = 'coder'`, &usage)
-	if !strings.Contains(usage, `"output":200`) {
+	if !strings.Contains(usage, `"output_tokens":200`) {
 		t.Errorf("coder usage %s", usage)
 	}
 	// Every lease was settled or released: nothing left reserved.

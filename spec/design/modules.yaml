@@ -23,7 +23,7 @@ modules:
   - { module: notify,    layer: 2, uses: [clock, store, spec], packages: [internal/notify/telegram, internal/notify/ask],    duty: "OwnerAsk 发送与回答接收（D-012）" }
 
   - { module: pipeline,  layer: 3, uses: [clock, spec, store, resource, privguard, config], packages: [internal/pipeline/state, internal/pipeline/state/tablegen, internal/pipeline/sched, internal/pipeline/escalate, internal/pipeline/recover], duty: "状态机（唯一写者在 state）、调度、上限与救援路由、重启恢复" }
-  - { module: stage,     layer: 3, uses: [clock, spec, store, resource, privguard, forge, harness, sandbox, workspace], packages: [internal/stage/context, internal/stage/code, internal/stage/check, internal/stage/review, internal/stage/integrate, internal/stage/merge], duty: "各阶段执行；context 生成上下文包（protocol-run.yaml PF-CTX）" }
+  - { module: stage,     layer: 3, uses: [clock, spec, store, resource, privguard, forge, harness, sandbox, workspace], packages: [internal/stage/context, internal/stage/context/resultgen, internal/stage/code, internal/stage/check, internal/stage/review, internal/stage/integrate, internal/stage/merge], duty: "各阶段执行；context 生成上下文包（protocol-run.yaml PF-CTX）" }
   - { module: role,      layer: 3, uses: [clock, spec, store, resource, privguard, harness, sandbox, workspace], packages: [internal/role/intake, internal/role/planner, internal/role/rescuer, internal/role/improver], phase_v2_packages: [internal/role/improver], duty: "非步骤类角色的会话与结果处理" }
   - { module: prod,      layer: 3, uses: [clock, spec, store, privguard, sandbox], packages: [internal/prod/tools, internal/prod/actions, internal/prod/audit], duty: "线上只读工具与动作（prod-access.yaml）；diagnoser 会话经此访问线上", phase: v2 }
 

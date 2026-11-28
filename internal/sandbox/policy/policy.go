@@ -86,6 +86,7 @@ type Inputs struct {
 	// SessionGit fills the generated session .gitconfig (D-082).
 	SessionGit SessionGit
 
+	systemRoots   []string // resolved by New: SystemDenyRoots (D-090 ⑥)
 	ownerSecrets  []string // resolved by New: OwnerHome/<secret dirs>
 	mirrorObjects string   // resolved by New: MirrorRepo/objects (access.yaml R0)
 
@@ -265,6 +266,9 @@ func (p Policy) DenyReadPaths() []string {
 		set[d] = true
 	}
 	for _, d := range p.in.DenyRoots {
+		set[d] = true
+	}
+	for _, d := range p.in.systemRoots {
 		set[d] = true
 	}
 	if p.in.OwnerHome != "" {

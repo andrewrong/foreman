@@ -144,19 +144,24 @@ func (e Env) Collect(r Request, exit *launch.Exit, timedOut bool) Result {
 	if exit != nil {
 		res.Exit = *exit
 	}
-	_, statErr := os.Stat(filepath.Join(r.RunDir, "result.json"))
-	switch {
-	case statErr == nil:
-		return e.readResult(r, res) // a result outranks how the process ended
-	case timedOut:
-		res.Event = model.Event{Name: model.EventInfra, Detail: "session timed out"}
-	case exit == nil:
-		res.Event = model.Event{Name: model.EventInfra, Detail: "session ended without result.json (exit status unknown after restart)"}
-	case exit.Code != 0:
-		res.Event = model.Event{Name: model.EventInfra, Detail: fmt.Sprintf("session exited with code %d", exit.Code)}
-	default:
-		res.Event = model.Event{Name: model.EventBadResult, Detail: "result.json missing"}
+	// The usage is read whatever the outcome (timeout, crash, bad_result): the
+	// tokens were spent all the same (D-091).
+	usage := e.usage(filepath.Join(r.RunDir, "stdout.log"))
+	if _, err := os.Stat(filepath.Join(r.RunDir, "result.json")); err == nil {
+		res = e.readResult(r, res) // a result outranks how the process ended
+	} else {
+		switch {
+		case timedOut:
+			res.Event = model.Event{Name: model.EventInfra, Detail: "session timed out"}
+		case exit == nil:
+			res.Event = model.Event{Name: model.EventInfra, Detail: "session ended without result.json (exit status unknown after restart)"}
+		case exit.Code != 0:
+			res.Event = model.Event{Name: model.EventInfra, Detail: fmt.Sprintf("session exited with code %d", exit.Code)}
+		default:
+			res.Event = model.Event{Name: model.EventBadResult, Detail: "result.json missing"}
+		}
 	}
+	res.Event.Usage = usage
 	return res
 }
 
@@ -171,7 +176,7 @@ func (e Env) RunSession(ctx context.Context, r Request) (Result, error) {
 	// a crash or a failed Transition: read it, never launch a second session
 	// for the same run (reconciler: "进程已退出且有 result.json").
 	if _, err := os.Stat(filepath.Join(r.RunDir, "result.json")); err == nil {
-		return e.readResult(r, Result{}), nil
+		return e.Collect(r, nil, false), nil
 	}
 	stdout, err := os.Create(filepath.Join(r.RunDir, "stdout.log"))
 	if err != nil {
@@ -209,7 +214,6 @@ func (e Env) readResult(r Request, res Result) Result {
 		return res
 	}
 	res.Parsed = parsed
-	res.Event.Usage = e.usage(filepath.Join(r.RunDir, "stdout.log"))
 	return res
 }
 
@@ -224,5 +228,7 @@ func (e Env) usage(stdoutPath string) model.Usage {
 	if sum.Result == nil {
 		return model.Usage{}
 	}
-	return model.Usage{Input: sum.Result.Usage.InputTokens, Output: sum.Result.Usage.OutputTokens}
+	r := sum.Result
+	return model.Usage{Known: true, Input: r.Usage.InputTokens, Output: r.Usage.OutputTokens,
+		CacheRead: r.Usage.CacheReadTokens, CacheWrite: r.Usage.CacheCreationTokens, Turns: r.Turns, CostUSD: r.CostUSD}
 }

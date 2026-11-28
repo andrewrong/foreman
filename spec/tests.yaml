@@ -377,5 +377,4 @@ not_in_code:
 - test:reviewer-context-delta-only
 - test:sandbox-layout-policy
 - test:selfupdate-rollback
-- test:session-context-self-contained
 - test:web-no-github-import

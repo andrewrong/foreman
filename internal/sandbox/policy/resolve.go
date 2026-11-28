@@ -77,6 +77,7 @@ func resolveInputs(in Inputs) (Inputs, error) {
 	}
 	// The secret directories under the owner home are program-chosen names
 	// that a machine may not have (no ~/.aws); a missing one is kept as is.
+	in.systemRoots = SystemDenyRoots()
 	in.ownerSecrets = nil
 	if in.OwnerHome != "" {
 		for _, d := range ownerSecretDirs() {
@@ -96,6 +97,7 @@ func checkAllowRead(in Inputs) error {
 	denied := append([]string{}, in.DenyRead...)
 	denied = append(denied, in.ownerSecrets...)
 	denied = append(denied, in.DenyRoots...)
+	denied = append(denied, in.systemRoots...)
 	if in.OwnerHome != "" {
 		denied = append(denied, in.OwnerHome)
 	}

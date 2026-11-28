@@ -168,9 +168,9 @@ func live5Wait(ctx context.Context, t *testing.T, app *App, home string) {
 // live5Snapshot is what the code Run left, read before the scheduler collects
 // it and removes the directory (D-086).
 type live5Snapshot struct {
-	runID, resultRaw string
-	leaks            []string
-	taken            bool
+	runID, resultRaw, contextMD string
+	leaks                       []string
+	taken                       bool
 }
 
 // takeSnapshot reads the coder Run directory once its session has exited.
@@ -191,6 +191,9 @@ func takeSnapshot(t *testing.T, app *App, e live5Env, home string) live5Snapshot
 		return s // the session has not run (yet)
 	}
 	s.taken, s.resultRaw = true, string(raw)
+	if md, err := os.ReadFile(filepath.Join(dir, "context.md")); err == nil {
+		s.contextMD = string(md)
+	}
 	s.leaks = filesWith(t, []string{dir}, e.secrets()...)
 	for _, name := range []string{"stdout.log", "stderr.log"} {
 		if raw, err := os.ReadFile(filepath.Join(dir, name)); err == nil {
@@ -280,6 +283,7 @@ func TestLayer5CodeStageLive(t *testing.T) {
 		t.Fatalf("compose: %s", e.redacted(err.Error()))
 	}
 	t.Cleanup(func() { app.Close() })
+	live5AssertOtherTempDenied(t, e, home, ownerHome)
 	for _, c := range app.Startup {
 		t.Log(e.redacted(fmt.Sprint(c)))
 	}
@@ -349,6 +353,10 @@ func assertLive5(t *testing.T, app *App, e live5Env, home, base string, snap liv
 	if !snap.taken {
 		t.Fatal("the coder Run directory was never seen; result.json cannot be judged")
 	}
+	// D-091: the session was told its run_id (context.md is all it had).
+	if !strings.Contains(snap.contextMD, snap.runID) {
+		t.Errorf("context.md does not contain the run_id %s", snap.runID)
+	}
 	res, err := api.ValidateResult([]byte(snap.resultRaw), api.ResultContext{RunID: snap.runID, Role: api.RoleCoder, Scope: "step", AcceptanceIDs: []string{"A1"}})
 	if err != nil {
 		t.Fatalf("result.json is not valid: %v", err)
@@ -366,9 +374,13 @@ func assertLive5(t *testing.T, app *App, e live5Env, home, base string, snap liv
 	}
 
 	// The code stage's usage as stored (the cost line was logged from the stream).
-	var usage string
-	query(t, app, `SELECT usage FROM runs WHERE role = 'coder'`, &usage)
-	t.Logf("stored coder usage: %s", usage)
+	// D-091: the stream's result event reached runs.usage (NULL means unknown).
+	var usage sql.NullString
+	query(t, app, `SELECT usage FROM runs WHERE role = 'coder' ORDER BY started_at DESC, id DESC LIMIT 1`, &usage)
+	t.Logf("stored coder usage: %v", usage)
+	if !usage.Valid || !strings.Contains(usage.String, `"turns"`) || strings.Contains(usage.String, `"turns":0`) {
+		t.Errorf("coder runs.usage %v does not carry the session's turns", usage)
+	}
 }
 
 // assertLive5Commits judges the session's commits, as the check stage fetched

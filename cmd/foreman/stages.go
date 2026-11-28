@@ -32,10 +32,8 @@ import (
 // stages act (D-078, MD-12).
 
 const (
-	coderPrompt = "You are the coder of one step. Read context.md in the run directory, implement the step in the " +
-		"session repository, commit, and write result.json as protocol-run.yaml PF-RESULT describes.\n"
-	reviewerPrompt = "You are the reviewer of one step. Read context.md in the run directory, judge the diff against " +
-		"the acceptance items, and write result.json with a verdict.\n"
+	coderPrompt    = ctxmd.CoderPrompt
+	reviewerPrompt = ctxmd.ReviewerPrompt
 	// modelTokenEnv is the variable the claude CLI reads its token from.
 	modelTokenEnv = "CLAUDE_CODE_OAUTH_TOKEN"
 	// maxDiffBytes caps the diff given to a reviewer.
@@ -178,8 +176,10 @@ func (s sessionStage) env(job sched.SessionJob) (ctxmd.Env, error) {
 }
 
 func (s sessionStage) request(job sched.SessionJob) ctxmd.Request {
+	in := briefInput(job.Brief)
+	in.RunID = job.RunID
 	return ctxmd.Request{RunID: job.RunID, StepID: job.StepID, Role: api.Role(job.Role), Model: job.Model, RunDir: job.RunDir,
-		SessionRepo: job.SessionRepo, Context: ctxmd.Render(briefInput(job.Brief)), Prompt: s.prompt, AcceptanceIDs: job.Acceptance}
+		SessionRepo: job.SessionRepo, Context: ctxmd.Render(in), Prompt: s.prompt, AcceptanceIDs: job.Acceptance}
 }
 
 // Start adds the adapter settings of the Run only when a session is about to
@@ -206,6 +206,8 @@ func (s sessionStage) Start(ctx context.Context, job sched.SessionJob, beforeLau
 		StdoutPath: filepath.Join(job.RunDir, "stdout.log"), StderrPath: filepath.Join(job.RunDir, "stderr.log"),
 		// A pass-through launcher only starts the scripted model, which never runs go.
 		NoGoCache: env.Launcher.PassThrough,
+		// D-091: the launcher enforces the limit itself, not only the scheduler's ticks.
+		Timeout: prep.Inv.Timeout,
 	})
 	if err != nil {
 		return nil, err
@@ -222,6 +224,7 @@ func (s sessionStage) Collect(ctx context.Context, job sched.SessionJob, exited 
 	if h, ok := exited.(*launch.Handle); ok && h != nil {
 		e := h.Exit()
 		exit = &e
+		timedOut = timedOut || h.TimedOut()
 	}
 	req := s.request(job)
 	return s.finish(ctx, env, job, req, env.Collect(req, exit, timedOut))
