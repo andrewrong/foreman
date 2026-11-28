@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -8,6 +9,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/shurcooL/githubv4"
 
 	"github.com/andrewrong/foreman/internal/clock"
 	"github.com/andrewrong/foreman/internal/resource/gate"
@@ -35,21 +38,30 @@ func newEnv(t *testing.T, h http.HandlerFunc) *env {
 	return e
 }
 
-func (e *env) lease(res ...string) *gate.Lease {
+func (e *env) use(res string) Use {
 	e.t.Helper()
-	var items []gate.Item
-	for _, r := range res {
-		items = append(items, gate.Item{Resource: r, Amount: 1})
-	}
-	d, err := e.g.Acquire(context.Background(), gate.Demand{Items: items, Priority: gate.P1})
+	d, err := e.g.Acquire(context.Background(), gate.Demand{Items: []gate.Item{{Resource: res, Amount: 1}}, Priority: gate.P1})
 	if err != nil || !d.Allowed() {
 		e.t.Fatalf("acquire: %v %+v", err, d.Wait)
 	}
-	return d.Lease
+	return Use{Resource: res, Lease: d.Lease}
 }
 
-func (e *env) get(path string) (Response, error) {
-	return e.c.Do(context.Background(), Request{Method: "GET", Path: path, Resource: ResREST, Lease: e.lease(ResREST)})
+// get sends GET path through the REST client with a REST lease and maps the error.
+func (e *env) get(path string) (status int, err error) {
+	e.t.Helper()
+	u := e.use(ResREST)
+	ctx := WithUse(context.Background(), u)
+	req, err := e.c.REST().NewRequest(ctx, "GET", path, nil)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	resp, err := e.c.REST().Do(req, &buf)
+	if resp != nil {
+		status = resp.StatusCode
+	}
+	return status, e.c.MapError(u, err)
 }
 
 func TestForgeUpdatesMeterFromHeaders(t *testing.T) {
@@ -62,7 +74,7 @@ func TestForgeUpdatesMeterFromHeaders(t *testing.T) {
 		w.Header().Set("X-RateLimit-Resource", "core")
 		_, _ = w.Write([]byte(`{}`))
 	})
-	if _, err := e.get("/x"); err != nil {
+	if _, err := e.get("x"); err != nil {
 		t.Fatal(err)
 	}
 	rd, ok := e.m.Get(ResREST)
@@ -80,11 +92,14 @@ func TestForgeUpdatesMeterFromHeadersGraphQLResource(t *testing.T) {
 		w.Header().Set("X-RateLimit-Remaining", "4990")
 		w.Header().Set("X-RateLimit-Reset", "1800003600")
 		w.Header().Set("X-RateLimit-Resource", "graphql")
-		_, _ = w.Write([]byte(`{}`))
+		_, _ = w.Write([]byte(`{"data":{"viewer":{"login":"x"}}}`))
 	})
 	e.m.IngestGitHub(ResGraphQL, meter.GitHubLimits{Limit: 5000, Remaining: 5000, ResetUnix: 1800003600}, t0)
-	_, err := e.c.Do(context.Background(), Request{Method: "POST", Path: "/graphql", Resource: ResGraphQL, Lease: e.lease(ResGraphQL)})
-	if err != nil {
+	ctx := WithUse(context.Background(), e.use(ResGraphQL))
+	var q struct {
+		Viewer struct{ Login githubv4.String }
+	}
+	if err := e.c.GraphQL().Query(ctx, &q, nil); err != nil {
 		t.Fatal(err)
 	}
 	if rd, _ := e.m.Get(ResGraphQL); rd.Used != 10 {
@@ -94,6 +109,8 @@ func TestForgeUpdatesMeterFromHeadersGraphQLResource(t *testing.T) {
 		t.Fatalf("rest touched by graphql response: %+v", rd)
 	}
 }
+
+const secondaryDoc = "https://docs.github.com/rest/overview/rate-limits-for-the-rest-api#about-secondary-rate-limits"
 
 func TestForgeErrorMapping(t *testing.T) {
 	reset := strconv.FormatInt(t0.Add(20*time.Minute).Unix(), 10)
@@ -117,11 +134,12 @@ func TestForgeErrorMapping(t *testing.T) {
 		{"primary-429", 429, map[string]string{"X-RateLimit-Reset": reset}, `{"message":"slow down"}`,
 			func(t *testing.T, err error, e *env) {
 				var rl RateLimited
-				if !errors.As(err, &rl) {
+				if !errors.As(err, &rl) || !rl.Reset.Equal(t0.Add(20*time.Minute)) {
 					t.Fatalf("err = %#v", err)
 				}
 			}},
-		{"secondary-retry-after", 403, map[string]string{"Retry-After": "90"}, `{"message":"You have exceeded a secondary rate limit"}`,
+		{"secondary-retry-after", 403, map[string]string{"Retry-After": "90"},
+			`{"message":"You have exceeded a secondary rate limit","documentation_url":"` + secondaryDoc + `"}`,
 			func(t *testing.T, err error, e *env) {
 				var sl SecondaryLimited
 				if !errors.As(err, &sl) || sl.RetryAfter != 90*time.Second {
@@ -131,7 +149,7 @@ func TestForgeErrorMapping(t *testing.T) {
 					t.Fatalf("meter not marked: %v %v", until, ok)
 				}
 			}},
-		{"secondary-no-header", 403, nil, `{"message":"secondary rate limit"}`,
+		{"secondary-no-header", 403, nil, `{"message":"secondary rate limit","documentation_url":"` + secondaryDoc + `"}`,
 			func(t *testing.T, err error, e *env) {
 				var sl SecondaryLimited
 				if !errors.As(err, &sl) || sl.RetryAfter != DefaultSecondaryWait {
@@ -155,12 +173,12 @@ func TestForgeErrorMapping(t *testing.T) {
 				w.WriteHeader(tc.status)
 				_, _ = w.Write([]byte(tc.body))
 			})
-			resp, err := e.get("/x")
+			status, err := e.get("x")
 			if err == nil {
 				t.Fatal("want error")
 			}
-			if resp.Status != tc.status {
-				t.Fatalf("status = %d", resp.Status)
+			if status != tc.status {
+				t.Fatalf("status = %d", status)
 			}
 			tc.check(t, err, e)
 		})
@@ -177,8 +195,8 @@ func wantType[T error](t *testing.T, err error, _ *env) {
 
 func TestForgeErrorMappingTransportFailure(t *testing.T) {
 	e := newEnv(t, func(w http.ResponseWriter, r *http.Request) {})
-	e.c.base = "http://127.0.0.1:1" // nothing listens here
-	_, err := e.get("/x")
+	e.c = New(Config{BaseURL: "http://127.0.0.1:1", Token: "tok", Meters: e.m, Clock: e.clk}) // nothing listens here
+	_, err := e.get("x")
 	var tr Transient
 	if !errors.As(err, &tr) {
 		t.Fatalf("err = %#v", err)

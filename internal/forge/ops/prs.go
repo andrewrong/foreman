@@ -2,10 +2,11 @@ package ops
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
-	"strconv"
+
+	"github.com/google/go-github/v93/github"
 
 	"github.com/andrewrong/foreman/internal/forge/client"
 )
@@ -46,10 +47,27 @@ type MergeResult struct {
 	Message string `json:"message"`
 }
 
+func toPR(p *github.PullRequest) PR {
+	return PR{
+		Number: p.GetNumber(), State: p.GetState(), Title: p.GetTitle(), Draft: p.GetDraft(), Merged: p.GetMerged(),
+		Mergeable: p.Mergeable, MergeableState: p.GetMergeableState(), HTMLURL: p.GetHTMLURL(),
+		Head: Ref{Ref: p.GetHead().GetRef(), SHA: p.GetHead().GetSHA()},
+		Base: Ref{Ref: p.GetBase().GetRef(), SHA: p.GetBase().GetSHA()},
+	}
+}
+
 // PRCreate is OP-01.
 func (o *Ops) PRCreate(ctx context.Context, call Call, r Repo, in NewPR) (PR, error) {
 	var pr PR
-	_, err := o.sendJSON(ctx, call, opPRCreate, http.MethodPost, r.path("/pulls"), in, &pr)
+	err := o.do(ctx, call, opPRCreate, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+		p, resp, err := gh.PullRequests.Create(ctx, r.Owner, r.Name, github.CreatePullRequest{
+			Title: &in.Title, Head: in.Head, Base: in.Base, Body: &in.Body, Draft: &in.Draft,
+		})
+		if p != nil {
+			pr = toPR(p)
+		}
+		return resp, err
+	})
 	return pr, err
 }
 
@@ -57,15 +75,28 @@ func (o *Ops) PRCreate(ctx context.Context, call Call, r Repo, in NewPR) (PR, er
 // has no mergeable or check data (FG-7).
 func (o *Ops) PRListOpen(ctx context.Context, call Call, r Repo) ([]PR, error) {
 	var prs []PR
-	q := url.Values{"state": {"open"}, "per_page": {"100"}}
-	_, err := o.getJSON(ctx, call, opPRListOpen, r.path("/pulls"), q, &prs)
+	err := o.do(ctx, call, opPRListOpen, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+		ps, resp, err := gh.PullRequests.List(ctx, r.Owner, r.Name, &github.PullRequestListOptions{
+			State: "open", ListOptions: github.ListOptions{PerPage: 100},
+		})
+		for _, p := range ps {
+			prs = append(prs, toPR(p))
+		}
+		return resp, err
+	})
 	return prs, err
 }
 
 // PRGet is OP-03.
 func (o *Ops) PRGet(ctx context.Context, call Call, r Repo, n int) (PR, error) {
 	var pr PR
-	_, err := o.getJSON(ctx, call, opPRGet, r.path("/pulls/%d", n), nil, &pr)
+	err := o.do(ctx, call, opPRGet, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+		p, resp, err := gh.PullRequests.Get(ctx, r.Owner, r.Name, n)
+		if p != nil {
+			pr = toPR(p)
+		}
+		return resp, err
+	})
 	return pr, err
 }
 
@@ -76,10 +107,15 @@ func (o *Ops) PRMerge(ctx context.Context, call Call, r Repo, n int, sha, method
 		method = "squash"
 	}
 	var res MergeResult
-	body := map[string]string{"sha": sha, "merge_method": method}
-	resp, err := o.sendJSON(ctx, call, opPRMerge, http.MethodPut, r.path("/pulls/%d/merge", n), body, &res)
+	err := o.do(ctx, call, opPRMerge, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+		m, resp, err := gh.PullRequests.Merge(ctx, r.Owner, r.Name, n, "", &github.PullRequestOptions{SHA: sha, MergeMethod: method})
+		if m != nil {
+			res = MergeResult{SHA: m.GetSHA(), Merged: m.GetMerged(), Message: m.GetMessage()}
+		}
+		return resp, err
+	})
 	var api client.APIError
-	if errors.As(err, &api) && resp.Status == http.StatusMethodNotAllowed {
+	if errors.As(err, &api) && api.Status == http.StatusMethodNotAllowed {
 		return res, client.Conflict{Base: api.Base}
 	}
 	return res, err
@@ -87,33 +123,50 @@ func (o *Ops) PRMerge(ctx context.Context, call Call, r Repo, n int, sha, method
 
 // PRUpdateBranch is OP-05; it returns GitHub's message (202 when queued).
 func (o *Ops) PRUpdateBranch(ctx context.Context, call Call, r Repo, n int, expectedHead string) (string, error) {
-	var out struct {
-		Message string `json:"message"`
-	}
-	body := map[string]string{}
-	if expectedHead != "" {
-		body["expected_head_sha"] = expectedHead
-	}
-	_, err := o.sendJSON(ctx, call, opPRUpdateBranch, http.MethodPut, r.path("/pulls/%d/update-branch", n), body, &out)
-	return out.Message, err
+	var msg string
+	err := o.do(ctx, call, opPRUpdateBranch, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+		body := github.UpdatePullRequestBranchRequest{}
+		if expectedHead != "" {
+			body.ExpectedHeadSHA = &expectedHead
+		}
+		out, resp, err := gh.PullRequests.UpdateBranch(ctx, r.Owner, r.Name, n, body)
+		var acc *github.AcceptedError // 202: queued, the payload is in Raw
+		if errors.As(err, &acc) {
+			var m struct {
+				Message string `json:"message"`
+			}
+			_ = json.Unmarshal(acc.Raw, &m)
+			msg, err = m.Message, nil
+		} else if out != nil {
+			msg = out.GetMessage()
+		}
+		return resp, err
+	})
+	return msg, err
 }
 
 // PRComment is OP-06.
 func (o *Ops) PRComment(ctx context.Context, call Call, r Repo, n int, text string) error {
-	_, err := o.sendJSON(ctx, call, opPRComment, http.MethodPost, r.path("/issues/%d/comments", n), map[string]string{"body": text}, nil)
-	return err
+	return o.do(ctx, call, opPRComment, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+		_, resp, err := gh.Issues.CreateComment(ctx, r.Owner, r.Name, n, github.IssueCommentRequest{Body: text})
+		return resp, err
+	})
 }
 
 // PRClose is OP-13.
 func (o *Ops) PRClose(ctx context.Context, call Call, r Repo, n int) error {
-	_, err := o.sendJSON(ctx, call, opPRClose, http.MethodPatch, r.path("/pulls/%d", n), map[string]string{"state": "closed"}, nil)
-	return err
+	return o.do(ctx, call, opPRClose, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+		state := "closed"
+		_, resp, err := gh.PullRequests.Edit(ctx, r.Owner, r.Name, n, &github.PullRequest{State: &state})
+		return resp, err
+	})
 }
 
 // RefDelete is OP-14: delete the remote branch refs/heads/<branch>.
 func (o *Ops) RefDelete(ctx context.Context, call Call, r Repo, branch string) error {
-	_, err := o.sendJSON(ctx, call, opRefDelete, http.MethodDelete, r.path("/git/refs/heads/%s", escapeRef(branch)), nil, nil)
-	return err
+	return o.do(ctx, call, opRefDelete, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+		return gh.Git.DeleteRef(ctx, r.Owner, r.Name, "heads/"+branch)
+	})
 }
 
 // Protection is the OP-12 outcome (D-050): Available is false when GitHub
@@ -125,16 +178,21 @@ type Protection struct {
 
 // BranchProtectionGet is OP-12.
 func (o *Ops) BranchProtectionGet(ctx context.Context, call Call, r Repo, branch string) (Protection, error) {
-	resp, err := o.run(ctx, call, opBranchProt, client.Request{Method: http.MethodGet, Path: r.path("/branches/%s/protection", escapeRef(branch))})
+	var raw []byte
+	err := o.do(ctx, call, opBranchProt, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+		p, resp, err := gh.Repositories.GetBranchProtection(ctx, r.Owner, r.Name, branch)
+		if err == nil {
+			raw, err = json.Marshal(p)
+		}
+		return resp, err
+	})
 	var nf client.NotFound
 	var ua client.Unauthorized
-	if errors.As(err, &nf) || errors.As(err, &ua) {
+	if errors.As(err, &nf) || errors.As(err, &ua) || errors.Is(err, github.ErrBranchNotProtected) {
 		return Protection{}, nil
 	}
 	if err != nil {
 		return Protection{}, err
 	}
-	return Protection{Available: true, Raw: resp.Body}, nil
+	return Protection{Available: true, Raw: raw}, nil
 }
-
-func itoa(n int) string { return strconv.Itoa(n) }

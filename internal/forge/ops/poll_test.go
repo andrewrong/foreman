@@ -121,7 +121,7 @@ func TestForgeGraphqlCost(t *testing.T) {
 		t.Fatal("REST charged for a GraphQL call")
 	}
 	body := r.f.bodies["POST /graphql"]
-	if !strings.Contains(body, "rateLimit{cost remaining}") {
+	if !strings.Contains(body, "rateLimit{cost,remaining}") {
 		t.Fatalf("query lacks rateLimit: %s", body)
 	}
 
