@@ -604,3 +604,15 @@ decisions:
     amends: D-080
     enforced_by: "test:sandbox-read-allowlist"
     status: active
+
+  - id: D-088
+    date: 2026-11-28
+    statement: "（实现 access.yaml 的项目缓存设计）每次会话与 L0 运行前，foremand 把 FOREMAN_HOME/cache/<p>/warm/ 下的 gocache、gomodcache 用 clonefile 整棵克隆到运行目录，GOCACHE、GOMODCACHE 指向副本；没有预热缓存或克隆失败时退回空目录，不让运行失败。主缓存对沙箱进程 denyWrite。GOFLAGS 含 -trimpath（否则依赖的缓存键带每次运行不同的 GOMODCACHE 路径，全部重编）与 -modcacherw（否则运行目录删不掉）。预热在默认分支 head 变化时进行，写入临时目录后在锁内改名替换，克隆持共享锁，不会克隆到写了一半的缓存；预热失败保留原缓存。D-047 启动检查比较 projects/、cache/、runs/ 的 st_dev，不在同一卷则拒绝启动。scripted 会话不跑 go，给空缓存"
+    enforced_by: "test:session-go-cache-cloned"
+    status: active
+
+  - id: D-089
+    date: 2026-11-28
+    statement: "预热项目缓存在沙箱外进行，因此不得执行项目代码：只用 go mod download、go build ./...、go test -run '^$' -exec /usr/bin/true ./...（测试程序只编译不运行），不运行 go generate，GOTOOLCHAIN=local（不下载工具链）；环境从空开始，只放行代理与证书相关变量。由带标记文件的测试证明：库的 init、TestMain、测试 init 与 go:generate 在预热后都没有执行"
+    enforced_by: "test:warm-cache-runs-no-project-code"
+    status: active

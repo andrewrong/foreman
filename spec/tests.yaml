@@ -298,6 +298,9 @@ tests:
 - name: test:session-gitconfig-generated
   covers:
   - D-082
+- name: test:session-go-cache-cloned
+  covers:
+  - D-088
 - name: test:session-output-only-result-files
   covers:
   - D-002
@@ -334,6 +337,9 @@ tests:
 - name: test:store-single-writer
   covers:
   - D-004
+- name: test:warm-cache-runs-no-project-code
+  covers:
+  - D-089
 - name: test:web-no-github-import
   covers:
   - D-013
