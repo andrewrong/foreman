@@ -4,7 +4,7 @@
 # 规则 TX-1：Transition 的事务只写数据库（含插入 fix 步骤、创建 Run 记录）。一切外部动作（启动会话、跑检查、
 #   合回、push、开 PR、合并、删除会话仓库）由 reconciler 根据当前状态执行，必须幂等，结果再以事件送回 Transition。
 # 规则 HOLD-1：Requirement.hold ≠ none 时，Step 表算出的目标若是 queued(X)，改为 waiting(hold) 并记 resume_stage=X。
-# 本文件由 tools/smcheck（暂为 scratchpad 脚本，后续改为 Go 测试 test:state-table-exhaustive）穷举检查。
+# 本文件由 internal/spec/smcheck（Go 测试 test:state-table-exhaustive）穷举检查。
 schema: foreman.state-machine/2
 
 rules:
