@@ -1,0 +1,44 @@
+name: test
+
+on:
+  push:
+    branches: [main, dev/v1]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # The owner's self-hosted runner (Linux arm64, one throwaway container per job, memory disk at /pt).
+    # This repository is public: a pull request from a fork must never run on that machine, so only
+    # pushes and pull requests whose head branch is in this repository run.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: self-hosted
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt
+        run: |
+          files=$(gofmt -l .)
+          if [ -n "$files" ]; then echo "not gofmt-clean:"; echo "$files"; exit 1; fi
+      - run: go vet ./...
+      - name: go test
+        run: |
+          set -o pipefail
+          # Temporary files and test databases on the memory disk, where fsync costs nothing;
+          # the go command's build files stay on disk (the memory disk counts against the container's memory).
+          if [ -d /pt ] && [ -w /pt ]; then export TMPDIR=/pt; fi
+          export GOTMPDIR="$RUNNER_TEMP"
+          # golangci-lint runs inside go test (TestGolangciLint); bound its memory.
+          GOGC=50 go test -v -p 1 -parallel 2 -timeout 15m ./... | tee "$RUNNER_TEMP/go-test.log"
+      - name: slowest tests
+        if: always()
+        run: |
+          [ -f "$RUNNER_TEMP/go-test.log" ] || exit 0
+          { echo "### 20 slowest tests"; grep -E '^--- (PASS|FAIL)' "$RUNNER_TEMP/go-test.log" \
+              | sed -E 's/^--- (PASS|FAIL): ([^ ]+) \(([0-9.]+)s\)/\3 \2 \1/' | sort -rn | head -20; } >> "$GITHUB_STEP_SUMMARY"
