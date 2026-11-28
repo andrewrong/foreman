@@ -61,3 +61,17 @@
 - secrets 与 config 模块 done（internal/secrets、internal/config/schema、internal/config/revision，global 迁移 0005）。未接入 Compose：schema.Load、secrets 读 GitHub token、Run 创建时 Snapshot 待接。未做：CF-03 skills.toml、CF-08 notify.toml、foreman config 命令、沙箱拒读 secrets 目录的探测。默认值改为由 spec/design/config.yaml keys 表生成（D-074，configgen）；spec 未给数值的键为 owner 必填：secrets_dir、parallel.workers、role.*.timeout、项目 repo_path/github_repo/default_branch/l0。
 - D-075 取代 D-069：forge 改回 go-github + githubv4（待额度重置后派任务；保留自写 ETag RoundTripper、Gate 包装、错误映射；完成后在 foreman-sandbox 重跑 live smoke）。
 - 待做（owner 已同意方向）：modules.yaml 外部依赖白名单 + test:module-deps 检查 go.mod/import；排查 D-066..D-073 与新增依赖（BurntSushi/toml 未登记）是否 spec 迁就代码。待 owner 决定：AI 写的未确认决定不得取代已有决定（lint 强制）。
+
+## 开发顺序：逐层真实可运行（owner 2026-11-28）
+
+下层在真实环境跑通后才往上做；fake 只用于真实环境造不出的失败（CI 失败、限额），不再用 fake 推进新功能。
+每层有一个真实环境的运行入口（命令或带环境变量开关的测试），上层出问题时下层仍可单独运行和修改。
+
+| 层 | 内容 | 真实环境 | 现状 |
+|---|---|---|---|
+| 1 | store、workspace（git） | 本机 sqlite、真实 git 仓库 | 已真实 |
+| 2 | sandbox | 本机 srt | 探测通过；会话启动未在 srt 中验证 |
+| 3 | harness | claude 在 srt 内用专用 token | 未做（下一步） |
+| 4 | forge | foreman-sandbox 仓库 | 只有接口冒烟 |
+| 5 | 单个 stage | code 阶段：真实会话仓库 + 层 2–3 | 未做 |
+| 6 | 一个需求端到端 | foreman-sandbox 上从接需求到合并 | 未做 |
