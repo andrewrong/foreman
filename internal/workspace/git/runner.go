@@ -18,6 +18,20 @@ import (
 // DefaultPath is the fixed PATH given to git when Config.Path is empty.
 const DefaultPath = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin"
 
+// SystemPath is DefaultPath without the directories this machine lacks
+// (/opt/homebrew/bin on Linux). The sandbox policy refuses a PATH entry that
+// does not exist (D-087 2), so a session PATH is built from this, not from
+// the raw candidate list.
+func SystemPath() string {
+	var dirs []string
+	for _, d := range strings.Split(DefaultPath, ":") {
+		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
+			dirs = append(dirs, d)
+		}
+	}
+	return strings.Join(dirs, ":")
+}
+
 // HardenedArgs are prepended to every git invocation.
 func HardenedArgs() []string {
 	return []string{

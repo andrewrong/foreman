@@ -2,6 +2,7 @@ package policy
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -12,7 +13,8 @@ func TestPolicyWithToolchain(t *testing.T) {
 	tool := fx.p("tc/go")
 	orig := fx.in
 	p := mustNew(t, orig.WithToolchain([]string{tool}, []string{tool}))
-	if !slices.Contains(p.Env(), "PATH="+tool+":/usr/bin:/bin") {
+	// Only the lead is fixed: the rest is realpath'd (/bin is /usr/bin on some Linux systems).
+	if !slices.ContainsFunc(p.Env(), func(kv string) bool { return strings.HasPrefix(kv, "PATH="+tool+":") }) {
 		t.Errorf("PATH not led by the toolchain: %v", p.Env())
 	}
 	if !slices.Contains(p.AllowReadPaths(), tool) {

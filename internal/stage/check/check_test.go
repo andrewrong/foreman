@@ -101,7 +101,7 @@ func newWorldExec(t *testing.T, ex wsgit.ExecFunc) *world {
 		Launcher: launch.Launcher{PassThrough: true},
 		// integrate/ stays denyWrite, as in the deployed policy.
 		Policy: policy.Inputs{DenyWrite: []string{filepath.Join(root, "db"), integ.Path},
-			Path:       filepath.Dir(goBin) + ":" + wsgit.DefaultPath,
+			Path:       filepath.Dir(goBin) + ":" + wsgit.SystemPath(),
 			SessionGit: policy.SessionGit{Name: "foreman-session", Email: "foreman-session@users.noreply.example", DefaultBranch: "main"}}}}
 }
 

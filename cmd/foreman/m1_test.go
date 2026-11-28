@@ -136,7 +136,7 @@ func (f *fixture) config(clk clock.Clock, ghURL string, on func(string, state.Ev
 		GitHubBase: ghURL, GitHubToken: "test-token", Clock: clk, Harness: "scripted",
 		SessionGit: wsgit.Identity{Name: "foreman-session", Email: "foreman-session@users.noreply.example"},
 		Models:     map[string]string{"coder": "scripted", "reviewer": "scripted"},
-		Scripts:    f.scripts, Path: filepath.Dir(f.goBin) + ":" + wsgit.DefaultPath,
+		Scripts:    f.scripts, Path: filepath.Dir(f.goBin) + ":" + wsgit.SystemPath(),
 		L0:     [][]string{{f.goBin, "test", "./..."}},
 		Ledger: ledger.New(), OnTransition: on, Constitution: "C-01: only Transition writes state.",
 	}

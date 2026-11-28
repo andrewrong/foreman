@@ -85,7 +85,7 @@ func newWorld(t *testing.T, adapterName string) *world {
 	}
 	w.env = ctxmd.Env{
 		Launcher: launch.Launcher{PassThrough: true}, Adapter: ad, Timeout: time.Minute,
-		Policy: policy.Inputs{DenyWrite: []string{filepath.Join(root, "db")}, Path: wsgit.DefaultPath,
+		Policy: policy.Inputs{DenyWrite: []string{filepath.Join(root, "db")}, Path: wsgit.SystemPath(),
 			SessionGit: policy.SessionGit{Name: "foreman-session", Email: "foreman-session@users.noreply.example", DefaultBranch: "main"}},
 	}
 	return w
