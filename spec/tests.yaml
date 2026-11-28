@@ -277,7 +277,7 @@ tests:
 - name: test:sandbox-read-allowlist
   covers:
   - D-080
-  - D-087
+  - D-090
 - name: test:secret-file-check
   covers:
   - D-026
@@ -287,6 +287,9 @@ tests:
 - name: test:selfupdate-rollback
   covers:
   - D-047
+- name: test:session-context-self-contained
+  covers:
+  - D-091
 - name: test:session-git-config-not-executed
   covers:
   - C-08
@@ -374,4 +377,5 @@ not_in_code:
 - test:reviewer-context-delta-only
 - test:sandbox-layout-policy
 - test:selfupdate-rollback
+- test:session-context-self-contained
 - test:web-no-github-import

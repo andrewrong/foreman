@@ -603,7 +603,7 @@ decisions:
     supersedes: D-081
     amends: D-080
     enforced_by: "test:sandbox-read-allowlist"
-    status: active
+    status: superseded
 
   - id: D-088
     date: 2026-11-28
@@ -615,4 +615,18 @@ decisions:
     date: 2026-11-28
     statement: "预热项目缓存在沙箱外进行，因此不得执行项目代码：只用 go mod download、go build ./...、go test -run '^$' -exec /usr/bin/true ./...（测试程序只编译不运行），不运行 go generate，GOTOOLCHAIN=local（不下载工具链）；环境从空开始，只放行代理与证书相关变量。由带标记文件的测试证明：库的 init、TestMain、测试 init 与 go:generate 在预热后都没有执行"
     enforced_by: "test:warm-cache-runs-no-project-code"
+    status: active
+
+  - id: D-090
+    date: 2026-11-28
+    statement: "（取代 D-087 全文；新增 ⑥。第 5 层首次真实运行发现：沙箱内会话执行 find / 后读到了系统临时目录下其他程序的文件——denyRead 只含 owner 主目录与数据卷根，系统临时目录可读）补全 D-080：① allowRead 中镜像只含 repo.git/objects（clone --shared 的 alternates 目标，只读），不含 repo.git 的 config、HEAD、refs 与根目录；镜像 fetch 的凭据与推送相同，只经该进程环境注入，不进 argv 与配置文件；② 策略中的每个路径（allowRead、denyRead、allowWrite、PATH 的每一项）在生成时用 realpath 解析，启动前自检每一项存在；③ allowRead 的工具链等条目进 config.yaml keys 表，默认 owner，不由实现推断（工具链本身按 D-085 取自项目 mise.toml）；④ 会话环境的 git 配置按 D-082；⑤ 被沙箱拒绝的访问要留下记录写入运行目录（探测见 docs/probes/phase-1.md P6）；⑥ denyRead 由程序固定加入所有用户可写的公共区域，不依赖配置：全部用户目录的根、全部外接与数据卷的挂载根、系统临时目录（macOS 上 private 下的 tmp 与 var/folders）；会话需要的路径（会话仓库、运行目录、镜像对象、工具链、harness）照旧以 allowRead 放回。sandbox.deny_roots 只作额外补充。由真实沙箱测试证明：沙箱内读不到临时目录下另一目录的文件，find / 列不出它们的内容"
+    supersedes: D-087
+    amends: D-080
+    enforced_by: "test:sandbox-read-allowlist"
+    status: active
+
+  - id: D-091
+    date: 2026-11-28
+    statement: "（第 5 层首次真实运行发现：coder 不知道 run_id 与 result.json 的格式——提示词只写'按 protocol-run.yaml PF-RESULT 写'，而 spec 不在沙箱内——两次 bad_result 后第三次在文件系统里搜到了 spec 副本才写对）会话需要的一切都在运行目录内给全：context.md 写明本次 run_id、role，以及 result.json 的完整字段说明与一个合法示例（由 protocol-run.yaml 生成，不手抄）；提示词不得引用会话读不到的文件。会话超时由启动器硬性执行：到时限即终止整个进程组，不依赖调度节拍；harness 从输出流的 result 事件读取用量（轮数、token、费用）写入 runs.usage，读不到时记为未知而不是 0"
+    enforced_by: "test:session-context-self-contained"
     status: active
