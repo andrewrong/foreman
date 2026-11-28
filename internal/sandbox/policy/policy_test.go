@@ -51,7 +51,7 @@ func TestSandboxEnvHasOnlyAllowedCredentials(t *testing.T) {
 	}
 	allowed := map[string]bool{
 		"PATH": true, "HOME": true, "TMPDIR": true, "LANG": true, "TERM": true, "GOCACHE": true,
-		"GOMODCACHE": true, "CLAUDE_TMPDIR": true, "TMPPREFIX": true,
+		"GOMODCACHE": true, "CLAUDE_TMPDIR": true, "CLAUDE_CODE_TMPDIR": true, "TMPPREFIX": true,
 		"CLAUDE_CODE_OAUTH_TOKEN": true, "STRIPE_TEST_KEY": true,
 	}
 	for k := range got {

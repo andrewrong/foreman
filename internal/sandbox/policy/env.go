@@ -13,7 +13,7 @@ var envNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var reserved = map[string]bool{
 	"PATH": true, "HOME": true, "TMPDIR": true, "LANG": true, "TERM": true,
 	"GOCACHE": true, "GOMODCACHE": true, "GOFLAGS": true,
-	"CLAUDE_TMPDIR": true, "TMPPREFIX": true,
+	"CLAUDE_TMPDIR": true, "CLAUDE_CODE_TMPDIR": true, "TMPPREFIX": true,
 }
 
 func checkCreds(in Inputs) error {
@@ -69,11 +69,14 @@ func (p Policy) Env() []string {
 		"HOME":          p.Home(),
 		"TMPDIR":        in.RunTmp,
 		"CLAUDE_TMPDIR": in.RunTmp,
-		"TMPPREFIX":     in.RunTmp + "/zsh",
-		"LANG":          lang,
-		"TERM":          "dumb",
-		"GOCACHE":       p.GoCache(),
-		"GOMODCACHE":    p.GoModCache(),
+		// Claude Code 2.1.332 reads CLAUDE_CODE_TMPDIR for its per-session temp
+		// dir; without it the Bash tool fails in srt (EPERM under the system temp dir).
+		"CLAUDE_CODE_TMPDIR": in.RunTmp,
+		"TMPPREFIX":          in.RunTmp + "/zsh",
+		"LANG":               lang,
+		"TERM":               "dumb",
+		"GOCACHE":            p.GoCache(),
+		"GOMODCACHE":         p.GoModCache(),
 	}
 	if in.GoFlags != "" {
 		m["GOFLAGS"] = in.GoFlags

@@ -48,3 +48,18 @@ Go 缓存：
 | 条件请求 If-None-Match → 304 | x-ratelimit-used 不变：304 不计入 core 额度 |
 
 探测用的 PR 与分支已关闭、删除。
+
+## P4 claude 在 srt 内运行（2026-11-28，层 3）
+
+Claude Code 2.1.332、srt（agent-crew 工具目录中的版本），haiku，foreman 专用 token（`claude setup-token`，经 policy 的 Model 凭据注入 `CLAUDE_CODE_OAUTH_TOKEN`）。
+
+| 检查 | 结果 |
+|---|---|
+| 认证 | 成功；init 的 apiKeySource 为 none（不用钥匙串登录） |
+| 会话仓库内 Write | 成功 |
+| Bash 工具 | 先失败：EPERM mkdir（系统临时目录下 claude-<uid> 子目录）；该版本读 CLAUDE_CODE_TMPDIR（旧名 CLAUDE_TMPDIR 不够）；policy 加上后成功 |
+| 读 secrets 目录 | Operation not permitted |
+| 读 ~/.ssh | Operation not permitted |
+| srt 自身 | PATH 中的 node 若是 mise shim，srt 启动失败；须给真实 node 目录 |
+
+结论：层 3 可行。遗留：launcher 需要可配置的 node 目录（srt 是 node 脚本）；网络只放行了 api.anthropic.com，未见其他主机被拒。
