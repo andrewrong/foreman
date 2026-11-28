@@ -7,10 +7,9 @@ package ops
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"net/url"
-	"strings"
+	"net/http"
+
+	"github.com/google/go-github/v93/github"
 
 	"github.com/andrewrong/foreman/internal/clock"
 	"github.com/andrewrong/foreman/internal/forge/client"
@@ -23,10 +22,6 @@ type Repo struct{ Owner, Name string }
 
 // String renders owner/name.
 func (r Repo) String() string { return r.Owner + "/" + r.Name }
-
-func (r Repo) path(format string, a ...any) string {
-	return "/repos/" + url.PathEscape(r.Owner) + "/" + url.PathEscape(r.Name) + fmt.Sprintf(format, a...)
-}
 
 // Call attributes one operation to a priority and caller for the gate.
 type Call struct {
@@ -68,6 +63,7 @@ type spec struct {
 	essential bool
 	write     bool
 	graphql   bool
+	noCache   bool // OP-10 logs are never cached (FG-3)
 }
 
 // Operation declarations (the resource column of the OP table).
@@ -81,7 +77,7 @@ var (
 	opChecksForRef   = spec{id: "OP-07"}
 	opRunsList       = spec{id: "OP-08"}
 	opRunRerun       = spec{id: "OP-09", write: true}
-	opJobLogs        = spec{id: "OP-10"}
+	opJobLogs        = spec{id: "OP-10", noCache: true}
 	opBranchProt     = spec{id: "OP-12"}
 	opPRClose        = spec{id: "OP-13", essential: true, write: true}
 	opRefDelete      = spec{id: "OP-14", essential: true, write: true}
@@ -95,8 +91,23 @@ func (s spec) resource() string {
 	return client.ResREST
 }
 
-// run acquires a lease, sends the request and settles consumption.
-func (o *Ops) run(ctx context.Context, call Call, s spec, req client.Request) (client.Response, error) {
+// do is the Gate wrapper (LIB-4, FG-4): it acquires a lease before the call,
+// runs fn with the lease in the request context, settles the real consumption
+// afterwards and maps errors to the typed ones (FG-5). fn performs exactly one
+// go-github / githubv4 call. cost is the GraphQL cost read from the response
+// (0 for REST); the lease is settled with it, never with the reserve.
+func (o *Ops) do(ctx context.Context, call Call, s spec, fn func(ctx context.Context, gh *github.Client) (*github.Response, error)) error {
+	return o.run(ctx, call, s, func(ctx context.Context) (*http.Response, int64, error) {
+		resp, err := fn(ctx, o.c.REST())
+		if resp != nil {
+			return resp.Response, 0, err
+		}
+		return nil, 0, err
+	})
+}
+
+// run is the shared part of do and the GraphQL path.
+func (o *Ops) run(ctx context.Context, call Call, s spec, fn func(ctx context.Context) (resp *http.Response, cost int64, err error)) error {
 	amount := int64(1)
 	if s.graphql {
 		amount = graphqlReserve
@@ -107,20 +118,24 @@ func (o *Ops) run(ctx context.Context, call Call, s spec, req client.Request) (c
 	}
 	dec, err := o.g.Acquire(ctx, gate.Demand{Items: items, Priority: call.Priority, Caller: call.Caller, Essential: s.essential})
 	if err != nil {
-		return client.Response{}, err
+		return err
 	}
 	if !dec.Allowed() {
-		return client.Response{}, Waiting{Wait: dec.Wait}
+		return Waiting{Wait: dec.Wait}
 	}
-	req.Resource, req.Write, req.Lease = s.resource(), s.write, dec.Lease
-	resp, err := o.c.Do(ctx, req)
+	use := client.Use{Resource: s.resource(), Write: s.write, Lease: dec.Lease, NoCache: s.noCache}
+	resp, cost, err := fn(client.WithUse(ctx, use))
+	err = o.c.MapError(use, err)
 
 	var actual []gate.Item
-	if resp.Status > 0 { // the server answered, so GitHub counted the call
+	if resp != nil { // the server answered, so GitHub counted the call
 		switch {
 		case s.graphql:
-			actual = append(actual, gate.Item{Resource: client.ResGraphQL, Amount: graphqlCost(resp.Body)})
-		case !resp.NotModified:
+			if cost < 1 {
+				cost = 1
+			}
+			actual = append(actual, gate.Item{Resource: client.ResGraphQL, Amount: cost})
+		case resp.Header.Get(client.CacheHitHeader) == "":
 			actual = append(actual, gate.Item{Resource: client.ResREST, Amount: 1})
 		}
 		if s.write {
@@ -130,40 +145,5 @@ func (o *Ops) run(ctx context.Context, call Call, s spec, req client.Request) (c
 	if _, serr := dec.Lease.Settle(ctx, actual); serr != nil && err == nil {
 		err = serr
 	}
-	return resp, err
-}
-
-func (o *Ops) getJSON(ctx context.Context, call Call, s spec, path string, q url.Values, dst any) (client.Response, error) {
-	resp, err := o.run(ctx, call, s, client.Request{Method: "GET", Path: path, Query: q})
-	if err != nil {
-		return resp, err
-	}
-	return resp, decode(resp.Body, dst)
-}
-
-func (o *Ops) sendJSON(ctx context.Context, call Call, s spec, method, path string, body, dst any) (client.Response, error) {
-	resp, err := o.run(ctx, call, s, client.Request{Method: method, Path: path, Body: body})
-	if err != nil {
-		return resp, err
-	}
-	if dst == nil {
-		return resp, nil
-	}
-	return resp, decode(resp.Body, dst)
-}
-
-func decode(b []byte, dst any) error {
-	if err := json.Unmarshal(b, dst); err != nil {
-		return fmt.Errorf("forge: decode response: %w", err)
-	}
-	return nil
-}
-
-// escapeRef escapes each segment of a branch name but keeps the slashes.
-func escapeRef(ref string) string {
-	parts := strings.Split(ref, "/")
-	for i, p := range parts {
-		parts[i] = url.PathEscape(p)
-	}
-	return strings.Join(parts, "/")
+	return err
 }

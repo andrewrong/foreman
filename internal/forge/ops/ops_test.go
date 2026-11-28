@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -162,13 +163,15 @@ func TestForgeRequiresLease(t *testing.T) {
 
 	// The client refuses a request without a lease, or with one that does not
 	// hold what the request consumes; nothing reaches the server.
-	_, err := r.c.Do(ctx, client.Request{Method: "GET", Path: "/repos/acme/widgets/pulls/7", Resource: client.ResREST})
-	if err != client.ErrNoLease {
-		t.Fatalf("nil lease: err = %v", err)
+	gh := r.c.REST()
+	_, _, err := gh.PullRequests.Get(ctx, "acme", "widgets", 7)
+	if !errors.Is(err, client.ErrNoLease) {
+		t.Fatalf("no lease: err = %v", err)
 	}
 	d, _ := r.g.Acquire(ctx, gate.Demand{Items: []gate.Item{{Resource: client.ResREST, Amount: 1}}, Priority: gate.P1})
-	_, err = r.c.Do(ctx, client.Request{Method: "PUT", Path: "/x", Resource: client.ResREST, Write: true, Lease: d.Lease})
-	if err == nil || !strings.Contains(err.Error(), "does not hold") {
+	wctx := client.WithUse(ctx, client.Use{Resource: client.ResREST, Write: true, Lease: d.Lease})
+	_, _, err = gh.PullRequests.Get(wctx, "acme", "widgets", 7)
+	if !errors.Is(err, client.ErrLeaseResource) {
 		t.Fatalf("lease without write item: err = %v", err)
 	}
 	if n := len(r.f.log); n != 0 {
@@ -251,7 +254,8 @@ func TestForgeOpsPaths(t *testing.T) {
 		"POST /repos/acme/widgets/issues/7/comments":                {status: 201, body: `{}`},
 		"GET /repos/acme/widgets/commits/abc/check-runs":            {body: `{"total_count":1,"check_runs":[{"id":1,"name":"ci","status":"completed","conclusion":"success"}]}`},
 		"POST /repos/acme/widgets/actions/runs/9/rerun-failed-jobs": {status: 201, body: `{}`},
-		"GET /repos/acme/widgets/actions/jobs/5/logs":               {body: "line1\nline2\n"},
+		"GET /repos/acme/widgets/actions/jobs/5/logs":               {status: 302, hdr: map[string]string{"Location": "/blob/job5.log"}},
+		"GET /blob/job5.log":                                        {body: "line1\nline2\n"},
 		"DELETE /repos/acme/widgets/git/refs/heads/foreman/r1":      {status: 204},
 		"GET /repos/acme/widgets/branches/main/protection":          {status: 404, body: `{"message":"Branch not protected"}`},
 		"GET /rate_limit": {body: `{"resources":{"core":{"limit":5000,"remaining":4000,"reset":1800003600},"graphql":{"limit":5000,"remaining":4900,"reset":1800003600}}}`},

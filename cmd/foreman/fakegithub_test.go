@@ -199,6 +199,13 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			out(map[string]any{"check_runs": f.checkRuns(sha)})
 		case strings.HasPrefix(r.URL.Path, base+"/actions/jobs/") && strings.HasSuffix(r.URL.Path, "/logs"):
 			id, _ := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, base+"/actions/jobs/"), "/logs"), 10, 64)
+			if _, ok := f.logs[id]; ok { // like GitHub: 302 to blob storage
+				http.Redirect(w, r, "/blob-logs/"+strconv.FormatInt(id, 10), http.StatusFound)
+				return
+			}
+			http.NotFound(w, r)
+		case strings.HasPrefix(r.URL.Path, "/blob-logs/"):
+			id, _ := strconv.ParseInt(strings.TrimPrefix(r.URL.Path, "/blob-logs/"), 10, 64)
 			if text, ok := f.logs[id]; ok {
 				_, _ = w.Write([]byte(text))
 				return

@@ -1,20 +1,20 @@
 // Package client is the only holder of the GitHub token (forge.yaml FG-1). It
-// sends requests over net/http, requires a gate lease for each (FG-4), feeds
-// X-RateLimit-* headers to the meter (FG-2), applies ETag conditional GETs
-// through an optional Cache (FG-3) and maps failures to typed errors (FG-5).
-// Only internal/forge/ops builds Requests, so callers cannot reach arbitrary
-// API paths (FG-6).
+// wraps go-github (REST, LIB-1) and githubv4 (GraphQL, LIB-2) over one
+// http.RoundTripper chain that requires a gate lease for each request (FG-4),
+// feeds X-RateLimit-* headers to the meter (FG-2) and applies ETag conditional
+// GETs through an optional Cache (FG-3, LIB-3). Failures are mapped to typed
+// errors by MapError (FG-5). Only internal/forge/ops calls the two clients, so
+// other code cannot reach arbitrary API paths (FG-6, MD-2).
 package client
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/google/go-github/v93/github"
+	"github.com/shurcooL/githubv4"
 
 	"github.com/andrewrong/foreman/internal/clock"
 	"github.com/andrewrong/foreman/internal/resource/gate"
@@ -29,23 +29,9 @@ const (
 )
 
 const (
-	apiVersion   = "2022-11-28"
-	maxBodyRead  = 32 << 20
 	defaultAPI   = "https://api.github.com"
 	defaultAgent = "foreman"
 )
-
-// Cache is the ETag store (implemented by internal/forge/cache). Errors from
-// it never fail a request: the response is simply not cached.
-type Cache interface {
-	Lookup(ctx context.Context, url string) (etag string, body []byte, ok bool, err error)
-	Store(ctx context.Context, url, etag string, body []byte) error
-	Touch(ctx context.Context, url string) error
-}
-
-// maxCacheBody mirrors cache.MaxBodyBytes (FG-3); bodies above it are not
-// even offered to the cache.
-const maxCacheBody = 256 << 10
 
 // Config builds a Client.
 type Config struct {
@@ -57,156 +43,106 @@ type Config struct {
 	Cache   Cache // optional
 }
 
-// Client performs requests. Safe for concurrent use.
+// Client holds the REST and GraphQL clients. Safe for concurrent use.
 type Client struct {
-	base   string
-	token  string
-	hc     *http.Client
+	rest   *github.Client
+	gql    *githubv4.Client
+	plain  *http.Client // follows redirects to blob storage, never sends the token
 	meters *meter.Store
 	clk    clock.Clock
-	cache  Cache
 }
 
-// New returns a Client.
+// New returns a Client. BaseURL, when set, points both clients at it (the
+// GraphQL endpoint is BaseURL + "/graphql"), which the tests use.
 func New(cfg Config) *Client {
 	base := strings.TrimRight(cfg.BaseURL, "/")
 	if base == "" {
 		base = defaultAPI
 	}
-	hc := cfg.HTTP
-	if hc == nil {
-		hc = &http.Client{}
+	var hc http.Client
+	if cfg.HTTP != nil {
+		hc = *cfg.HTTP
 	}
-	return &Client{base: base, token: cfg.Token, hc: hc, meters: cfg.Meters, clk: cfg.Clock, cache: cfg.Cache}
+	inner := hc.Transport
+	if inner == nil {
+		inner = http.DefaultTransport
+	}
+	c := &Client{meters: cfg.Meters, clk: cfg.Clock, plain: &http.Client{Transport: inner}}
+
+	var rt http.RoundTripper = &ingestRT{next: inner, c: c}
+	if cfg.Cache != nil {
+		rt = &etagRT{next: rt, cache: cfg.Cache}
+	}
+	hc.Transport = &leaseRT{next: rt, token: cfg.Token}
+
+	baseURL := base + "/"
+	rest, err := github.NewClient(
+		github.WithHTTPClient(&hc),
+		github.WithURLs(&baseURL, &baseURL),
+		github.WithUserAgent(defaultAgent),
+		github.WithDisableRateLimitCheck(), // the gate and meter decide; no wall clock inside go-github
+	)
+	if err != nil {
+		panic("forge: github client: " + err.Error()) // only invalid options fail; ours are fixed
+	}
+	c.rest = rest
+	c.gql = githubv4.NewEnterpriseClient(base+"/graphql", &hc)
+	return c
 }
 
-// Request is one API call.
-type Request struct {
-	Method string
-	Path   string // begins with "/"
-	Query  url.Values
-	Body   any // JSON-encoded when non-nil
-	Accept string
+// REST returns the go-github client; only internal/forge/ops uses it.
+func (c *Client) REST() *github.Client { return c.rest }
 
-	// Resource is the meter resource consumed: ResREST or ResGraphQL. Empty
-	// only for OP-11 (GET /rate_limit, not counted), which needs no lease.
+// GraphQL returns the githubv4 client; only internal/forge/ops uses it.
+func (c *Client) GraphQL() *githubv4.Client { return c.gql }
+
+// Download fetches a redirect target (OP-10 log blob) without the token.
+func (c *Client) Download(ctx context.Context, u *url.URL) ([]byte, error) {
+	if base, err := url.Parse(c.rest.BaseURL()); err == nil {
+		u = base.ResolveReference(u) // a relative Location is relative to the API
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.plain.Do(req)
+	if err != nil {
+		return nil, Transient{Base: Base{Message: err.Error()}, Err: err}
+	}
+	defer resp.Body.Close()
+	body, err := readAll(resp.Body, maxBodyRead)
+	if err != nil {
+		return nil, Transient{Base: Base{Status: resp.StatusCode, Message: err.Error()}, Err: err}
+	}
+	if resp.StatusCode/100 != 2 {
+		return nil, Transient{Base: Base{Status: resp.StatusCode, Message: message(body)}}
+	}
+	return body, nil
+}
+
+// Use says what one request consumes. Ops puts it in the request context
+// with WithUse; a request without it is refused (FG-4).
+type Use struct {
+	// Resource is the meter resource consumed: ResREST or ResGraphQL.
 	Resource string
 	// Write marks content-creating calls that also consume ResWrite.
 	Write bool
 	// Lease must hold Resource (and ResWrite when Write is set).
 	Lease *gate.Lease
-	// NoCache disables conditional GET (OP-10 logs).
+	// Free marks OP-11 (GET /rate_limit, not counted): no lease needed.
+	Free bool
+	// NoCache disables conditional GET (OP-10 logs, OP-11).
 	NoCache bool
 }
 
-// Response is the result of Do. On error, Status is still set when the server
-// answered, so the caller can settle consumption.
-type Response struct {
-	Status      int
-	Header      http.Header
-	Body        []byte
-	NotModified bool // served from the ETag cache after a 304 (not counted)
+type useKey struct{}
+
+// WithUse returns a context carrying u.
+func WithUse(ctx context.Context, u Use) context.Context {
+	return context.WithValue(ctx, useKey{}, u)
 }
 
-// Do sends the request. It returns a typed error for non-2xx statuses.
-func (c *Client) Do(ctx context.Context, r Request) (Response, error) {
-	if err := checkLease(r); err != nil {
-		return Response{}, err
-	}
-	var rdr io.Reader
-	if r.Body != nil {
-		b, err := json.Marshal(r.Body)
-		if err != nil {
-			return Response{}, err
-		}
-		rdr = bytes.NewReader(b)
-	}
-	full := c.base + r.Path
-	if len(r.Query) > 0 {
-		full += "?" + r.Query.Encode()
-	}
-	req, err := http.NewRequestWithContext(ctx, r.Method, full, rdr)
-	if err != nil {
-		return Response{}, err
-	}
-	accept := r.Accept
-	if accept == "" {
-		accept = "application/vnd.github+json"
-	}
-	req.Header.Set("Accept", accept)
-	req.Header.Set("X-GitHub-Api-Version", apiVersion)
-	req.Header.Set("User-Agent", defaultAgent)
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	if r.Body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	cacheable := c.cache != nil && r.Method == http.MethodGet && !r.NoCache
-	var cachedBody []byte
-	var haveCached bool
-	if cacheable {
-		if etag, body, ok, err := c.cache.Lookup(ctx, full); err == nil && ok {
-			req.Header.Set("If-None-Match", etag)
-			cachedBody, haveCached = body, true
-		}
-	}
-
-	resp, err := c.hc.Do(req)
-	if err != nil {
-		// The token is never part of the URL, so the error text is safe.
-		return Response{}, Transient{Base: Base{Message: err.Error()}, Err: err}
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyRead))
-	out := Response{Status: resp.StatusCode, Header: resp.Header, Body: body}
-	if err != nil {
-		return out, Transient{Base: Base{Status: resp.StatusCode, Message: err.Error()}, Err: err}
-	}
-	c.ingest(r, resp.Header)
-
-	switch {
-	case resp.StatusCode == http.StatusNotModified && haveCached:
-		out.NotModified = true
-		out.Status = http.StatusOK
-		out.Body = cachedBody
-		_ = c.cache.Touch(ctx, full)
-		return out, nil
-	case resp.StatusCode >= 200 && resp.StatusCode < 300:
-		if cacheable && resp.StatusCode == http.StatusOK {
-			if etag := resp.Header.Get("ETag"); etag != "" && len(body) <= maxCacheBody {
-				_ = c.cache.Store(ctx, full, etag, body)
-			}
-		}
-		return out, nil
-	}
-	return out, c.mapError(r.Resource, r.Write, resp.StatusCode, resp.Header, body)
-}
-
-func checkLease(r Request) error {
-	if r.Resource == "" {
-		return nil // OP-11 only
-	}
-	if r.Lease == nil {
-		return ErrNoLease
-	}
-	held := map[string]bool{}
-	for _, it := range r.Lease.Items() {
-		held[it.Resource] = true
-	}
-	if !held[r.Resource] || (r.Write && !held[ResWrite]) {
-		return fmt.Errorf("%w: %s", ErrLeaseResource, r.Resource)
-	}
-	return nil
-}
-
-// ingest feeds X-RateLimit-* headers into the meter (FG-2).
-func (c *Client) ingest(r Request, h http.Header) {
-	l, ok := meter.ParseGitHubHeaders(h)
-	if !ok {
-		return
-	}
-	res := meterResource(h.Get("X-RateLimit-Resource"), r.Resource)
-	if res != ResREST && res != ResGraphQL {
-		return // search, code_search, ... are not tracked resources
-	}
-	c.meters.IngestGitHub(res, l, c.clk.Now())
+func useOf(ctx context.Context) (Use, bool) {
+	u, ok := ctx.Value(useKey{}).(Use)
+	return u, ok
 }

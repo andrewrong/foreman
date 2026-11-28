@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -81,17 +82,31 @@ func newRig(t *testing.T, f *fakeGitHub, maxTotal int64) *rig {
 	return r
 }
 
-func (r *rig) get(path string) client.Response {
+// got is what a test reads of one GET.
+type got struct {
+	Status      int
+	Body        []byte
+	NotModified bool // served from the cache after a 304
+}
+
+func (r *rig) get(path string) got {
 	r.t.Helper()
-	d, err := r.g.Acquire(context.Background(), gate.Demand{Items: []gate.Item{{Resource: client.ResREST, Amount: 1}}, Priority: gate.P1})
+	ctx := context.Background()
+	d, err := r.g.Acquire(ctx, gate.Demand{Items: []gate.Item{{Resource: client.ResREST, Amount: 1}}, Priority: gate.P1})
 	if err != nil || !d.Allowed() {
 		r.t.Fatalf("acquire: %v", err)
 	}
-	resp, err := r.c.Do(context.Background(), client.Request{Method: "GET", Path: path, Resource: client.ResREST, Lease: d.Lease})
+	ctx = client.WithUse(ctx, client.Use{Resource: client.ResREST, Lease: d.Lease})
+	req, err := r.c.REST().NewRequest(ctx, "GET", strings.TrimPrefix(path, "/"), nil)
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	return resp
+	var buf bytes.Buffer
+	resp, err := r.c.REST().Do(req, &buf)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return got{Status: resp.StatusCode, Body: buf.Bytes(), NotModified: resp.Header.Get(client.CacheHitHeader) != ""}
 }
 
 func TestForgeConditionalGet(t *testing.T) {

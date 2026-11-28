@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/go-github/v93/github"
 )
 
 // Typed errors (forge.yaml FG-5); match them with errors.As.
@@ -56,41 +59,66 @@ func (t Transient) Unwrap() error { return t.Err }
 // APIError is any other non-2xx status (for example 405 on merge).
 type APIError struct{ Base }
 
-// Errors for misuse.
-var (
-	ErrNoLease       = errors.New("forge: request needs a gate lease")
-	ErrLeaseResource = errors.New("forge: lease does not hold the resource this request consumes")
-)
-
 // DefaultSecondaryWait applies when GitHub gives no Retry-After.
 const DefaultSecondaryWait = 60 * time.Second
 
-func (c *Client) mapError(res string, write bool, status int, h http.Header, body []byte) error {
-	msg := message(body)
-	b := Base{Status: status, Message: msg}
+// MapError converts an error from go-github, githubv4 or the transport chain
+// into the typed errors above (FG-5) and marks the meter exhausted for rate
+// limits. use is what the failed request consumed. Errors that are not about
+// the call itself (lease misuse, decode failures) pass through unchanged.
+func (c *Client) MapError(use Use, err error) error {
+	if err == nil {
+		return nil
+	}
 	now := c.clk.Now()
-	lower := strings.ToLower(msg)
+	var rl *github.RateLimitError
+	var ab *github.AbuseRateLimitError
+	var er *github.ErrorResponse
+	var ue *url.Error
 	switch {
-	case status == http.StatusTooManyRequests || status == http.StatusForbidden:
-		if ra := h.Get("Retry-After"); ra != "" || strings.Contains(lower, "secondary rate limit") || strings.Contains(lower, "abuse") {
-			wait := DefaultSecondaryWait
-			if n, err := strconv.Atoi(ra); err == nil && n >= 0 {
-				wait = time.Duration(n) * time.Second
-			}
-			c.markExhausted(res, write, now.Add(wait))
-			return SecondaryLimited{Base: b, RetryAfter: wait}
+	case errors.As(err, &rl):
+		b := Base{Status: statusOf(rl.Response), Message: rl.Message}
+		reset := rl.Rate.Reset.Time
+		if reset.IsZero() {
+			reset = now.Add(DefaultSecondaryWait)
 		}
-		if h.Get("X-RateLimit-Remaining") == "0" || status == http.StatusTooManyRequests {
-			reset := now.Add(DefaultSecondaryWait)
-			if n, err := strconv.ParseInt(h.Get("X-RateLimit-Reset"), 10, 64); err == nil && n > 0 {
-				reset = time.Unix(n, 0)
-			}
-			target := meterResource(h.Get("X-RateLimit-Resource"), res)
-			c.meters.MarkExhausted(target, reset)
-			return RateLimited{Base: b, Resource: target, Reset: reset}
+		target := meterResource(headerOf(rl.Response, "X-RateLimit-Resource"), use.Resource)
+		c.meters.MarkExhausted(target, reset)
+		return RateLimited{Base: b, Resource: target, Reset: reset}
+	case errors.As(err, &ab):
+		wait := DefaultSecondaryWait
+		if ab.RetryAfter != nil {
+			wait = *ab.RetryAfter
 		}
-		return Unauthorized{b}
-	case status == http.StatusUnauthorized:
+		c.meters.MarkExhausted(use.Resource, now.Add(wait))
+		if use.Write {
+			c.meters.MarkExhausted(ResWrite, now.Add(wait))
+		}
+		return SecondaryLimited{Base: Base{Status: statusOf(ab.Response), Message: ab.Message}, RetryAfter: wait}
+	case errors.As(err, &er):
+		return c.mapStatus(use, er, now)
+	case errors.Is(err, ErrNoLease), errors.Is(err, ErrLeaseResource):
+		return err
+	case errors.As(err, &ue):
+		// The token is never part of the URL, and go-github sanitizes it.
+		return Transient{Base: Base{Message: err.Error()}, Err: err}
+	}
+	return err
+}
+
+func (c *Client) mapStatus(use Use, er *github.ErrorResponse, now time.Time) error {
+	status := statusOf(er.Response)
+	b := Base{Status: status, Message: er.Message}
+	switch {
+	case status == http.StatusTooManyRequests: // 429 that is neither header-marked nor a secondary limit
+		reset := now.Add(DefaultSecondaryWait)
+		if n, err := strconv.ParseInt(headerOf(er.Response, "X-RateLimit-Reset"), 10, 64); err == nil && n > 0 {
+			reset = time.Unix(n, 0)
+		}
+		target := meterResource(headerOf(er.Response, "X-RateLimit-Resource"), use.Resource)
+		c.meters.MarkExhausted(target, reset)
+		return RateLimited{Base: b, Resource: target, Reset: reset}
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
 		return Unauthorized{b}
 	case status == http.StatusNotFound:
 		return NotFound{b}
@@ -104,11 +132,18 @@ func (c *Client) mapError(res string, write bool, status int, h http.Header, bod
 	return APIError{b}
 }
 
-func (c *Client) markExhausted(res string, write bool, until time.Time) {
-	c.meters.MarkExhausted(res, until)
-	if write {
-		c.meters.MarkExhausted(ResWrite, until)
+func statusOf(r *http.Response) int {
+	if r == nil {
+		return 0
 	}
+	return r.StatusCode
+}
+
+func headerOf(r *http.Response, k string) string {
+	if r == nil {
+		return ""
+	}
+	return r.Header.Get(k)
 }
 
 func message(body []byte) string {
