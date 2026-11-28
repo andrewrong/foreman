@@ -551,7 +551,6 @@ decisions:
 
   - id: D-079
     date: 2026-11-28
-    statement: "D-077 的许可证要求只针对被导入、随 foreman 分发的库；只在开发时运行、不被导入也不分发的工具（go.mod tool 指令，如 golangci-lint，GPL-3.0）不受许可证白名单限制，仍须满足主流标准并在 deps 中以 kind: tool 登记。另记：cmd/foreman 的场景测试约 115s，超出 C-06 的单 package 30s，属既有问题，待拆分或改为并行"
-    amends: D-077
+    statement: "（补充 D-077）D-077 的许可证要求只针对被导入、随 foreman 分发的库；只在开发时运行、不被导入也不分发的工具（go.mod tool 指令，如 golangci-lint，GPL 3.0 许可证）不受许可证白名单限制，仍须满足主流标准并在 deps 中以 kind: tool 登记。另记：cmd/foreman 的场景测试约 115s，超出 C-06 的单 package 30s，属既有问题，待拆分或改为并行"
     enforced_by: "check:deps-registry"
     status: active
