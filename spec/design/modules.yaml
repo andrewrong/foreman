@@ -51,8 +51,8 @@ package_limits:   # C-03
 # 外部依赖登记表（C-14、D-076）。go.mod 的直接依赖必须与本表一致；required 的库必须被 used_by 中的模块导入。
 # status: planned 表示已决定、尚未接入（check:deps-registry 只报告，不失败）。
 deps:
-  - { module: go.yaml.in/yaml/v3,               used_by: [spec, pipeline], purpose: "读取 spec YAML（lint、smcheck、tablegen、configgen）", required: true, status: active, source: D-077, evidence: "YAML 组织维护，gopkg.in/yaml.v3 的继任者（原库 2022 年后无发版）" }
-  - { module: modernc.org/sqlite,               used_by: [store],          purpose: "sqlite 驱动（纯 Go，无 cgo）", required: true, status: active, source: "D-004, D-076", evidence: "2026-11 仍在发版，Go 生态主流纯 Go sqlite 驱动" }
-  - { module: github.com/BurntSushi/toml,       used_by: [config],         purpose: "owner 配置 TOML 解析；MetaData.Undecoded 用于拒绝未知键", required: true, status: active, source: D-076, evidence: "2025-12 有发版，Go 生态最常用的 TOML 库" }
+  - { module: go.yaml.in/yaml/v3,               used_by: [spec, pipeline], purpose: "读取 spec YAML（lint、smcheck、tablegen、configgen）", required: true, status: active, source: D-077, evidence: "2026-11-28 查：github yaml/go-yaml 由 YAML 组织维护，Apache-2.0，2026-11 有提交，573 star；原库 go-yaml/yaml（7k star）2025-04 已归档，本库为其继任者" }
+  - { module: modernc.org/sqlite,               used_by: [store],          purpose: "sqlite 驱动（纯 Go，无 cgo）", required: true, status: active, source: "D-004, D-076", evidence: "2026-11-28 查：gitlab cznic/sqlite 2026-11 有提交与发版，515 star；导入数未查" }
+  - { module: github.com/BurntSushi/toml,       used_by: [config],         purpose: "owner 配置 TOML 解析；MetaData.Undecoded 用于拒绝未知键", required: true, status: active, source: D-076, evidence: "2026-11-28 查：github BurntSushi/toml，MIT，5k star，2026-08 有提交" }
   - { module: github.com/google/go-github,      used_by: [forge],          purpose: "GitHub REST 客户端（LIB-1）", required: true, status: planned, source: D-075 }
   - { module: github.com/shurcooL/githubv4,     used_by: [forge],          purpose: "GitHub GraphQL 客户端（LIB-2，仅 FG-8）", required: true, status: planned, source: D-075 }
