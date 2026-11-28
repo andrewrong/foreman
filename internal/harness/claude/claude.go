@@ -8,6 +8,7 @@ import (
 	"io"
 	"iter"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -18,9 +19,32 @@ import (
 
 // Config configures the adapter.
 type Config struct {
-	Binary   string                       // default "claude"
 	ReadFile func(string) ([]byte, error) // default os.ReadFile (prompt assembly)
 	Tools    map[api.Role][]string        // per-role tool lists; default DefaultTools
+}
+
+// Command is the executable name looked up on foremand's own PATH (D-084).
+const Command = "claude"
+
+// Locate finds claude on foremand's PATH and resolves every symlink on the
+// way (D-084). The adapter does it again at every launch, so an upgrade that
+// moves the link is picked up by the next session; the daemon calls it at
+// startup to refuse to start when claude is missing.
+func Locate() (string, error) {
+	found, err := exec.LookPath(Command)
+	if err != nil {
+		return "", fmt.Errorf("claude: %q not found on foremand's PATH (D-084): %w", Command, err)
+	}
+	if !filepath.IsAbs(found) {
+		if found, err = filepath.Abs(found); err != nil {
+			return "", fmt.Errorf("claude: %w", err)
+		}
+	}
+	real, err := filepath.EvalSymlinks(found)
+	if err != nil {
+		return "", fmt.Errorf("claude: resolve %s: %w", found, err)
+	}
+	return real, nil
 }
 
 // DefaultTools are the built-in tools per role (D-066 ②). Every role writes
@@ -51,9 +75,6 @@ type Adapter struct {
 func New(lease *gate.Lease, cfg Config) (*Adapter, error) {
 	if lease == nil {
 		return nil, errors.New("claude: lease required (MD-3)")
-	}
-	if cfg.Binary == "" {
-		cfg.Binary = "claude"
 	}
 	if cfg.ReadFile == nil {
 		cfg.ReadFile = os.ReadFile
@@ -110,8 +131,12 @@ func (a *Adapter) BuildInvocation(s api.RunSpec) (api.Invocation, error) {
 	if len(tools) == 0 {
 		return api.Invocation{}, fmt.Errorf("claude: no tools for role %s", s.Role)
 	}
+	binary, err := Locate()
+	if err != nil {
+		return api.Invocation{}, err
+	}
 	argv := []string{
-		a.cfg.Binary, "-p",
+		binary, "-p",
 		"--output-format", "stream-json", "--verbose",
 		"--model", s.Model,
 		"--max-turns", strconv.Itoa(s.MaxTurns),
@@ -134,23 +159,7 @@ func (a *Adapter) BuildInvocation(s api.RunSpec) (api.Invocation, error) {
 	if err != nil {
 		return api.Invocation{}, err
 	}
-	return api.Invocation{Argv: argv, Stdin: prompt, Timeout: s.Timeout, ReadPaths: a.readPaths()}, nil
-}
-
-// readPaths declares what the sandbox must let the CLI read: the real binary
-// (a symlink is followed: the link's directory is not the install directory)
-// and its directory. A bare command name or a binary that cannot be resolved
-// declares nothing; the owner then lists the install path in
-// sandbox.read_paths, and policy.New refuses a path that does not exist.
-func (a *Adapter) readPaths() []string {
-	if !filepath.IsAbs(a.cfg.Binary) {
-		return nil
-	}
-	real, err := filepath.EvalSymlinks(a.cfg.Binary)
-	if err != nil {
-		return nil
-	}
-	return []string{real, filepath.Dir(real)}
+	return api.Invocation{Argv: argv, Stdin: prompt, Timeout: s.Timeout, ReadPaths: []string{binary, filepath.Dir(binary)}}, nil
 }
 
 // assemblePrompt builds role prompt, then the role's skills, then the

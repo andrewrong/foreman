@@ -2,7 +2,9 @@
 # Defaults come from the keys table of spec/design/config.yaml (D-074); this
 # file lists the keys that have no default (secrets_dir, parallel.workers) and
 # a few overrides. Secrets never go in this file; only the directory that holds
-# them (D-026).
+# them (D-026). Every key without a default must be set: foremand refuses to
+# start and names each missing one (D-074). The claude CLI is not configured:
+# foremand finds it on its own PATH at every session launch (D-084).
 
 secrets_dir = "/srv/example/secrets"   # files foreman.<name>, mode 0600; directory 0700
 

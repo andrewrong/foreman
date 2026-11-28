@@ -134,8 +134,9 @@ func (f *fixture) config(clk clock.Clock, ghURL string, on func(string, state.Ev
 	return Config{
 		Home: f.home, Project: "p", Remote: f.remote, Repo: ops.Repo{Owner: "acme", Name: "widgets"},
 		GitHubBase: ghURL, GitHubToken: "test-token", Clock: clk, Harness: "scripted",
-		Models:  map[string]string{"coder": "scripted", "reviewer": "scripted"},
-		Scripts: f.scripts, Path: filepath.Dir(f.goBin) + ":" + wsgit.DefaultPath,
+		SessionGit: wsgit.Identity{Name: "foreman-session", Email: "foreman-session@users.noreply.example"},
+		Models:     map[string]string{"coder": "scripted", "reviewer": "scripted"},
+		Scripts:    f.scripts, Path: filepath.Dir(f.goBin) + ":" + wsgit.DefaultPath,
 		L0:     [][]string{{f.goBin, "test", "./..."}},
 		Ledger: ledger.New(), OnTransition: on, Constitution: "C-01: only Transition writes state.",
 	}
@@ -335,5 +336,11 @@ func TestComposeRefusesNilLedgerAndLongHome(t *testing.T) {
 	cfg.Home = "/tmp/" + strings.Repeat("x", 60)
 	if _, err := Compose(context.Background(), cfg); err == nil {
 		t.Fatal("Compose accepted a FOREMAN_HOME too long for the srt socket path")
+	}
+	// D-074: session_git is an owner key; there is no built-in identity.
+	cfg = f.config(clk, ghURL, nil)
+	cfg.SessionGit = wsgit.Identity{}
+	if _, err := Compose(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "session_git") {
+		t.Fatalf("Compose without session_git: %v", err)
 	}
 }
