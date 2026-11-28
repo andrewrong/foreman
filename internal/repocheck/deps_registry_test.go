@@ -22,6 +22,7 @@ type depEntry struct {
 	UsedBy   []string `yaml:"used_by"`
 	Required bool     `yaml:"required"`
 	Status   string   `yaml:"status"`
+	Kind     string   `yaml:"kind"` // "tool": pinned by a go.mod tool directive, never imported
 }
 
 type depsFile struct {
@@ -71,6 +72,142 @@ func registeredAs(mod, reg string) bool {
 
 func importsModule(imp, mod string) bool { return imp == mod || strings.HasPrefix(imp, mod+"/") }
 
+// moduleImporters returns importers[import path] = set of module names whose
+// non-test files import it.
+func moduleImporters(root string, mods *modulesFile) (map[string]map[string]bool, error) {
+	pkgMod := map[string]string{} // package dir -> module name
+	for _, m := range mods.Modules {
+		for _, p := range m.Packages {
+			pkgMod[p] = m.Module
+		}
+	}
+	importers := map[string]map[string]bool{}
+	err := eachGoFile(root, func(rel string) bool { return !isTestFile(rel) }, func(rel string, _ *token.FileSet, f *ast.File) {
+		mod := pkgMod[path.Dir(rel)]
+		for _, imp := range f.Imports {
+			p, err := strconv.Unquote(imp.Path.Value)
+			if err != nil {
+				continue
+			}
+			if importers[p] == nil {
+				importers[p] = map[string]bool{}
+			}
+			importers[p][mod] = true
+		}
+	})
+	return importers, err
+}
+
+// toolPackages returns the package paths of the go.mod tool directives, in
+// both the block and the single-line form.
+func toolPackages(goMod []byte) []string {
+	var out []string
+	inBlock := false
+	for _, line := range strings.Split(string(goMod), "\n") {
+		if i := strings.Index(line, "//"); i >= 0 {
+			line = line[:i]
+		}
+		line = strings.TrimSpace(line)
+		switch {
+		case line == "tool (":
+			inBlock = true
+		case inBlock && line == ")":
+			inBlock = false
+		case inBlock && line != "":
+			out = append(out, strings.Fields(line)[0])
+		case strings.HasPrefix(line, "tool ") && !strings.HasSuffix(line, "("):
+			out = append(out, strings.Fields(line)[1])
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// unregisteredTools reports each go.mod tool directive with no kind: tool entry.
+func unregisteredTools(tools []string, deps []depEntry) []string {
+	var problems []string
+	for _, t := range tools {
+		found := false
+		for _, d := range deps {
+			if d.Kind == "tool" && importsModule(t, d.Module) {
+				found = true
+			}
+		}
+		if !found {
+			problems = append(problems, fmt.Sprintf("go.mod has tool %s but it is not registered in %s deps with kind: tool (D-076, D-078)", t, modulesPath))
+		}
+	}
+	return problems
+}
+
+// unregisteredDirect reports each direct go.mod requirement with no deps entry.
+func unregisteredDirect(direct []string, deps []depEntry) []string {
+	var problems []string
+	for _, mod := range direct {
+		found := false
+		for _, d := range deps {
+			if registeredAs(mod, d.Module) {
+				found = true
+			}
+		}
+		if !found {
+			problems = append(problems, fmt.Sprintf("go.mod requires %s directly but it is not registered in %s deps (D-076)", mod, modulesPath))
+		}
+	}
+	return problems
+}
+
+// usedByModules reports whether any of gomod's packages is imported by one of
+// the modules in usedBy.
+func usedByModules(gomod, usedBy []string, importers map[string]map[string]bool) bool {
+	for _, mod := range gomod {
+		for imp, by := range importers {
+			if !importsModule(imp, mod) {
+				continue
+			}
+			for _, m := range usedBy {
+				if by[m] {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// checkDepEntry validates one registry row; problem and planned are empty when
+// the row is fine.
+func checkDepEntry(d depEntry, direct, tools []string, importers map[string]map[string]bool) (problem, planned string) {
+	var gomod []string
+	for _, mod := range direct {
+		if registeredAs(mod, d.Module) {
+			gomod = append(gomod, mod)
+		}
+	}
+	switch d.Status {
+	case "planned":
+		return "", fmt.Sprintf("%s (used_by %s): planned, not enforced", d.Module, strings.Join(d.UsedBy, ","))
+	case "active":
+	default:
+		return fmt.Sprintf("deps entry %s: status %q must be active or planned", d.Module, d.Status), ""
+	}
+	if d.Kind == "tool" {
+		for _, t := range tools {
+			if importsModule(t, d.Module) {
+				return "", ""
+			}
+		}
+		return fmt.Sprintf("deps entry %s is a tool but go.mod has no tool directive for it", d.Module), ""
+	}
+	if len(gomod) == 0 {
+		return fmt.Sprintf("deps entry %s is active but go.mod has no direct requirement for it", d.Module), ""
+	}
+	if d.Required && !usedByModules(gomod, d.UsedBy, importers) {
+		return fmt.Sprintf("deps entry %s is required and active but no package of %s imports it", d.Module, strings.Join(d.UsedBy, ",")), ""
+	}
+	return "", ""
+}
+
 // depsRegistry implements check:deps-registry. problems fail the check;
 // planned are registered-but-not-yet-wired entries, reported only.
 func depsRegistry(root string) (problems, planned []string, err error) {
@@ -90,81 +227,20 @@ func depsRegistry(root string) (problems, planned []string, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	pkgMod := map[string]string{} // package dir -> module name
-	for _, m := range mods.Modules {
-		for _, p := range m.Packages {
-			pkgMod[p] = m.Module
-		}
-	}
-	// importers[import path] = set of module names whose non-test files import it.
-	importers := map[string]map[string]bool{}
-	err = eachGoFile(root, func(rel string) bool { return !isTestFile(rel) }, func(rel string, _ *token.FileSet, f *ast.File) {
-		mod := pkgMod[path.Dir(rel)]
-		for _, imp := range f.Imports {
-			p, err := strconv.Unquote(imp.Path.Value)
-			if err != nil {
-				continue
-			}
-			if importers[p] == nil {
-				importers[p] = map[string]bool{}
-			}
-			importers[p][mod] = true
-		}
-	})
+	importers, err := moduleImporters(root, mods)
 	if err != nil {
 		return nil, nil, err
 	}
-
 	direct := directRequires(goMod)
-	for _, mod := range direct {
-		found := false
-		for _, d := range reg.Deps {
-			if registeredAs(mod, d.Module) {
-				found = true
-			}
-		}
-		if !found {
-			problems = append(problems, fmt.Sprintf("go.mod requires %s directly but it is not registered in %s deps (D-076)", mod, modulesPath))
-		}
-	}
+	tools := toolPackages(goMod)
+	problems = append(unregisteredDirect(direct, reg.Deps), unregisteredTools(tools, reg.Deps)...)
 	for _, d := range reg.Deps {
-		var gomod []string
-		for _, mod := range direct {
-			if registeredAs(mod, d.Module) {
-				gomod = append(gomod, mod)
-			}
+		prob, plan := checkDepEntry(d, direct, tools, importers)
+		if prob != "" {
+			problems = append(problems, prob)
 		}
-		switch d.Status {
-		case "planned":
-			planned = append(planned, fmt.Sprintf("%s (used_by %s): planned, not enforced", d.Module, strings.Join(d.UsedBy, ",")))
-			continue
-		case "active":
-		default:
-			problems = append(problems, fmt.Sprintf("deps entry %s: status %q must be active or planned", d.Module, d.Status))
-			continue
-		}
-		if len(gomod) == 0 {
-			problems = append(problems, fmt.Sprintf("deps entry %s is active but go.mod has no direct requirement for it", d.Module))
-			continue
-		}
-		if !d.Required {
-			continue
-		}
-		used := false
-		for _, mod := range gomod {
-			for imp, by := range importers {
-				if !importsModule(imp, mod) {
-					continue
-				}
-				for _, m := range d.UsedBy {
-					if by[m] {
-						used = true
-					}
-				}
-			}
-		}
-		if !used {
-			problems = append(problems, fmt.Sprintf("deps entry %s is required and active but no package of %s imports it", d.Module, strings.Join(d.UsedBy, ",")))
+		if plan != "" {
+			planned = append(planned, plan)
 		}
 	}
 	return problems, planned, nil
@@ -230,6 +306,17 @@ modules:
 		{"unknown status", map[string]string{
 			"go.mod": goMod("github.com/c/x v1.0.0"),
 		}, `{ module: github.com/c/x, used_by: [store], required: true, status: maybe }`, `status "maybe"`, ""},
+		{"tool registered and pinned", map[string]string{
+			"go.mod": goMod("github.com/c/x v1.0.0") + "\ntool github.com/a/lib/cmd/lint\n",
+		}, `{ module: github.com/a/lib, kind: tool, used_by: [store], required: true, status: active }
+  - { module: github.com/c/x, used_by: [store], required: false, status: active }`, "", ""},
+		{"tool directive without an entry", map[string]string{
+			"go.mod": goMod("github.com/c/x v1.0.0") + "\ntool (\n\tgithub.com/a/lib/cmd/lint\n)\n",
+		}, `{ module: github.com/c/x, used_by: [store], required: false, status: active }`, "go.mod has tool github.com/a/lib/cmd/lint", ""},
+		{"tool entry without a directive", map[string]string{
+			"go.mod": goMod("github.com/c/x v1.0.0"),
+		}, `{ module: github.com/a/lib, kind: tool, used_by: [store], required: true, status: active }
+  - { module: github.com/c/x, used_by: [store], required: false, status: active }`, "no tool directive", ""},
 		{"prefix is not a major suffix", map[string]string{
 			"go.mod": goMod("github.com/a/lib-extra v1.0.0"),
 		}, `{ module: github.com/a/lib, used_by: [forge], required: false, status: planned }`, "github.com/a/lib-extra", ""},
@@ -257,6 +344,13 @@ modules:
 				t.Errorf("want planned report containing %q, got:\n%s", c.plan, gotPlan)
 			}
 		})
+	}
+}
+
+func TestToolPackages(t *testing.T) {
+	got := toolPackages([]byte("module m\n\ntool a/b/cmd\n\ntool (\n\tc/d/cmd // x\n)\n"))
+	if strings.Join(got, ",") != "a/b/cmd,c/d/cmd" {
+		t.Errorf("toolPackages = %v", got)
 	}
 }
 

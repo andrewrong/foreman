@@ -18,7 +18,7 @@ func TestSessionRefreshDoesNotRunSessionConfig(t *testing.T) {
 	mustErr(t, err)
 	root := t.TempDir()
 	dir := filepath.Join(root, "sess")
-	_, err = Create(ctx, r, m, dir, Spec{ReqID: "r1", BaseBranch: "main", Identity: sessionIdent})
+	_, err = Create(ctx, r, m, dir, Spec{ReqID: "r1", BaseBranch: "main", Identity: sessionIdent()})
 	mustErr(t, err)
 
 	// What a hostile session would leave behind: every way git runs a program.
@@ -54,7 +54,7 @@ func TestSessionRefreshDoesNotRunSessionConfig(t *testing.T) {
 	tip := must(r.Line(ctx, integ, "rev-parse", "HEAD"))
 	mustErr(t, m.ImportBranch(ctx, integ, "foreman/r1"))
 
-	repo, err := Refresh(ctx, r, m, dir, Spec{ReqID: "r1", BaseBranch: "foreman/r1", Identity: sessionIdent})
+	repo, err := Refresh(ctx, r, m, dir, Spec{ReqID: "r1", BaseBranch: "foreman/r1", Identity: sessionIdent()})
 	mustErr(t, err)
 
 	if _, err := os.Stat(marker); err == nil {
@@ -80,7 +80,7 @@ func TestSessionRefreshDoesNotRunSessionConfig(t *testing.T) {
 		}
 	}
 	// Idempotent: a repeat (merge-back is re-run after a crash) works.
-	if _, err := Refresh(ctx, r, m, dir, Spec{ReqID: "r1", BaseBranch: "foreman/r1", Identity: sessionIdent}); err != nil {
+	if _, err := Refresh(ctx, r, m, dir, Spec{ReqID: "r1", BaseBranch: "foreman/r1", Identity: sessionIdent()}); err != nil {
 		t.Fatalf("second refresh: %v", err)
 	}
 }

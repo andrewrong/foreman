@@ -38,31 +38,15 @@ func put(t *testing.T, dir, name, content string, mode os.FileMode) string {
 	return p
 }
 
-func TestSecretFileCheck(t *testing.T) {
-	dir := mkdir(t, 0o700)
-	good := put(t, dir, "foreman.github.token", goodToken+"\n", 0o600)
-	strict := put(t, dir, "foreman.strict", goodToken, 0o400)
+type fileCheckCase struct {
+	name string
+	mk   func(t *testing.T) string
+	want error
+}
 
-	t.Run("accepts 0600 and stricter", func(t *testing.T) {
-		for _, p := range []string{good, strict} {
-			if err := CheckFile(p); err != nil {
-				t.Fatalf("%s: %v", p, err)
-			}
-		}
-		s, err := Read(dir, "github.token", Token)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if s.Reveal() != goodToken {
-			t.Fatal("value not trimmed or not read")
-		}
-	})
-
-	cases := []struct {
-		name string
-		mk   func(t *testing.T) string
-		want error
-	}{
+// fileCheckCases lists the files CheckFile and ReadFile must refuse.
+func fileCheckCases(dir, good string) []fileCheckCase {
+	return []fileCheckCase{
 		{"group readable", func(t *testing.T) string { return put(t, dir, "foreman.g", goodToken, 0o640) }, ErrMode},
 		{"world readable", func(t *testing.T) string { return put(t, dir, "foreman.w", goodToken, 0o604) }, ErrMode},
 		{"symlink", func(t *testing.T) string {
@@ -88,6 +72,16 @@ func TestSecretFileCheck(t *testing.T) {
 			return put(t, d, "foreman.x", goodToken, 0o600)
 		}, ErrParentWrite},
 	}
+}
+
+func TestSecretFileCheck(t *testing.T) {
+	dir := mkdir(t, 0o700)
+	good := put(t, dir, "foreman.github.token", goodToken+"\n", 0o600)
+	strict := put(t, dir, "foreman.strict", goodToken, 0o400)
+
+	t.Run("accepts 0600 and stricter", func(t *testing.T) { checkAcceptsStrict(t, dir, good, strict) })
+
+	cases := fileCheckCases(dir, good)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			p := c.mk(t)
@@ -108,40 +102,11 @@ func TestSecretFileCheck(t *testing.T) {
 		}
 	})
 
-	t.Run("content rules", func(t *testing.T) {
-		short := put(t, dir, "foreman.short", "tooshort", 0o600)
-		empty := put(t, dir, "foreman.empty", " \n", 0o600)
-		if _, err := ReadFile(short, Token); !errors.Is(err, ErrTooShort) {
-			t.Fatalf("short token: %v", err)
-		}
-		if _, err := ReadFile(short, Plain); err != nil {
-			t.Fatalf("short plain: %v", err)
-		}
-		if _, err := ReadFile(empty, Plain); !errors.Is(err, ErrEmpty) {
-			t.Fatalf("empty: %v", err)
-		}
-	})
+	t.Run("content rules", func(t *testing.T) { checkContentRules(t, dir) })
 
-	t.Run("errors never contain the value", func(t *testing.T) {
-		p := put(t, dir, "foreman.leaky", goodToken, 0o644)
-		_, err := ReadFile(p, Token)
-		if err == nil || strings.Contains(err.Error(), "SECRETVALUE") {
-			t.Fatalf("err = %v", err)
-		}
-		short := put(t, dir, "foreman.short2", "SECRETVALUE", 0o600)
-		_, err = ReadFile(short, Token)
-		if err == nil || strings.Contains(err.Error(), "SECRETVALUE") {
-			t.Fatalf("err = %v", err)
-		}
-	})
+	t.Run("errors never contain the value", func(t *testing.T) { checkErrorsHideValue(t, dir) })
 
-	t.Run("bad names", func(t *testing.T) {
-		for _, n := range []string{"", "../x", "a/b", "..", "with space"} {
-			if _, err := Read(dir, n, Plain); !errors.Is(err, ErrBadName) {
-				t.Fatalf("%q: %v", n, err)
-			}
-		}
-	})
+	t.Run("bad names", func(t *testing.T) { checkBadNames(t, dir) })
 }
 
 func TestSecretsDirHygiene(t *testing.T) {
@@ -224,5 +189,55 @@ func TestSecretIsRedactedEverywhere(t *testing.T) {
 	}
 	if s.Reveal() != "hunter2-super-secret" || s.Len() != 20 {
 		t.Fatal("Reveal broken")
+	}
+}
+
+func checkAcceptsStrict(t *testing.T, dir, good, strict string) {
+	for _, p := range []string{good, strict} {
+		if err := CheckFile(p); err != nil {
+			t.Fatalf("%s: %v", p, err)
+		}
+	}
+	s, err := Read(dir, "github.token", Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Reveal() != goodToken {
+		t.Fatal("value not trimmed or not read")
+	}
+}
+
+func checkContentRules(t *testing.T, dir string) {
+	short := put(t, dir, "foreman.short", "tooshort", 0o600)
+	empty := put(t, dir, "foreman.empty", " \n", 0o600)
+	if _, err := ReadFile(short, Token); !errors.Is(err, ErrTooShort) {
+		t.Fatalf("short token: %v", err)
+	}
+	if _, err := ReadFile(short, Plain); err != nil {
+		t.Fatalf("short plain: %v", err)
+	}
+	if _, err := ReadFile(empty, Plain); !errors.Is(err, ErrEmpty) {
+		t.Fatalf("empty: %v", err)
+	}
+}
+
+func checkErrorsHideValue(t *testing.T, dir string) {
+	p := put(t, dir, "foreman.leaky", goodToken, 0o644)
+	_, err := ReadFile(p, Token)
+	if err == nil || strings.Contains(err.Error(), "SECRETVALUE") {
+		t.Fatalf("err = %v", err)
+	}
+	short := put(t, dir, "foreman.short2", "SECRETVALUE", 0o600)
+	_, err = ReadFile(short, Token)
+	if err == nil || strings.Contains(err.Error(), "SECRETVALUE") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func checkBadNames(t *testing.T, dir string) {
+	for _, n := range []string{"", "../x", "a/b", "..", "with space"} {
+		if _, err := Read(dir, n, Plain); !errors.Is(err, ErrBadName) {
+			t.Fatalf("%q: %v", n, err)
+		}
 	}
 }

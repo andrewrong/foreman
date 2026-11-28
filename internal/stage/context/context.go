@@ -2,6 +2,11 @@
 // (protocol-run.yaml PF-CTX). Stable content comes first (constitution,
 // language rules, spec) and varying content last, so consecutive sessions of
 // one requirement hit the prompt cache.
+//
+// The package is also the one place stage code shared by several stages lives
+// (MD-11): the session machinery of the code and review stages (Env, Request,
+// Result), the L1 reading used by the integrate and merge stages (ReadL1) and
+// the go test output parser used by check and L1.
 package context
 
 import (

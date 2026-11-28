@@ -54,7 +54,8 @@ package_limits:   # C-03
   test_lines: 4500
   file_lines: 600
 
-# 外部依赖登记表（C-14、D-076）。go.mod 的直接依赖必须与本表一致；required 的库必须被 used_by 中的模块导入。
+# 外部依赖登记表（C-14、D-076）。go.mod 的直接依赖与 tool 指令必须与本表一致；required 的库必须被 used_by 中的模块导入；
+# kind: tool 的条目是 go.mod tool 指令固定版本的开发工具，不被导入，由 used_by 的模块的测试运行（D-078）。
 # status: planned 表示已决定、尚未接入（check:deps-registry 只报告，不失败）。
 deps:
   - { module: go.yaml.in/yaml/v3,               used_by: [spec, pipeline], purpose: "读取 spec YAML（lint、smcheck、tablegen、configgen）", required: true, status: active, source: D-077, evidence: "2026-11-28 查：github yaml/go-yaml 由 YAML 组织维护，Apache-2.0，2026-11 有提交，573 star；原库 go-yaml/yaml（7k star）2025-04 已归档，本库为其继任者" }
@@ -62,3 +63,4 @@ deps:
   - { module: github.com/BurntSushi/toml,       used_by: [config],         purpose: "owner 配置 TOML 解析；MetaData.Undecoded 用于拒绝未知键", required: true, status: active, source: D-076, evidence: "2026-11-28 查：github BurntSushi/toml，MIT，5k star，2026-08 有提交" }
   - { module: github.com/google/go-github,      used_by: [forge],          purpose: "GitHub REST 客户端（LIB-1）", required: true, status: active, source: D-075, evidence: "2026-11-28 查：github google/go-github，Google 组织维护，BSD 三条款许可证，11351 star，2026-11-26 有提交，最近发版 v93.0.0（2026-10-15）；go.mod 固定 v93（当日 proxy 上的最新大版本）" }
   - { module: github.com/shurcooL/githubv4,     used_by: [forge],          purpose: "GitHub GraphQL 客户端（LIB-2，仅 FG-8）", required: true, status: active, source: D-075, evidence: "2026-11-28 查：github shurcooL/githubv4，MIT，1205 star，最近提交 2026-02-09（近 12 个月内），无语义化版本发版（go.mod 为伪版本）；导入数未查" }
+  - { module: github.com/golangci/golangci-lint/v2, kind: tool, used_by: [repocheck], purpose: "go tool golangci-lint run：gochecknoglobals（MD-13）与 gocognit（MD-14），由 check:golangci-lint 运行", required: true, status: active, source: D-078, evidence: "2026-11-28 查：github golangci/golangci-lint，由 golangci 组织维护，19555 star，2026-11-24 有提交，最近发版 v2.15.0（2026-10-16）；许可证为 GNU GPL 第三版，不在 D-077 许可清单（MIT、BSD、Apache 2.0、MPL 2.0）内：它只是开发期 go tool 运行的检查程序，不被任何 package 导入、不进入 foreman 二进制、不随产物分发，且 D-078 点名指定；许可证例外待 owner 确认" }

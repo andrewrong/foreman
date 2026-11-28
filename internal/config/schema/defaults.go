@@ -11,7 +11,9 @@ import (
 //go:generate go run ./configgen
 
 // RoleNames lists the roles a roles.toml may configure (skills.yaml).
-var RoleNames = []string{"intake", "planner", "coder", "reviewer", "rescuer", "diagnoser", "improver"}
+func RoleNames() []string {
+	return []string{"intake", "planner", "coder", "reviewer", "rescuer", "diagnoser", "improver"}
+}
 
 // Defaults are not written in code (D-074). keyTable (defaults_gen.go) is
 // generated from the keys table of design/config.yaml; the functions below
@@ -27,8 +29,8 @@ const (
 // DefaultRoles returns the per-role defaults. A role.*.<key> row applies to
 // every role in RoleNames; a role.<name>.<key> row overrides it for one role.
 func DefaultRoles() map[string]Role {
-	roles := make(map[string]Role, len(RoleNames))
-	for _, n := range RoleNames {
+	roles := make(map[string]Role, len(RoleNames()))
+	for _, n := range RoleNames() {
 		roles[n] = Role{}
 	}
 	for _, wildcard := range []bool{true, false} {
@@ -37,7 +39,7 @@ func DefaultRoles() map[string]Role {
 			if r.File != RolesFile || len(parts) != 3 || parts[0] != "role" || (parts[1] == "*") != wildcard {
 				continue
 			}
-			for _, n := range RoleNames {
+			for _, n := range RoleNames() {
 				if parts[1] != "*" && parts[1] != n {
 					continue
 				}
@@ -125,11 +127,13 @@ func fieldByKey(v reflect.Value, key string) (reflect.Value, bool) {
 	return reflect.Value{}, false
 }
 
-var durationType = reflect.TypeOf(Duration(0))
+func durationType() reflect.Type {
+	return reflect.TypeOf(Duration(0))
+}
 
 func setFromString(f reflect.Value, s string) error {
 	switch {
-	case f.Type() == durationType:
+	case f.Type() == durationType():
 		d, err := time.ParseDuration(s)
 		if err != nil {
 			return err

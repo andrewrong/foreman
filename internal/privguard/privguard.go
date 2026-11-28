@@ -92,22 +92,22 @@ func New(cfg Config) (*Scanner, error) {
 	return sc, nil
 }
 
-var defaultScanner = func() *Scanner {
+func defaultScanner() *Scanner {
 	sc, err := New(Config{})
 	if err != nil {
 		panic(err)
 	}
 	return sc
-}()
+}
 
 // Scan checks one file with the default rules: the P3 file rules, then the
 // P1/P2 text rules on the content. name is used in findings and for the
 // file-type rule only; it never exempts content.
-func Scan(name string, content []byte) []Finding { return defaultScanner.Scan(name, content) }
+func Scan(name string, content []byte) []Finding { return defaultScanner().Scan(name, content) }
 
 // Redact replaces everything the text rules match with a [redacted:kind]
 // marker, using the default (owner-independent) rules.
-func Redact(text string) string { return defaultScanner.Redact(text) }
+func Redact(text string) string { return defaultScanner().Redact(text) }
 
 // Scan is Scan with this scanner's config.
 func (sc *Scanner) Scan(name string, content []byte) []Finding {

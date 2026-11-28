@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/andrewrong/foreman/internal/spec/model"
-	ctxmd "github.com/andrewrong/foreman/internal/stage/context"
 )
 
 // timeLayout is the fixed-width format internal/pipeline/state writes.
@@ -240,8 +239,8 @@ func (s *Scheduler) lastCheckFailure(ctx context.Context, stepID string) (tests 
 }
 
 // openReviewFindings returns the step's open kind=review findings, oldest first.
-func (s *Scheduler) openReviewFindings(ctx context.Context, stepID string) ([]ctxmd.FindingLine, error) {
-	var out []ctxmd.FindingLine
+func (s *Scheduler) openReviewFindings(ctx context.Context, stepID string) ([]FindingLine, error) {
+	var out []FindingLine
 	err := s.d.DB.Read(ctx, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, `SELECT id, severity, location, problem, close_when FROM findings
 			WHERE scope = ? AND kind = 'review' AND status = 'open' ORDER BY CAST(SUBSTR(id, 2) AS INTEGER)`, stepID)
@@ -250,7 +249,7 @@ func (s *Scheduler) openReviewFindings(ctx context.Context, stepID string) ([]ct
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var f ctxmd.FindingLine
+			var f FindingLine
 			var loc sql.NullString
 			if err := rows.Scan(&f.ID, &f.Severity, &loc, &f.Problem, &f.CloseWhen); err != nil {
 				return err

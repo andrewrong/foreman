@@ -18,7 +18,7 @@ import (
 	"github.com/andrewrong/foreman/internal/sandbox/launch"
 	"github.com/andrewrong/foreman/internal/sandbox/policy"
 	"github.com/andrewrong/foreman/internal/spec/model"
-	"github.com/andrewrong/foreman/internal/stage/code"
+	ctxmd "github.com/andrewrong/foreman/internal/stage/context"
 	wsgit "github.com/andrewrong/foreman/internal/workspace/git"
 	"github.com/andrewrong/foreman/internal/workspace/integrate"
 	"github.com/andrewrong/foreman/internal/workspace/session"
@@ -93,7 +93,7 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	return &world{t: t, root: root, git: gr, sess: sess, integ: integ, env: Env{
-		Session: code.Env{Launcher: launch.Launcher{PassThrough: true}, Adapter: ad, Timeout: time.Minute,
+		Session: ctxmd.Env{Launcher: launch.Launcher{PassThrough: true}, Adapter: ad, Timeout: time.Minute,
 			Policy: policy.Inputs{DenyWrite: []string{filepath.Join(root, "db")}, Path: wsgit.DefaultPath}},
 		Integ: integ, Mirror: m}}
 }
@@ -120,7 +120,7 @@ func (w *world) request(resultBody string, mb bool) Request {
 	if err := os.WriteFile(script, raw, 0o600); err != nil {
 		w.t.Fatal(err)
 	}
-	r := Request{Session: code.Request{RunID: "r2", StepID: "r1/S1", Role: api.RoleReviewer, Model: "scripted",
+	r := Request{Session: ctxmd.Request{RunID: "r2", StepID: "r1/S1", Role: api.RoleReviewer, Model: "scripted",
 		RunDir: filepath.Join(w.root, "runs", "r2"), SessionRepo: w.sess.Dir, Context: "# ctx\n", Prompt: "review\n",
 		Extra: map[string]string{scripted.ExtraScript: script}}}
 	if mb {

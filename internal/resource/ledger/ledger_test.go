@@ -6,7 +6,9 @@ import (
 	"time"
 )
 
-var t0 = time.Unix(1_800_000_000, 0)
+func t0() time.Time {
+	return time.Unix(1_800_000_000, 0)
+}
 
 const res = "model/claude/max-1/7d"
 
@@ -21,24 +23,24 @@ func available(l *Ledger, capacity, used int64, readingAt time.Time) int64 {
 
 func TestSettleActualBelowReservationReturnsDifference(t *testing.T) {
 	l := New()
-	if err := l.Reserve(Reservation{ID: "a", Items: items(20), At: t0}); err != nil {
+	if err := l.Reserve(Reservation{ID: "a", Items: items(20), At: t0()}); err != nil {
 		t.Fatal(err)
 	}
-	if got := available(l, 100, 50, t0); got != 30 {
+	if got := available(l, 100, 50, t0()); got != 30 {
 		t.Fatalf("available while reserved = %d, want 30", got)
 	}
-	freed, err := l.Settle("a", items(5), t0.Add(time.Minute))
+	freed, err := l.Settle("a", items(5), t0().Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(freed) != 1 || freed[0].Amount != 15 {
 		t.Fatalf("freed = %+v, want 15", freed)
 	}
-	if got := available(l, 100, 50, t0); got != 45 {
+	if got := available(l, 100, 50, t0()); got != 45 {
 		t.Fatalf("available after settle = %d, want 45", got)
 	}
 	// A reading taken after the settlement already contains the consumption.
-	if got := available(l, 100, 55, t0.Add(2*time.Minute)); got != 45 {
+	if got := available(l, 100, 55, t0().Add(2*time.Minute)); got != 45 {
 		t.Fatalf("available after fresh reading = %d, want 45", got)
 	}
 }
@@ -58,7 +60,7 @@ func TestRebuildRestoresReservedFromRuns(t *testing.T) {
 	if got := len(l.Open()); got != 2 {
 		t.Fatalf("open = %d", got)
 	}
-	if _, err := l.Settle("run-1", nil, t0); err != nil {
+	if _, err := l.Settle("run-1", nil, t0()); err != nil {
 		t.Fatal(err)
 	}
 	if got := l.Reserved(res); got != 8 {
@@ -69,9 +71,9 @@ func TestRebuildRestoresReservedFromRuns(t *testing.T) {
 func TestPruneForgetsOldSettlements(t *testing.T) {
 	l := New()
 	_ = l.Reserve(Reservation{ID: "a", Items: items(1)})
-	_, _ = l.Settle("a", items(1), t0)
-	l.Prune(t0.Add(time.Second))
-	if n, _ := l.SettledSince(res, t0.Add(-time.Hour)); n != 0 {
+	_, _ = l.Settle("a", items(1), t0())
+	l.Prune(t0().Add(time.Second))
+	if n, _ := l.SettledSince(res, t0().Add(-time.Hour)); n != 0 {
 		t.Fatalf("settled = %d after prune", n)
 	}
 }

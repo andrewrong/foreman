@@ -26,38 +26,53 @@ func checkPhase(files []specFile) []Finding {
 				}
 			}
 		}
-		var walk func(v any, parentV2 bool)
-		walk = func(v any, parentV2 bool) {
-			switch x := v.(type) {
-			case map[string]any:
-				id := str(x["id"])
-				tagged := parentV2
-				if p, ok := x["phase"]; ok && id != "" {
-					if str(p) != phaseV2 {
-						out = append(out, Finding{"F10", f.rel, id, "phase must be v2"})
-					} else {
-						tagged = true
-					}
-				}
-				if tagged && id != "" {
-					v2[id] = true
-					v2[base+":"+id] = true
-				}
-				for _, k := range sortedKeys(x) {
-					walk(x[k], tagged)
-				}
-			case []any:
-				for _, e := range x {
-					walk(e, parentV2)
-				}
-			}
-		}
-		walk(f.root, fileV2)
+		w := &phaseWalker{file: f.rel, base: base, v2: v2}
+		w.walk(f.root, fileV2)
+		out = append(out, w.out...)
 		if fileV2 {
 			v2[base] = true
 		}
 	}
+	return append(out, checkV2Tests(files, v2)...)
+}
 
+// phaseWalker collects v2-tagged ids of one spec file.
+type phaseWalker struct {
+	file string
+	base string
+	v2   map[string]bool
+	out  []Finding
+}
+
+func (w *phaseWalker) walk(v any, parentV2 bool) {
+	switch x := v.(type) {
+	case map[string]any:
+		id := str(x["id"])
+		tagged := parentV2
+		if p, ok := x["phase"]; ok && id != "" {
+			if str(p) != phaseV2 {
+				w.out = append(w.out, Finding{"F10", w.file, id, "phase must be v2"})
+			} else {
+				tagged = true
+			}
+		}
+		if tagged && id != "" {
+			w.v2[id] = true
+			w.v2[w.base+":"+id] = true
+		}
+		for _, k := range sortedKeys(x) {
+			w.walk(x[k], tagged)
+		}
+	case []any:
+		for _, e := range x {
+			w.walk(e, parentV2)
+		}
+	}
+}
+
+// checkV2Tests reports tests that cover only phase: v2 items.
+func checkV2Tests(files []specFile, v2 map[string]bool) []Finding {
+	var out []Finding
 	for _, t := range items(files, testsFile, "tests") {
 		covers := strList(t["covers"])
 		if len(covers) == 0 {

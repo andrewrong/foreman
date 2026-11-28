@@ -23,16 +23,16 @@ func TestScenarioFastLaneHappyPath(t *testing.T) {
 		step, row, state, stage, reason string
 		ev                              Event
 	}{
-		{work, "S04", "running", "code", "", dispatchOK},
+		{work, "S04", "running", "code", "", dispatchOK()},
 		{work, "S40", "queued", "check", "", Event{Name: "run_ok"}},
-		{work, "S05", "running", "check", "", dispatchOK},
+		{work, "S05", "running", "check", "", dispatchOK()},
 		{work, "S41", "queued", "review", "", Event{Name: "check_pass"}},
-		{work, "S06", "running", "review", "", dispatchOK},
+		{work, "S06", "running", "review", "", dispatchOK()},
 		{work, "S42", "done", "review", "", Event{Name: "review_approve", Head: "c0ffee"}},
 		{integ, "S10", "queued", "check", "", Event{Name: "deps_done"}},
-		{integ, "S07", "waiting", "check", "ci", dispatchOK},
+		{integ, "S07", "waiting", "check", "ci", dispatchOK()},
 		{integ, "S29", "queued", "merge", "", Event{Name: "l1_pass", SingleStep: "one"}},
-		{integ, "S08", "running", "merge", "", dispatchOK},
+		{integ, "S08", "running", "merge", "", dispatchOK()},
 		{integ, "S44", "done", "merge", "", Event{Name: "merged"}},
 	}
 	for _, s := range steps {
@@ -86,9 +86,9 @@ func TestScenarioCheckFailCapEscalates(t *testing.T) {
 		if info.Counters["check_fail"] != i {
 			t.Fatalf("check_fail = %d, want %d", info.Counters["check_fail"], i)
 		}
-		wantRow(t, e.transition(st, dispatchOK).RowID, "S04")
+		wantRow(t, e.transition(st, dispatchOK()).RowID, "S04")
 		wantRow(t, e.transition(st, Event{Name: "run_ok"}).RowID, "S40")
-		wantRow(t, e.transition(st, dispatchOK).RowID, "S05")
+		wantRow(t, e.transition(st, dispatchOK()).RowID, "S05")
 	}
 	// Coder Runs: check_fail 1 -> sonnet; 2 and 3 (cap-1 reached) -> opus.
 	var models []string
@@ -251,7 +251,7 @@ func TestScenarioOwnerAskCauseAndResume(t *testing.T) {
 		t.Errorf("ask %s/%s after answer", status, h)
 	}
 	// The counter was cleared once: the next infra failure counts from zero.
-	wantRow(t, e.transition(st, dispatchOK).RowID, "S04")
+	wantRow(t, e.transition(st, dispatchOK()).RowID, "S04")
 	wantRow(t, e.transition(st, Event{Name: "infra"}).RowID, "S71")
 	if e.info(st).Counters["infra"] != 1 {
 		t.Errorf("infra = %d after one new failure, want 1", e.info(st).Counters["infra"])

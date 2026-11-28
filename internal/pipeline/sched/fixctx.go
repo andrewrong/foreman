@@ -3,8 +3,6 @@ package sched
 import (
 	"context"
 	"database/sql"
-
-	ctxmd "github.com/andrewrong/foreman/internal/stage/context"
 )
 
 // fixContext adds what a fix step's coder needs. The step's acceptance items
@@ -14,7 +12,7 @@ import (
 // findings' problem text, and the integrate step's open check finding supplies
 // "Previous failure" (failing tests, log tail) unless the fix step has failed
 // a check of its own.
-func (s *Scheduler) fixContext(ctx context.Context, st stepRow, in *ctxmd.Input) error {
+func (s *Scheduler) fixContext(ctx context.Context, st stepRow, in *Brief) error {
 	in.StepAcceptance = nil
 	for _, id := range st.Acceptance {
 		var problem, closeWhen string
@@ -22,21 +20,21 @@ func (s *Scheduler) fixContext(ctx context.Context, st stepRow, in *ctxmd.Input)
 			return tx.QueryRowContext(ctx, `SELECT problem, close_when FROM findings WHERE id = ?`, id).Scan(&problem, &closeWhen)
 		})
 		if err == sql.ErrNoRows {
-			in.StepAcceptance = append(in.StepAcceptance, ctxmd.Acc{ID: id})
+			in.StepAcceptance = append(in.StepAcceptance, Acc{ID: id})
 			continue
 		}
 		if err != nil {
 			return err
 		}
-		in.StepAcceptance = append(in.StepAcceptance, ctxmd.Acc{ID: id, EARS: problem + " (close when: " + closeWhen + ")"})
+		in.StepAcceptance = append(in.StepAcceptance, Acc{ID: id, EARS: problem + " (close when: " + closeWhen + ")"})
 	}
-	if st.FixFor == "" || in.Role == "reviewer" {
+	if st.FixFor == "" || in.Role == RoleReviewer {
 		return nil
 	}
 	tests, tail, ok, err := s.lastCheckFailure(ctx, st.FixFor)
 	if err != nil || !ok {
 		return err
 	}
-	in.LastFailure = &ctxmd.Failure{FailingTests: tests, LogTail: tail}
+	in.LastFailure = &Failure{FailingTests: tests, LogTail: tail}
 	return nil
 }

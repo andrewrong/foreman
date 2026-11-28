@@ -200,4 +200,6 @@ func wantInfo(t *testing.T, got stepInfo, state, stage, reason string) {
 	}
 }
 
-var dispatchOK = Event{Name: "dispatch", Deps: "done", Lease: "ok", Budget: "ok"}
+func dispatchOK() Event {
+	return Event{Name: "dispatch", Deps: "done", Lease: "ok", Budget: "ok"}
+}

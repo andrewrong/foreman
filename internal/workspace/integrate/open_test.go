@@ -28,7 +28,7 @@ func (m *memHalts) ClearHalt(context.Context) error { m.set = false; return nil 
 func TestOpenReusesAnInitialisedDirectory(t *testing.T) {
 	ctx := context.Background()
 	w := newWorld(t, "main")
-	d, err := Open(ctx, w.r, w.mirror, w.integ.Path, integIdent)
+	d, err := Open(ctx, w.r, w.mirror, w.integ.Path, integIdent())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,22 +45,22 @@ func TestOpenReusesAnInitialisedDirectory(t *testing.T) {
 func TestOpenRefusesAnythingInitDidNotMake(t *testing.T) {
 	ctx := context.Background()
 	w := newWorld(t, "main")
-	if _, err := Open(ctx, w.r, w.mirror, filepath.Join(t.TempDir(), "absent"), integIdent); err == nil {
+	if _, err := Open(ctx, w.r, w.mirror, filepath.Join(t.TempDir(), "absent"), integIdent()); err == nil {
 		t.Error("Open accepted a missing directory")
 	}
 	empty := t.TempDir()
-	if _, err := Open(ctx, w.r, w.mirror, empty, integIdent); err == nil {
+	if _, err := Open(ctx, w.r, w.mirror, empty, integIdent()); err == nil {
 		t.Error("Open accepted a directory that is not a git checkout")
 	}
 	if err := os.WriteFile(filepath.Join(empty, ".git"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(ctx, w.r, w.mirror, empty, integIdent); err == nil {
+	if _, err := Open(ctx, w.r, w.mirror, empty, integIdent()); err == nil {
 		t.Error("Open accepted a .git file")
 	}
 	// A checkout whose origin was re-pointed (push destination changed) is not ours.
 	must(w.r.Run(ctx, w.integ.Path, "remote", "set-url", "origin", "/somewhere/else.git"))
-	if _, err := Open(ctx, w.r, w.mirror, w.integ.Path, integIdent); err == nil {
+	if _, err := Open(ctx, w.r, w.mirror, w.integ.Path, integIdent()); err == nil {
 		t.Error("Open accepted a checkout whose origin is not the mirror's origin")
 	}
 }
@@ -69,7 +69,7 @@ func TestOpenRefusesWeakenedPushDefault(t *testing.T) {
 	ctx := context.Background()
 	w := newWorld(t, "main")
 	must(w.r.Run(ctx, w.integ.Path, "config", "push.default", "current"))
-	if _, err := Open(ctx, w.r, w.mirror, w.integ.Path, integIdent); err == nil {
+	if _, err := Open(ctx, w.r, w.mirror, w.integ.Path, integIdent()); err == nil {
 		t.Error("Open accepted push.default other than nothing")
 	}
 }
@@ -91,7 +91,7 @@ func TestPushHaltIsPersistedAndReloaded(t *testing.T) {
 		t.Fatalf("stored halt %+v (saves %d), want branch main, after %s", store.info, store.saves, moved.After)
 	}
 
-	d2, err := Open(ctx, w.r, w.mirror, w.integ.Path, integIdent)
+	d2, err := Open(ctx, w.r, w.mirror, w.integ.Path, integIdent())
 	mustErr(t, err)
 	if d2.Halted() {
 		t.Fatal("halted before the store was attached")

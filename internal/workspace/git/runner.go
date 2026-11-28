@@ -19,14 +19,16 @@ import (
 const DefaultPath = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin"
 
 // HardenedArgs are prepended to every git invocation.
-var HardenedArgs = []string{
-	"-c", "core.hooksPath=/dev/null",
-	"-c", "core.fsmonitor=",
-	"-c", "protocol.file.allow=always",
-	// No detached background work (auto gc / maintenance): foremand must not
-	// leave git processes writing into its directories after a call returns.
-	"-c", "gc.auto=0",
-	"-c", "maintenance.auto=false",
+func HardenedArgs() []string {
+	return []string{
+		"-c", "core.hooksPath=/dev/null",
+		"-c", "core.fsmonitor=",
+		"-c", "protocol.file.allow=always",
+		// No detached background work (auto gc / maintenance): foremand must not
+		// leave git processes writing into its directories after a call returns.
+		"-c", "gc.auto=0",
+		"-c", "maintenance.auto=false",
+	}
 }
 
 // Identity is the commit identity injected with -c user.name/-c user.email.
@@ -149,7 +151,7 @@ func (r *Runner) Env() []string {
 
 // Argv returns the full argument vector (after the binary) for args.
 func (r *Runner) Argv(args ...string) []string {
-	argv := append([]string(nil), HardenedArgs...)
+	argv := append([]string(nil), HardenedArgs()...)
 	if id := r.cfg.Ident; id != nil {
 		argv = append(argv, "-c", "user.name="+id.Name, "-c", "user.email="+id.Email)
 	}

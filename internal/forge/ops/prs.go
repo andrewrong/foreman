@@ -59,7 +59,7 @@ func toPR(p *github.PullRequest) PR {
 // PRCreate is OP-01.
 func (o *Ops) PRCreate(ctx context.Context, call Call, r Repo, in NewPR) (PR, error) {
 	var pr PR
-	err := o.do(ctx, call, opPRCreate, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	err := o.do(ctx, call, opPRCreate(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		p, resp, err := gh.PullRequests.Create(ctx, r.Owner, r.Name, github.CreatePullRequest{
 			Title: &in.Title, Head: in.Head, Base: in.Base, Body: &in.Body, Draft: &in.Draft,
 		})
@@ -75,7 +75,7 @@ func (o *Ops) PRCreate(ctx context.Context, call Call, r Repo, in NewPR) (PR, er
 // has no mergeable or check data (FG-7).
 func (o *Ops) PRListOpen(ctx context.Context, call Call, r Repo) ([]PR, error) {
 	var prs []PR
-	err := o.do(ctx, call, opPRListOpen, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	err := o.do(ctx, call, opPRListOpen(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		ps, resp, err := gh.PullRequests.List(ctx, r.Owner, r.Name, &github.PullRequestListOptions{
 			State: "open", ListOptions: github.ListOptions{PerPage: 100},
 		})
@@ -90,7 +90,7 @@ func (o *Ops) PRListOpen(ctx context.Context, call Call, r Repo) ([]PR, error) {
 // PRGet is OP-03.
 func (o *Ops) PRGet(ctx context.Context, call Call, r Repo, n int) (PR, error) {
 	var pr PR
-	err := o.do(ctx, call, opPRGet, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	err := o.do(ctx, call, opPRGet(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		p, resp, err := gh.PullRequests.Get(ctx, r.Owner, r.Name, n)
 		if p != nil {
 			pr = toPR(p)
@@ -107,7 +107,7 @@ func (o *Ops) PRMerge(ctx context.Context, call Call, r Repo, n int, sha, method
 		method = "squash"
 	}
 	var res MergeResult
-	err := o.do(ctx, call, opPRMerge, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	err := o.do(ctx, call, opPRMerge(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		m, resp, err := gh.PullRequests.Merge(ctx, r.Owner, r.Name, n, "", &github.PullRequestOptions{SHA: sha, MergeMethod: method})
 		if m != nil {
 			res = MergeResult{SHA: m.GetSHA(), Merged: m.GetMerged(), Message: m.GetMessage()}
@@ -124,7 +124,7 @@ func (o *Ops) PRMerge(ctx context.Context, call Call, r Repo, n int, sha, method
 // PRUpdateBranch is OP-05; it returns GitHub's message (202 when queued).
 func (o *Ops) PRUpdateBranch(ctx context.Context, call Call, r Repo, n int, expectedHead string) (string, error) {
 	var msg string
-	err := o.do(ctx, call, opPRUpdateBranch, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	err := o.do(ctx, call, opPRUpdateBranch(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		body := github.UpdatePullRequestBranchRequest{}
 		if expectedHead != "" {
 			body.ExpectedHeadSHA = &expectedHead
@@ -147,7 +147,7 @@ func (o *Ops) PRUpdateBranch(ctx context.Context, call Call, r Repo, n int, expe
 
 // PRComment is OP-06.
 func (o *Ops) PRComment(ctx context.Context, call Call, r Repo, n int, text string) error {
-	return o.do(ctx, call, opPRComment, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	return o.do(ctx, call, opPRComment(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		_, resp, err := gh.Issues.CreateComment(ctx, r.Owner, r.Name, n, github.IssueCommentRequest{Body: text})
 		return resp, err
 	})
@@ -155,7 +155,7 @@ func (o *Ops) PRComment(ctx context.Context, call Call, r Repo, n int, text stri
 
 // PRClose is OP-13.
 func (o *Ops) PRClose(ctx context.Context, call Call, r Repo, n int) error {
-	return o.do(ctx, call, opPRClose, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	return o.do(ctx, call, opPRClose(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		state := "closed"
 		_, resp, err := gh.PullRequests.Edit(ctx, r.Owner, r.Name, n, &github.PullRequest{State: &state})
 		return resp, err
@@ -164,7 +164,7 @@ func (o *Ops) PRClose(ctx context.Context, call Call, r Repo, n int) error {
 
 // RefDelete is OP-14: delete the remote branch refs/heads/<branch>.
 func (o *Ops) RefDelete(ctx context.Context, call Call, r Repo, branch string) error {
-	return o.do(ctx, call, opRefDelete, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	return o.do(ctx, call, opRefDelete(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		return gh.Git.DeleteRef(ctx, r.Owner, r.Name, "heads/"+branch)
 	})
 }
@@ -179,7 +179,7 @@ type Protection struct {
 // BranchProtectionGet is OP-12.
 func (o *Ops) BranchProtectionGet(ctx context.Context, call Call, r Repo, branch string) (Protection, error) {
 	var raw []byte
-	err := o.do(ctx, call, opBranchProt, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	err := o.do(ctx, call, opBranchProt(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		p, resp, err := gh.Repositories.GetBranchProtection(ctx, r.Owner, r.Name, branch)
 		if err == nil {
 			raw, err = json.Marshal(p)

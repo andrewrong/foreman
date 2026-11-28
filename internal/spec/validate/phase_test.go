@@ -6,10 +6,12 @@ import (
 	"github.com/andrewrong/foreman/internal/spec/model"
 )
 
-var allPhases = map[model.Phase]bool{
-	model.PhaseDraft: true, model.PhaseDropped: true, model.PhaseParked: true,
-	model.PhaseDone: true, model.PhaseReporting: true, model.PhaseIntegrating: true,
-	model.PhasePlanning: true, model.PhaseBuilding: true, model.PhaseStalled: true,
+func allPhases() map[model.Phase]bool {
+	return map[model.Phase]bool{
+		model.PhaseDraft: true, model.PhaseDropped: true, model.PhaseParked: true,
+		model.PhaseDone: true, model.PhaseReporting: true, model.PhaseIntegrating: true,
+		model.PhasePlanning: true, model.PhaseBuilding: true, model.PhaseStalled: true,
+	}
 }
 
 func TestDerivedPhaseTotal(t *testing.T) {
@@ -28,7 +30,7 @@ func TestDerivedPhaseTotal(t *testing.T) {
 					NonTerminalIntegrate: b(7), NonTerminalWork: b(8),
 				}
 				p := DerivedPhase(in)
-				if !allPhases[p] {
+				if !allPhases()[p] {
 					t.Fatalf("input %+v mapped to non-phase %q", in, p)
 				}
 				seen[p]++
@@ -39,7 +41,7 @@ func TestDerivedPhaseTotal(t *testing.T) {
 	if n != 3*6*512 {
 		t.Fatalf("enumerated %d combinations", n)
 	}
-	for p := range allPhases {
+	for p := range allPhases() {
 		if seen[p] == 0 {
 			t.Errorf("phase %s is unreachable", p)
 		}

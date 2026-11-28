@@ -6,7 +6,9 @@ import (
 )
 
 // bannedWords is the F5 vague-word list (spec/format-rules.yaml F5).
-var bannedWords = []string{"适当", "合理", "尽量", "必要时", "等等", "相关的", "大约"}
+func bannedWords() []string {
+	return []string{"适当", "合理", "尽量", "必要时", "等等", "相关的", "大约"}
+}
 
 // quotedRe matches quoted spans whose quote characters are part of the
 // string content; verbatim quotation is exempt from F5.
@@ -33,7 +35,7 @@ func checkWords(files []specFile) []Finding {
 				}
 			case string:
 				text := quotedRe.ReplaceAllString(x, "")
-				for _, w := range bannedWords {
+				for _, w := range bannedWords() {
 					if strings.Contains(text, w) && !seen[owner+"|"+w] {
 						seen[owner+"|"+w] = true
 						out = append(out, Finding{"F5", f.rel, owner, "banned vague word " + w})

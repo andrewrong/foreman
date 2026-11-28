@@ -41,7 +41,7 @@ type RunsFilter struct {
 // ChecksForRef is OP-07 (conditional GET).
 func (o *Ops) ChecksForRef(ctx context.Context, call Call, r Repo, ref string) ([]CheckRun, error) {
 	var out []CheckRun
-	err := o.do(ctx, call, opChecksForRef, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	err := o.do(ctx, call, opChecksForRef(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		res, resp, err := gh.Checks.ListCheckRunsForRef(ctx, r.Owner, r.Name, ref, &github.ListCheckRunsOptions{
 			ListOptions: github.ListOptions{PerPage: 100},
 		})
@@ -58,7 +58,7 @@ func (o *Ops) ChecksForRef(ctx context.Context, call Call, r Repo, ref string) (
 // RunsList is OP-08 (conditional GET).
 func (o *Ops) RunsList(ctx context.Context, call Call, r Repo, f RunsFilter) ([]Run, error) {
 	var out []Run
-	err := o.do(ctx, call, opRunsList, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	err := o.do(ctx, call, opRunsList(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		res, resp, err := gh.Actions.ListRepositoryWorkflowRuns(ctx, r.Owner, r.Name, &github.ListWorkflowRunsOptions{
 			Branch: f.Branch, Event: f.Event, HeadSHA: f.HeadSHA, Status: f.Status,
 			ListOptions: github.ListOptions{PerPage: f.PerPage},
@@ -76,7 +76,7 @@ func (o *Ops) RunsList(ctx context.Context, call Call, r Repo, f RunsFilter) ([]
 
 // RunRerunFailed is OP-09.
 func (o *Ops) RunRerunFailed(ctx context.Context, call Call, r Repo, runID int64) error {
-	return o.do(ctx, call, opRunRerun, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	return o.do(ctx, call, opRunRerun(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		return gh.Actions.RerunFailedJobsByID(ctx, r.Owner, r.Name, runID)
 	})
 }
@@ -87,7 +87,7 @@ func (o *Ops) RunRerunFailed(ctx context.Context, call Call, r Repo, runID int64
 // before handing it to a session.
 func (o *Ops) JobLogs(ctx context.Context, call Call, r Repo, jobID int64) ([]byte, error) {
 	var loc *url.URL
-	err := o.do(ctx, call, opJobLogs, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	err := o.do(ctx, call, opJobLogs(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		u, resp, err := gh.Actions.GetWorkflowJobLogs(ctx, r.Owner, r.Name, jobID, 1)
 		loc = u
 		return resp, err

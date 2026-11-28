@@ -1,4 +1,4 @@
-package sched
+package main
 
 import (
 	"context"
@@ -64,7 +64,7 @@ func (r *baseRig) poll(t *testing.T) {
 func (r *baseRig) acquire(t *testing.T, baseFix bool) gate.Decision {
 	t.Helper()
 	d, err := r.gate.Acquire(context.Background(), gate.Demand{Priority: gate.P2, BaseFix: baseFix,
-		Items: []gate.Item{{Resource: MergeSlot(r.repo), Amount: 1}}})
+		Items: []gate.Item{{Resource: mergeSlot(r.repo), Amount: 1}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func (r *baseRig) acquire(t *testing.T, baseFix bool) gate.Decision {
 }
 
 // The key forge ingests for base health (ops.Repo.String) is the key the
-// Gate checks for the merge slot built by MergeSlot: a red base found by
+// Gate checks for the merge slot built by mergeSlot: a red base found by
 // Poll blocks the merge lease with red_base, a green one releases it, and
 // only the base-fix merge passes a red base (D-067).
 func TestRedBaseFromPollBlocksMergeLease(t *testing.T) {

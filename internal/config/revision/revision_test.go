@@ -62,7 +62,7 @@ func rt(workers int) string {
 // role, plus extra lines for the coder.
 func rolesBody(coderExtra string) string {
 	var b strings.Builder
-	for _, n := range schema.RoleNames {
+	for _, n := range schema.RoleNames() {
 		b.WriteString("[role." + n + "]\ntimeout = \"30m\"\n")
 		if n == "coder" {
 			b.WriteString(coderExtra)

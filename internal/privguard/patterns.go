@@ -99,15 +99,17 @@ func validIPv4(line string, s, e int) bool {
 	return octets[0] != "127"
 }
 
-var fileExts = map[string]bool{"go": true, "md": true, "yaml": true, "yml": true, "json": true,
-	"jsonl": true, "sql": true, "txt": true, "rb": true, "mod": true, "sum": true, "toml": true,
-	"sh": true, "html": true, "css": true, "js": true, "ts": true}
+func fileExts() map[string]bool {
+	return map[string]bool{"go": true, "md": true, "yaml": true, "yml": true, "json": true,
+		"jsonl": true, "sql": true, "txt": true, "rb": true, "mod": true, "sum": true, "toml": true,
+		"sh": true, "html": true, "css": true, "js": true, "ts": true}
+}
 
 // notFileLine rejects "name.go:12" style file:line references.
 func notFileLine(line string, s, e int) bool {
 	host, _, _ := strings.Cut(line[s:e], ":")
 	i := strings.LastIndexByte(host, '.')
-	return i < 0 || !fileExts[strings.ToLower(host[i+1:])]
+	return i < 0 || !fileExts()[strings.ToLower(host[i+1:])]
 }
 
 func notRepeated(line string, s, e int) bool {

@@ -407,9 +407,11 @@ func (s *Spec) enum(name string) []string {
 	return nil
 }
 
-var fixedDims = map[string][]string{
-	"hold": {"set", "none"}, "deps": {"done", "pending"}, "lease": {"ok", "wait"},
-	"tier": {"R1", "R2", "R3"}, "single_step": {"one", "many"}, "budget": {"ok", "over"},
+func fixedDims() map[string][]string {
+	return map[string][]string{
+		"hold": {"set", "none"}, "deps": {"done", "pending"}, "lease": {"ok", "wait"},
+		"tier": {"R1", "R2", "R3"}, "single_step": {"one", "many"}, "budget": {"ok", "over"},
+	}
 }
 
 // DimValues is smcheck's value set for a step-table guard dimension; nil when
@@ -421,7 +423,7 @@ func (s *Spec) DimValues(dim string) []string {
 	if dim == "decision" {
 		return s.enum("step_decision")
 	}
-	return fixedDims[dim]
+	return fixedDims()[dim]
 }
 
 // HoldDimValues is smcheck's value set for a req_hold guard dimension.

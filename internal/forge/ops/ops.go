@@ -67,22 +67,62 @@ type spec struct {
 }
 
 // Operation declarations (the resource column of the OP table).
-var (
-	opPRCreate       = spec{id: "OP-01", essential: true, write: true}
-	opPRListOpen     = spec{id: "OP-02"}
-	opPRGet          = spec{id: "OP-03"}
-	opPRMerge        = spec{id: "OP-04", essential: true, write: true}
-	opPRUpdateBranch = spec{id: "OP-05", essential: true, write: true}
-	opPRComment      = spec{id: "OP-06", write: true}
-	opChecksForRef   = spec{id: "OP-07"}
-	opRunsList       = spec{id: "OP-08"}
-	opRunRerun       = spec{id: "OP-09", write: true}
-	opJobLogs        = spec{id: "OP-10", noCache: true}
-	opBranchProt     = spec{id: "OP-12"}
-	opPRClose        = spec{id: "OP-13", essential: true, write: true}
-	opRefDelete      = spec{id: "OP-14", essential: true, write: true}
-	opGraphQL        = spec{id: "FG-8", graphql: true}
-)
+
+func opGraphQL() spec {
+	return spec{id: "FG-8", graphql: true}
+}
+
+func opRefDelete() spec {
+	return spec{id: "OP-14", essential: true, write: true}
+}
+
+func opPRClose() spec {
+	return spec{id: "OP-13", essential: true, write: true}
+}
+
+func opBranchProt() spec {
+	return spec{id: "OP-12"}
+}
+
+func opJobLogs() spec {
+	return spec{id: "OP-10", noCache: true}
+}
+
+func opRunRerun() spec {
+	return spec{id: "OP-09", write: true}
+}
+
+func opRunsList() spec {
+	return spec{id: "OP-08"}
+}
+
+func opChecksForRef() spec {
+	return spec{id: "OP-07"}
+}
+
+func opPRComment() spec {
+	return spec{id: "OP-06", write: true}
+}
+
+func opPRUpdateBranch() spec {
+	return spec{id: "OP-05", essential: true, write: true}
+}
+
+func opPRMerge() spec {
+	return spec{id: "OP-04", essential: true, write: true}
+}
+
+func opPRGet() spec {
+	return spec{id: "OP-03"}
+}
+
+func opPRListOpen() spec {
+	return spec{id: "OP-02"}
+}
+
+func opPRCreate() spec {
+	return spec{id: "OP-01", essential: true, write: true}
+}
 
 func (s spec) resource() string {
 	if s.graphql {

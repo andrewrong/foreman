@@ -141,7 +141,7 @@ func Compose(ctx context.Context, cfg Config) (*App, error) {
 	}
 	// Compose may run on a FOREMAN_HOME a previous daemon used: rebuild the
 	// ledger from the Runs that hold reservations and hand the leases over.
-	rep, err := recover.Startup(ctx, recover.Deps{Stores: stores, Gate: app.Gate, Ledger: cfg.Ledger, Project: cfg.Project, Home: cfg.Home})
+	rep, err := recover.Startup(ctx, recover.Deps{Stores: stores, Gate: app.Gate, Ledger: cfg.Ledger, Project: cfg.Project, Home: cfg.Home, Procs: launchProcs{}})
 	app.Startup = append(app.Startup, rep.Checks...)
 	if err != nil {
 		_ = stores.Close()
@@ -195,38 +195,56 @@ func (a *App) wire(ctx context.Context, cfg Config) error {
 	if cfg.Harness != "scripted" && cfg.Harness != "claude" {
 		return fmt.Errorf("compose: unknown harness %q", cfg.Harness)
 	}
+	policyIn := sessionPolicy(cfg, integDir)
+	newAdapter := func(role api.Role, lease *gate.Lease) (api.Adapter, error) {
+		if cfg.Harness == "claude" {
+			return claude.New(lease, claude.Config{})
+		}
+		return scripted.New(lease, scripted.Config{})
+	}
+	runExtra := func(role api.Role, stepID string) map[string]string {
+		p := cfg.Scripts[role]
+		if cfg.ScriptFor != nil {
+			if q := cfg.ScriptFor(role, stepID); q != "" {
+				p = q
+			}
+		}
+		if p != "" {
+			return map[string]string{scripted.ExtraScript: p}
+		}
+		return nil
+	}
+	merger := reviewMerger{integ: a.Integ, mirror: a.Mirror, ident: sessionIdent}
 	a.Sched, err = sched.New(sched.Deps{
 		DB: a.Stores.Work, Engine: a.Engine, Clock: cfg.Clock, Gate: a.Gate, Meters: a.Meters,
-		Home: cfg.Home, Project: cfg.Project, Repo: cfg.Repo, Ops: a.Ops, Git: a.Git, Mirror: a.Mirror, Integ: a.Integ,
-		SessionIdent: sessionIdent, Launcher: launcher,
-		Policy: policy.Inputs{
-			// denyWrite lists subdirectories of the home, never the home itself
-			// (sessions/ and runs/ live inside it): access.yaml layout.
-			DenyWrite: []string{filepath.Join(cfg.Home, "db"), filepath.Join(cfg.Home, "config"),
-				filepath.Join(cfg.Home, "projects", cfg.Project, "repo.git"), integDir},
-			ProjectCacheDir: filepath.Join(cfg.Home, "cache", cfg.Project),
-			Path:            cfg.Path,
-		},
-		NewAdapter: func(role api.Role, lease *gate.Lease) (api.Adapter, error) {
-			if cfg.Harness == "claude" {
-				return claude.New(lease, claude.Config{})
-			}
-			return scripted.New(lease, scripted.Config{})
-		},
-		RunExtra: func(role api.Role, stepID string) map[string]string {
-			p := cfg.Scripts[role]
-			if cfg.ScriptFor != nil {
-				if q := cfg.ScriptFor(role, stepID); q != "" {
-					p = q
-				}
-			}
-			if p != "" {
-				return map[string]string{scripted.ExtraScript: p}
-			}
-			return nil
-		},
-		L0: cfg.L0, Constitution: cfg.Constitution, OnTransition: cfg.OnTransition,
-		Guardrails: cfg.Guardrails, Forbidden: cfg.Forbidden,
+		Home: cfg.Home, Project: cfg.Project,
+		Slots:     sched.Slots{REST: client.ResREST, Write: client.ResWrite, Merge: mergeSlot(cfg.Repo)},
+		Forge:     forgeAdapter{ops: a.Ops, repo: cfg.Repo, integ: a.Integ},
+		Workspace: workspaceAdapter{git: a.Git, mirror: a.Mirror, integ: a.Integ, ident: sessionIdent},
+		Procs:     launchProcs{},
+		Code: sessionStage{prompt: coderPrompt, launcher: launcher, policy: policyIn, newAdapter: newAdapter,
+			runExtra: runExtra, finish: codeFinish},
+		Review: sessionStage{prompt: reviewerPrompt, launcher: launcher, policy: policyIn, newAdapter: newAdapter,
+			runExtra: runExtra, finish: merger.finish},
+		Check:        checkStage{integ: a.Integ, launcher: launcher, policy: policyIn, forbidden: cfg.Forbidden, l0: cfg.L0},
+		Integrate:    integrateStage{integ: a.Integ, ops: a.Ops, repo: cfg.Repo},
+		Merge:        mergeStage{ops: a.Ops, repo: cfg.Repo, integ: a.Integ, mirror: a.Mirror, guardrails: cfg.Guardrails},
+		Constitution: cfg.Constitution, OnTransition: cfg.OnTransition,
 	})
 	return err
+}
+
+// sessionPolicy is the run-independent sandbox policy of sessions and of L0.
+// denyWrite lists subdirectories of the home, never the home itself
+// (sessions/ and runs/ live inside it): access.yaml layout. L0 runs
+// AI-written code in a throwaway checkout under the Run's directory, so the
+// deny-write list is the session's own, integrate/ included: it must not be
+// able to alter the directory foremand runs its VCS in.
+func sessionPolicy(cfg Config, integDir string) policy.Inputs {
+	return policy.Inputs{
+		DenyWrite: []string{filepath.Join(cfg.Home, "db"), filepath.Join(cfg.Home, "config"),
+			filepath.Join(cfg.Home, "projects", cfg.Project, "repo.git"), integDir},
+		ProjectCacheDir: filepath.Join(cfg.Home, "cache", cfg.Project),
+		Path:            cfg.Path,
+	}
 }

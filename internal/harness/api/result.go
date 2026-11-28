@@ -106,11 +106,17 @@ func (e *ValidationError) Error() string {
 	return "result.json invalid: " + strings.Join(e.Problems, "; ")
 }
 
-var (
-	stepDecisions = []string{"retry", "drop_step", "replan", "ask_owner"}
-	reqDecisions  = []string{"retry", "replan", "drop_requirement", "ask_owner"}
-	discKinds     = []string{"answer", "extra_file", "spec_conflict", "cause_proof", "access_request", "note"}
-)
+func discKinds() []string {
+	return []string{"answer", "extra_file", "spec_conflict", "cause_proof", "access_request", "note"}
+}
+
+func reqDecisions() []string {
+	return []string{"retry", "replan", "drop_requirement", "ask_owner"}
+}
+
+func stepDecisions() []string {
+	return []string{"retry", "drop_step", "replan", "ask_owner"}
+}
 
 func in(v string, set []string) bool {
 	for _, s := range set {
@@ -244,9 +250,9 @@ func validateReviewer(r *Result, _ ResultContext, bad func(string, ...any)) {
 }
 
 func validateRescuer(r *Result, ctx ResultContext, bad func(string, ...any)) {
-	set := stepDecisions
+	set := stepDecisions()
 	if ctx.Scope == "requirement" {
-		set = reqDecisions
+		set = reqDecisions()
 	}
 	if !in(r.Decision, set) {
 		bad("decision %q not in %v for %s scope", r.Decision, set, ctx.Scope)
@@ -260,7 +266,7 @@ func validateRescuer(r *Result, ctx ResultContext, bad func(string, ...any)) {
 }
 
 func validateDiscovery(i int, d Discovery, bad func(string, ...any)) {
-	if !in(d.Kind, discKinds) {
+	if !in(d.Kind, discKinds()) {
 		bad("discovery %d: kind %q unknown", i, d.Kind)
 	}
 	if d.Text == "" || len(d.Text) > 500 {

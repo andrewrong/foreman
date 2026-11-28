@@ -43,7 +43,7 @@ func largestAllowed(t *testing.T, g *Gate) int64 {
 }
 
 func TestSettleActualBelowReservationFreesDifference(t *testing.T) {
-	clk := clock.NewFake(t0)
+	clk := clock.NewFake(t0())
 	m, l := meter.NewStore(), ledger.New()
 	seed(m, clk.Now(), 0.50) // 50 left, floor 10 => 40 usable
 	g := newGate(clk, m, l)
@@ -75,7 +75,7 @@ func TestSettleActualBelowReservationFreesDifference(t *testing.T) {
 }
 
 func TestRestartRebuildsLedgerFromRunningRuns(t *testing.T) {
-	clk := clock.NewFake(t0)
+	clk := clock.NewFake(t0())
 	m := meter.NewStore()
 	seed(m, clk.Now(), 0.50)
 
@@ -107,7 +107,7 @@ func TestRestartRebuildsLedgerFromRunningRuns(t *testing.T) {
 }
 
 func TestAdoptRecoveredReservation(t *testing.T) {
-	clk := clock.NewFake(t0)
+	clk := clock.NewFake(t0())
 	m, l := meter.NewStore(), ledger.New()
 	seed(m, clk.Now(), 0.50)
 	g := newGate(clk, m, l)

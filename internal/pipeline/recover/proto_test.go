@@ -4,12 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 
 	"github.com/andrewrong/foreman/internal/clock"
-	"github.com/andrewrong/foreman/internal/sandbox/launch"
 )
 
 func runDir(t *testing.T) string {
@@ -23,7 +21,7 @@ func runDir(t *testing.T) string {
 
 func phaseOf(t *testing.T, dir string, now time.Time) Probe {
 	t.Helper()
-	p, err := Inspect(dir, now)
+	p, err := Inspect(&fakeProcs{}, dir, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +50,7 @@ func TestLaunchLockProtocol(t *testing.T) {
 	if p := phaseOf(t, dir, clk.Now()); p.Phase != StartFailed {
 		t.Errorf("60 s old lock without pid.json: %+v, want StartFailed", p)
 	}
-	if err := DropLock(dir); err != nil {
+	if err := DropLock(&fakeProcs{}, dir); err != nil {
 		t.Fatal(err)
 	}
 	if p := phaseOf(t, dir, clk.Now()); p.Phase != NotStarted {
@@ -74,29 +72,42 @@ func TestLockCutShortByACrashIsReclaimed(t *testing.T) {
 	}
 }
 
-func TestInspectTellsLiveFromGoneAndRecycledPid(t *testing.T) {
+// fakeProcs is Procs over an in-memory pid table.
+type fakeProcs struct {
+	pids  map[string]PidFile // run dir -> pid.json
+	alive func(PidFile) bool
+}
+
+func (f *fakeProcs) ReadPid(runDir string) (PidFile, bool, error) {
+	pf, ok := f.pids[runDir]
+	return pf, ok, nil
+}
+func (f *fakeProcs) Alive(pf PidFile) bool { return f.alive != nil && f.alive(pf) }
+func (f *fakeProcs) ForgetPid(runDir string) error {
+	delete(f.pids, runDir)
+	return nil
+}
+func (f *fakeProcs) KillRun(string) ([]int, error) { return nil, nil }
+
+// Inspect asks the injected Procs: a pid.json whose process is the session is
+// Alive, one whose process is gone or recycled is Exited, and DropLock also
+// forgets the pid file.
+func TestInspectUsesInjectedProcs(t *testing.T) {
 	clk := clock.NewFake(time.Unix(1_800_000_000, 0))
 	dir := runDir(t)
-	own, _, ok := launch.ProcInfo(os.Getpid())
-	if !ok {
-		t.Skip("ps cannot read this process")
+	live := PidFile{Pid: 7, StartTime: "t0"}
+	procs := &fakeProcs{pids: map[string]PidFile{dir: live}, alive: func(pf PidFile) bool { return pf == live }}
+	if p, err := Inspect(procs, dir, clk.Now()); err != nil || p.Phase != Alive || p.Pid != live {
+		t.Errorf("live process: %+v, %v", p, err)
 	}
-	write := func(pid int, start string) {
-		body := []byte(`{"pid":` + strconv.Itoa(pid) + `,"start_time":"` + start + `"}`)
-		if err := os.WriteFile(filepath.Join(dir, launch.PidFileName), body, 0o600); err != nil {
-			t.Fatal(err)
-		}
+	procs.pids[dir] = PidFile{Pid: 7, StartTime: "other"}
+	if p, err := Inspect(procs, dir, clk.Now()); err != nil || p.Phase != Exited {
+		t.Errorf("recycled pid: %+v, %v", p, err)
 	}
-	write(os.Getpid(), own)
-	if p := phaseOf(t, dir, clk.Now()); p.Phase != Alive {
-		t.Errorf("live process with matching start time: %v", p.Phase)
+	if err := DropLock(procs, dir); err != nil {
+		t.Fatal(err)
 	}
-	write(os.Getpid(), "Thu Jan  1 00:00:00 1970") // same pid, other start time: pid reuse
-	if p := phaseOf(t, dir, clk.Now()); p.Phase != Exited {
-		t.Errorf("recycled pid: %v, want Exited", p.Phase)
-	}
-	write(1<<22+12345, own) // no such process
-	if p := phaseOf(t, dir, clk.Now()); p.Phase != Exited {
-		t.Errorf("missing pid: %v, want Exited", p.Phase)
+	if _, ok := procs.pids[dir]; ok {
+		t.Error("DropLock left pid.json behind")
 	}
 }

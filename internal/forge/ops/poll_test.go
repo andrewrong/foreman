@@ -29,10 +29,10 @@ func TestForgeBatchPoll(t *testing.T) {
 	ctx := context.Background()
 	r := newRig(t, true)
 	setupPoll(r)
-	in := PollInput{Repo: repo, BaseBranch: "main", Active: true, Known: map[int]string{}, Watch: map[int]bool{}}
+	in := PollInput{Repo: repo(), BaseBranch: "main", Active: true, Known: map[int]string{}, Watch: map[int]bool{}}
 
 	// Round 1: nothing known, so every PR is followed up once.
-	res, err := r.o.Poll(ctx, call, in)
+	res, err := r.o.Poll(ctx, call(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestForgeBatchPoll(t *testing.T) {
 	in.Known = map[int]string{1: "s1", 2: "s2", 3: "s3"}
 	in.Watch = map[int]bool{2: true}
 	usedBefore, _ := r.m.Get("github/rest")
-	res, err = r.o.Poll(ctx, call, in)
+	res, err = r.o.Poll(ctx, call(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestForgeBatchPoll(t *testing.T) {
 	r.f.routes["GET /repos/acme/widgets/commits/s3b/check-runs"] = route{body: `{"check_runs":[]}`, etag: `"ck3b"`}
 	r.f.routes[runsPath] = route{body: runFailed, etag: `"runs2"`}
 	in.Watch = nil
-	res, err = r.o.Poll(ctx, call, in)
+	res, err = r.o.Poll(ctx, call(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestForgeBatchPoll(t *testing.T) {
 	// No requirement in progress: polling stops, no request is made.
 	r.f.reset()
 	in.Active = false
-	res, err = r.o.Poll(ctx, call, in)
+	res, err = r.o.Poll(ctx, call(), in)
 	if err != nil || !res.Skipped || len(r.f.log) != 0 {
 		t.Fatalf("inactive poll: %+v %v %v", res, err, r.f.log)
 	}
@@ -106,7 +106,7 @@ func TestForgeGraphqlCost(t *testing.T) {
 		"p1":{"number":1,"state":"OPEN","headRefOid":"s1","mergeable":"MERGEABLE","commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}},
 		"p2":{"number":2,"state":"OPEN","headRefOid":"s2","mergeable":"CONFLICTING","commits":{"nodes":[]}}},
 		"rateLimit":{"cost":3,"remaining":4997}}}`}
-	out, err := r.o.PRStatusBatch(ctx, call, repo, []int{1, 2})
+	out, err := r.o.PRStatusBatch(ctx, call(), repo(), []int{1, 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,13 +127,13 @@ func TestForgeGraphqlCost(t *testing.T) {
 
 	// Too small a batch does not justify GraphQL (FG-8): no request.
 	r.f.reset()
-	if _, err := r.o.PRStatusBatch(ctx, call, repo, []int{1}); !errors.Is(err, ErrGraphQLNotWorthIt) || len(r.f.log) != 0 {
+	if _, err := r.o.PRStatusBatch(ctx, call(), repo(), []int{1}); !errors.Is(err, ErrGraphQLNotWorthIt) || len(r.f.log) != 0 {
 		t.Fatalf("small batch: %v %v", err, r.f.log)
 	}
 
 	// GraphQL-level errors are surfaced.
 	r.f.routes["POST /graphql"] = route{body: `{"errors":[{"message":"boom"}]}`}
-	if _, err := r.o.PRStatusBatch(ctx, call, repo, []int{1, 2}); err == nil || !strings.Contains(err.Error(), "boom") {
+	if _, err := r.o.PRStatusBatch(ctx, call(), repo(), []int{1, 2}); err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("err = %v", err)
 	}
 }

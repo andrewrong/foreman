@@ -9,15 +9,33 @@ import (
 // Forbidden inputs are assembled at run time so that this file holds none.
 func j(parts ...string) string { return strings.Join(parts, "") }
 
-var (
-	homePath = j("/Us", "ers/alice/work")
-	volPath  = j("/Vol", "umes/disk/x")
-	winPath  = j(`C:\Us`, `ers\bob`)
-	email    = j("alice", "@", "corp.", "io")
-	ip       = j("10.", "20.", "30.", "40")
-	ghToken  = j("gh", "p_", strings.Repeat("a1B2", 9))
-	pem      = j("-----BEG", "IN RSA PRIV", "ATE KEY-----")
-)
+func pem() string {
+	return j("-----BEG", "IN RSA PRIV", "ATE KEY-----")
+}
+
+func ghToken() string {
+	return j("gh", "p_", strings.Repeat("a1B2", 9))
+}
+
+func ip() string {
+	return j("10.", "20.", "30.", "40")
+}
+
+func email() string {
+	return j("alice", "@", "corp.", "io")
+}
+
+func winPath() string {
+	return j(`C:\Us`, `ers\bob`)
+}
+
+func volPath() string {
+	return j("/Vol", "umes/disk/x")
+}
+
+func homePath() string {
+	return j("/Us", "ers/alice/work")
+}
 
 func kinds(fs []Finding) []string {
 	var out []string
@@ -40,15 +58,15 @@ func TestPrivguardTextRules(t *testing.T) {
 	cases := []struct {
 		name, line, kind string
 	}{
-		{"home", "see " + homePath, "abs-path"},
-		{"volume", "cd " + volPath, "abs-path"},
-		{"windows", "at " + winPath, "abs-path"},
-		{"email", "mail " + email, "email"},
-		{"ipv4", "host " + ip, "ipv4"},
-		{"ipv4-port", "dial " + ip + ":8080", "ipv4"},
+		{"home", "see " + homePath(), "abs-path"},
+		{"volume", "cd " + volPath(), "abs-path"},
+		{"windows", "at " + winPath(), "abs-path"},
+		{"email", "mail " + email(), "email"},
+		{"ipv4", "host " + ip(), "ipv4"},
+		{"ipv4-port", "dial " + ip() + ":8080", "ipv4"},
 		{"host-port", "dial " + j("db.corp.", "io:5432"), "host-port"},
-		{"token", "key=" + ghToken, "token"},
-		{"private-key", pem, "private-key"},
+		{"token", "key=" + ghToken(), "token"},
+		{"private-key", pem(), "private-key"},
 		{"url-credentials", j("https://bot:", "s3cr3tvalue@host.invalid/x"), "url-credentials"},
 		{"chat-id", "chat " + j("-100", "1234567890"), "chat-id"},
 		{"hex", "digest " + strings.Repeat("9f3a", 10), "long-hex"},
@@ -77,7 +95,7 @@ func TestPrivguardTextRules(t *testing.T) {
 }
 
 func TestPrivguardFindingsDoNotCarryMatch(t *testing.T) {
-	fs := Scan("a.md", []byte("x\n"+ghToken+"\n"))
+	fs := Scan("a.md", []byte("x\n"+ghToken()+"\n"))
 	if len(fs) != 1 || fs[0].Line != 2 || fs[0].File != "a.md" || fs[0].Rule != RuleSecrets {
 		t.Fatalf("findings: %+v", fs)
 	}
@@ -87,7 +105,7 @@ func TestPrivguardFindingsDoNotCarryMatch(t *testing.T) {
 }
 
 func TestPrivguardNoDirExemption(t *testing.T) {
-	content := []byte("path " + homePath + "\n")
+	content := []byte("path " + homePath() + "\n")
 	for _, name := range []string{"README.md", "docs/design/x.md", "docs/a/b/c.md", "testdata/fixture.txt",
 		".privguard/allow.yaml", "internal/privguard/privguard.go", "spec/design/privguard.yaml", `docs\win.md`} {
 		fs := Scan(name, content)
@@ -101,9 +119,9 @@ func TestPrivguardNoDirExemption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := "a " + homePath + " privguard:allow rule-definition\n" +
-		"b " + homePath + " privguard:allow unknown-reason\n" +
-		"c " + homePath + "\n"
+	text := "a " + homePath() + " privguard:allow rule-definition\n" +
+		"b " + homePath() + " privguard:allow unknown-reason\n" +
+		"c " + homePath() + "\n"
 	fs := sc.Scan("docs/x.md", []byte(text))
 	if len(fs) != 2 || fs[0].Line != 2 || fs[1].Line != 3 {
 		t.Fatalf("want findings on lines 2 and 3, got %v", fs)
@@ -113,7 +131,7 @@ func TestPrivguardNoDirExemption(t *testing.T) {
 		t.Fatalf("default scanner honours markers: %v", got)
 	}
 	// A marker never exempts a secret.
-	line := ghToken + " privguard:allow rule-definition"
+	line := ghToken() + " privguard:allow rule-definition"
 	if got := sc.Scan("x.md", []byte(line)); !has(got, "token") {
 		t.Fatalf("marker exempted a secret: %v", got)
 	}
@@ -121,27 +139,27 @@ func TestPrivguardNoDirExemption(t *testing.T) {
 
 func TestPrivguardNoPathExemption(t *testing.T) {
 	other := j("gh", "s_", strings.Repeat("Z9y8", 9))
-	cfg := Config{Fingerprints: []string{"token:" + Fingerprint(ghToken)}}
+	cfg := Config{Fingerprints: []string{"token:" + Fingerprint(ghToken())}}
 	sc, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// An exemption is a rule plus a fingerprint; it holds in every path.
 	for _, name := range []string{"a.md", "docs/design/b.md", "testdata/c.txt"} {
-		if got := sc.Scan(name, []byte("k "+ghToken)); len(got) != 0 {
+		if got := sc.Scan(name, []byte("k "+ghToken())); len(got) != 0 {
 			t.Errorf("%s: fingerprinted secret still reported: %v", name, got)
 		}
 		if got := sc.Scan(name, []byte("k "+other)); !has(got, "token") {
 			t.Errorf("%s: a different secret was exempted: %v", name, got)
 		}
 		// The fingerprint is for the token rule only.
-		if got := sc.Scan(name, []byte("p "+homePath)); !has(got, "abs-path") {
+		if got := sc.Scan(name, []byte("p "+homePath())); !has(got, "abs-path") {
 			t.Errorf("%s: fingerprint exempted another rule: %v", name, got)
 		}
 	}
 	// The same content gives the same findings under any name.
-	a := kinds(Scan("a/b/c.md", []byte("k "+other+" "+email)))
-	b := kinds(Scan("docs/design/x.md", []byte("k "+other+" "+email)))
+	a := kinds(Scan("a/b/c.md", []byte("k "+other+" "+email())))
+	b := kinds(Scan("docs/design/x.md", []byte("k "+other+" "+email())))
 	if strings.Join(a, ",") != strings.Join(b, ",") || len(a) != 2 {
 		t.Fatalf("findings depend on the path: %v vs %v", a, b)
 	}
@@ -192,13 +210,13 @@ func TestPrivguardBinaryRejected(t *testing.T) {
 
 func TestPrivguardRedact(t *testing.T) {
 	in := strings.Join([]string{
-		"run in " + homePath + " as " + email,
-		"token " + ghToken + " at " + ip + ":99",
+		"run in " + homePath() + " as " + email(),
+		"token " + ghToken() + " at " + ip() + ":99",
 		"noreply user@users.noreply.github.com stays",
 		"file util.go:42 stays",
 	}, "\n")
 	out := Redact(in)
-	for _, leak := range []string{homePath, email, ghToken, ip, "alice"} {
+	for _, leak := range []string{homePath(), email(), ghToken(), ip(), "alice"} {
 		if strings.Contains(out, leak) {
 			t.Errorf("redacted text still holds %q:\n%s", leak, out)
 		}
@@ -215,7 +233,7 @@ func TestPrivguardRedact(t *testing.T) {
 		t.Errorf("clean text changed: %q", got)
 	}
 	// Markers do not protect text from redaction.
-	if got := Redact(email + " privguard:allow rule-definition"); strings.Contains(got, "corp") {
+	if got := Redact(email() + " privguard:allow rule-definition"); strings.Contains(got, "corp") {
 		t.Errorf("marker protected text from Redact: %q", got)
 	}
 }

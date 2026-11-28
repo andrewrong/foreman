@@ -12,7 +12,9 @@ const (
 	extraGo   = "package sum\n\n// Add3 adds three ints.\nfunc Add3(a, b, c int) int { return Sum(Sum(a, b), c) }\n"
 )
 
-var okFiles = map[string]string{"sum.go": sumGo, "sum_test.go": sumTst}
+func okFiles() map[string]string {
+	return map[string]string{"sum.go": sumGo, "sum_test.go": sumTst}
+}
 
 // finish ticks until every step is done.
 func (s *scenario) finish() {
@@ -27,7 +29,7 @@ func (s *scenario) finish() {
 func TestM1CheckFailRetryReachesNextContext(t *testing.T) {
 	s := newScenario(t)
 	s.q.push("coder", coderCommits("first try", map[string]string{"sum.go": sumGo, "sum_test.go": brokenTst}))
-	s.q.push("coder", coderCommits("fix the test", okFiles))
+	s.q.push("coder", coderCommits("fix the test", okFiles()))
 	s.finish()
 	s.wantRows("S04", "S40", "S05", "S50", "S04", "S40", "S05", "S41", "S06", "S42", "S10", "S07", "S29", "S08", "S44")
 
@@ -78,7 +80,7 @@ func TestM1CheckFailRetryReachesNextContext(t *testing.T) {
 // and is free of coder-only material.
 func TestM1ReviewChangesRoundAndDelta(t *testing.T) {
 	s := newScenario(t)
-	s.q.push("coder", coderCommits("implement Sum", okFiles))
+	s.q.push("coder", coderCommits("implement Sum", okFiles()))
 	s.q.push("coder", coderCommits("address review", map[string]string{"extra.go": extraGo}))
 	s.q.push("reviewer", reviewerSays("changes", "sum.go", 3, "Sum needs a three-argument companion"))
 	s.q.push("reviewer", reviewerSays("approve", "sum.go", 3))
@@ -149,7 +151,7 @@ func TestM1RetryModelEscalation(t *testing.T) {
 	bad := coderCommits("broken", map[string]string{"sum.go": sumGo, "sum_test.go": brokenTst})
 	s.q.push("coder", bad)
 	s.q.push("coder", coderCommits("still broken", map[string]string{"extra.go": extraGo}))
-	s.q.push("coder", coderCommits("fixed", okFiles))
+	s.q.push("coder", coderCommits("fixed", okFiles()))
 	s.finish()
 	s.wantRows("S50", "S50", "S41", "S42")
 
@@ -225,7 +227,7 @@ func TestM1BadResultRerunsAndResets(t *testing.T) {
 	s := newScenario(t)
 	s.q.push("coder", coderBadResult())
 	s.q.push("coder", coderBadResult())
-	s.q.push("coder", coderCommits("implement Sum", okFiles))
+	s.q.push("coder", coderCommits("implement Sum", okFiles()))
 	s.finish()
 	s.wantRows("S04", "S75", "S04", "S75", "S04", "S40", "S05", "S41", "S06", "S42")
 

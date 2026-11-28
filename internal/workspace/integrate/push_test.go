@@ -82,7 +82,7 @@ func TestPushAssertsDefaultUnchanged(t *testing.T) {
 
 	// Another party moves main on the remote right after our push completes,
 	// i.e. between the pre and the post ls-remote check.
-	other := w.r.WithIdentity(sessIdent)
+	other := w.r.WithIdentity(sessIdent())
 	moved := false
 	w.rec.after = func(c git.Command) {
 		sub := subcommand(c, w.r)

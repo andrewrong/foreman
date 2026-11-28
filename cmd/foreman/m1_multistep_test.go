@@ -62,7 +62,7 @@ func secondStep() scripted.Script {
 // (S30, review S06/S43, merge) and its review reads the whole requirement diff.
 func TestM1MultiStepRequirement(t *testing.T) {
 	s := newScenarioSeeded(t, seedMulti)
-	s.q.push("coder", coderCommits("implement Sum", okFiles))
+	s.q.push("coder", coderCommits("implement Sum", okFiles()))
 	s.q.push("coder", secondStep())
 
 	s.atStep(step1, "queued", "review", "", 40)

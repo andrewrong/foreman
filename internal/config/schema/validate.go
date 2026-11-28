@@ -14,9 +14,15 @@ var (
 	branchRE      = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
 	modelRE       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:\-\[\]]*$`)
 	itemRE        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*$`)
-	efforts       = map[string]bool{"": true, "low": true, "medium": true, "high": true, "xhigh": true, "max": true}
-	dbKinds       = map[string]bool{"sqlite": true, "postgres": true, "mysql": true}
 )
+
+func dbKinds() map[string]bool {
+	return map[string]bool{"sqlite": true, "postgres": true, "mysql": true}
+}
+
+func efforts() map[string]bool {
+	return map[string]bool{"": true, "low": true, "medium": true, "high": true, "xhigh": true, "max": true}
+}
 
 func validProjectName(n string) bool { return projectNameRE.MatchString(n) }
 
@@ -97,13 +103,13 @@ func validateRuntime(file string, r *Runtime) []error {
 
 func validateRoles(file string, roles map[string]Role) []error {
 	c := &checker{file: file}
-	for _, n := range RoleNames {
+	for _, n := range RoleNames() {
 		r := roles[n]
 		k := "role." + n + "."
 		if !modelRE.MatchString(r.Model) {
 			c.bad(k+"model", "invalid model name %q", r.Model)
 		}
-		if !efforts[r.Effort] {
+		if !efforts()[r.Effort] {
 			c.bad(k+"effort", "invalid effort %q (low, medium, high, xhigh, max or empty)", r.Effort)
 		}
 		c.rangeInt(k+"max_tokens", r.MaxTokens, 0, 100_000_000)
@@ -129,33 +135,8 @@ func validateProject(file string, p *Project) []error {
 	if p.DefaultBranch != "" && !branchRE.MatchString(p.DefaultBranch) || strings.Contains(p.DefaultBranch, "..") {
 		c.bad("default_branch", "invalid branch name %q", p.DefaultBranch)
 	}
-	seen := map[string]bool{}
-	for i, s := range p.Services {
-		k := fmt.Sprintf("service[%d]", i)
-		if !itemRE.MatchString(s.Name) {
-			c.bad(k+".name", "invalid name %q", s.Name)
-		} else if seen[s.Name] {
-			c.bad(k+".name", "duplicate service %q", s.Name)
-		}
-		seen[s.Name] = true
-		c.absPath(k+".log_path", s.LogPath, false)
-	}
-	seen = map[string]bool{}
-	for i, d := range p.Databases {
-		k := fmt.Sprintf("database[%d]", i)
-		if !itemRE.MatchString(d.Name) {
-			c.bad(k+".name", "invalid name %q", d.Name)
-		} else if seen[d.Name] {
-			c.bad(k+".name", "duplicate database %q", d.Name)
-		}
-		seen[d.Name] = true
-		if !dbKinds[d.Kind] {
-			c.bad(k+".kind", "invalid kind %q (sqlite, postgres, mysql)", d.Kind)
-		}
-		if d.Path == "" || strings.Contains(d.Path, "://") && strings.Contains(d.Path, "@") {
-			c.bad(k+".path", "required, and must not embed credentials")
-		}
-	}
+	c.services(p.Services)
+	c.databases(p.Databases)
 	for i, re := range p.PIIMask {
 		if _, err := regexp.Compile(re); err != nil {
 			c.bad(fmt.Sprintf("pii_mask[%d]", i), "invalid regular expression: %v", err)
@@ -184,4 +165,37 @@ func validateProject(file string, p *Project) []error {
 	}
 	c.rangeInt("prod.rows_max", p.Prod.RowsMax, 1, 10000)
 	return c.errs
+}
+
+func (c *checker) services(list []Service) {
+	seen := map[string]bool{}
+	for i, s := range list {
+		k := fmt.Sprintf("service[%d]", i)
+		if !itemRE.MatchString(s.Name) {
+			c.bad(k+".name", "invalid name %q", s.Name)
+		} else if seen[s.Name] {
+			c.bad(k+".name", "duplicate service %q", s.Name)
+		}
+		seen[s.Name] = true
+		c.absPath(k+".log_path", s.LogPath, false)
+	}
+}
+
+func (c *checker) databases(list []Database) {
+	seen := map[string]bool{}
+	for i, d := range list {
+		k := fmt.Sprintf("database[%d]", i)
+		if !itemRE.MatchString(d.Name) {
+			c.bad(k+".name", "invalid name %q", d.Name)
+		} else if seen[d.Name] {
+			c.bad(k+".name", "duplicate database %q", d.Name)
+		}
+		seen[d.Name] = true
+		if !dbKinds()[d.Kind] {
+			c.bad(k+".kind", "invalid kind %q (sqlite, postgres, mysql)", d.Kind)
+		}
+		if d.Path == "" || strings.Contains(d.Path, "://") && strings.Contains(d.Path, "@") {
+			c.bad(k+".path", "required, and must not embed credentials")
+		}
+	}
 }

@@ -10,13 +10,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/andrewrong/foreman/internal/privguard"
 	"github.com/andrewrong/foreman/internal/sandbox/launch"
 	"github.com/andrewrong/foreman/internal/sandbox/policy"
 	"github.com/andrewrong/foreman/internal/spec/model"
+	ctxmd "github.com/andrewrong/foreman/internal/stage/context"
 	"github.com/andrewrong/foreman/internal/workspace/integrate"
 )
 
@@ -45,7 +45,9 @@ type Env struct {
 
 // DefaultForbidden is guardrail G-05: the PAT has no workflows permission
 // (ACR-22), so a change under .github/** could never be pushed.
-var DefaultForbidden = []string{".github/**"}
+func DefaultForbidden() []string {
+	return []string{".github/**"}
+}
 
 // Request is one check Run.
 type Request struct {
@@ -97,7 +99,7 @@ func Run(ctx context.Context, env Env, r Request) (model.Event, error) {
 			// The log comes from a session-controlled build: redact it before
 			// anything is taken from it (C-09).
 			out := privguard.Redact(log.String())
-			return model.Event{Name: model.EventCheckFail, Head: head, FailingTests: failingTests(out),
+			return model.Event{Name: model.EventCheckFail, Head: head, FailingTests: ctxmd.FailingTests(out),
 				LogTail: logTail(out)}, nil
 		}
 	}
@@ -110,7 +112,7 @@ func Run(ctx context.Context, env Env, r Request) (model.Event, error) {
 func forbidden(ctx context.Context, env Env, head string) (model.Event, bool, error) {
 	globs := env.Forbidden
 	if globs == nil {
-		globs = DefaultForbidden
+		globs = DefaultForbidden()
 	}
 	files, err := env.Integ.PRFiles(ctx, head)
 	if err != nil {
@@ -128,25 +130,6 @@ func forbidden(ctx context.Context, env Env, head string) (model.Event, bool, er
 		LogTail: "forbidden-paths: the diff touches " + strings.Join(hits, ", ") +
 			"\nThese paths cannot be changed by foreman (no workflows permission). Revert the change and " +
 			"write a discovery describing it for the owner."}, true, nil
-}
-
-var failRE = regexp.MustCompile(`(?m)^\s*--- FAIL: (\S+)`)
-
-// FailingTests lists the test names of "--- FAIL:" lines in go test output.
-func FailingTests(out string) []string { return failingTests(out) }
-
-// failingTests lists the test names of "--- FAIL:" lines (go test output),
-// without duplicates. A build failure has none: the log tail carries it.
-func failingTests(out string) []string {
-	seen := map[string]bool{}
-	names := []string{}
-	for _, m := range failRE.FindAllStringSubmatch(out, -1) {
-		if !seen[m[1]] {
-			seen[m[1]] = true
-			names = append(names, m[1])
-		}
-	}
-	return names
 }
 
 // logTail keeps the last MaxLogLines lines, cut again to MaxLogBytes.

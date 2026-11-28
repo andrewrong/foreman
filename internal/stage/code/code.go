@@ -4,11 +4,12 @@ import (
 	"context"
 
 	"github.com/andrewrong/foreman/internal/spec/model"
+	ctxmd "github.com/andrewrong/foreman/internal/stage/context"
 )
 
 // Run executes the code stage of a work step (running(code)) and returns the
 // event for state.Transition: run_ok, spec_conflict, infra or bad_result.
-func Run(ctx context.Context, env Env, r Request) (model.Event, error) {
+func Run(ctx context.Context, env ctxmd.Env, r ctxmd.Request) (model.Event, error) {
 	res, err := env.RunSession(ctx, r)
 	if err != nil {
 		return model.Event{}, err
@@ -20,7 +21,7 @@ func Run(ctx context.Context, env Env, r Request) (model.Event, error) {
 //
 // An access_request result is reported as bad_result in M1: the R1/R2/R3
 // tiering (S78-S82) needs the project declaration, which is not wired yet.
-func EventOf(res Result) model.Event {
+func EventOf(res ctxmd.Result) model.Event {
 	if res.Parsed == nil {
 		return res.Event
 	}

@@ -23,7 +23,7 @@ func write(t *testing.T, home, rel, content string) {
 // role, plus extra lines per role.
 func rolesText(extra map[string]string) string {
 	var b strings.Builder
-	for _, n := range RoleNames {
+	for _, n := range RoleNames() {
 		b.WriteString("[role." + n + "]\ntimeout = \"30m\"\n" + extra[n] + "\n")
 	}
 	return b.String()

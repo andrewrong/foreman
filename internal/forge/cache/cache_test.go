@@ -18,7 +18,9 @@ import (
 	"github.com/andrewrong/foreman/internal/store/sqlite"
 )
 
-var t0 = time.Unix(1_800_000_000, 0)
+func t0() time.Time {
+	return time.Unix(1_800_000_000, 0)
+}
 
 // fakeGitHub serves resources with ETags; only non-304 answers count.
 type fakeGitHub struct {
@@ -68,14 +70,14 @@ type rig struct {
 
 func newRig(t *testing.T, f *fakeGitHub, maxTotal int64) *rig {
 	t.Helper()
-	clk := clock.NewFake(t0)
+	clk := clock.NewFake(t0())
 	st, err := sqlite.Open(context.Background(), t.TempDir(), clk)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	m := meter.NewStore()
-	m.IngestGitHub(client.ResREST, meter.GitHubLimits{Limit: 5000, Remaining: 5000, ResetUnix: 1800003600}, t0)
+	m.IngestGitHub(client.ResREST, meter.GitHubLimits{Limit: 5000, Remaining: 5000, ResetUnix: 1800003600}, t0())
 	r := &rig{t: t, clk: clk, m: m, ca: New(st.Global, clk, maxTotal)}
 	r.g = gate.New(gate.Options{Clock: clk, Config: meter.DefaultConfig(), Meters: m})
 	r.c = client.New(client.Config{BaseURL: f.srv.URL, Token: "t", Meters: m, Clock: clk, Cache: r.ca})

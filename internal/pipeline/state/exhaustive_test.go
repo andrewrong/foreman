@@ -36,7 +36,9 @@ func counterPos(pos string, capv, salt int) int {
 	return capv + 1
 }
 
-var setHolds = []string{HoldReplan, HoldRescue, HoldOwner, HoldParked}
+func setHolds() []string {
+	return []string{HoldReplan, HoldRescue, HoldOwner, HoldParked}
+}
 
 // combos enumerates every assignment of the dims over values(dim) and calls
 // fn with a StepView-independent input set.
@@ -83,7 +85,7 @@ func inputs(assign map[string]string, salt int) (ReqView, Event, map[string]int)
 		case isCounter:
 			req.ReqCounters[name] = counterPos(v, dimReqCounters[name], salt)
 		case d == "hold" && v == "set":
-			req.Hold = setHolds[salt%len(setHolds)]
+			req.Hold = setHolds()[salt%len(setHolds())]
 		case d == "deps":
 			ev.Deps = v
 		case d == "lease":
@@ -168,57 +170,72 @@ func checkValidTarget(t *testing.T, cf smcheck.Config, id string, to To) {
 	}
 }
 
+func stepDims(sp *smcheck.Spec, ev string) []string {
+	var dims []string
+	for _, r := range sp.Rows {
+		if r.Event == ev {
+			dims = addDims(dims, r.Guard)
+			if r.To.State == "escalate" {
+				for _, e := range sp.Escalate {
+					dims = addDims(dims, e.Guard)
+				}
+			}
+		}
+	}
+	return dims
+}
+
+// stepCase decides one step combination; it reports whether the case was
+// decided or ignored (neither on a failure).
+func stepCase(t *testing.T, sp *smcheck.Spec, cf smcheck.Config, ev string, assign map[string]string, salt int) (decided, ignored bool) {
+	req, e, counters := inputs(assign, salt)
+	e.Name = ev
+	step := StepView{State: cf.State, Stage: cf.Stage, Type: cf.Type, Reason: cf.Reason,
+		Counters: counters, ResumeStage: firstStageOf(cf.Type)}
+	out, err := Decide(step, req, e)
+	if err != nil {
+		t.Errorf("Decide(%+v, %v, %v): %v", cf, assign, ev, err)
+		return false, false
+	}
+	id, ign := sp.StepOracle(cf, ev, assign)
+	if out.Ignored != ign || out.RowID != id {
+		t.Errorf("%+v %s %v: Decide=(%q ignored=%v) smcheck=(%q ignored=%v)",
+			cf, ev, assign, out.RowID, out.Ignored, id, ign)
+		return false, false
+	}
+	if ign {
+		if len(out.Effects) != 0 || out.To != (To{}) {
+			t.Errorf("ignored outcome carries data: %+v", out)
+		}
+		return false, true
+	}
+	checkStepOutcome(t, sp, cf, req, out, id)
+	return true, false
+}
+
 func stepExhaustive(t *testing.T) (decided, ignored int) {
 	sp := loadSpec(t)
 	if len(sp.Configs) == 0 || len(sp.Events) == 0 {
 		t.Fatal("empty configs/events")
 	}
 	for _, ev := range sp.Events {
-		var dims []string
-		for _, r := range sp.Rows {
-			if r.Event == ev {
-				dims = addDims(dims, r.Guard)
-				if r.To.State == "escalate" {
-					for _, e := range sp.Escalate {
-						dims = addDims(dims, e.Guard)
-					}
-				}
-			}
-		}
+		dims := stepDims(sp, ev)
 		for _, cf := range sp.Configs {
 			combos(dims, sp.DimValues, func(assign map[string]string, salt int) {
-				req, e, counters := inputs(assign, salt)
-				e.Name = ev
-				step := StepView{State: cf.State, Stage: cf.Stage, Type: cf.Type, Reason: cf.Reason,
-					Counters: counters, ResumeStage: firstStageOf(cf.Type)}
-				out, err := Decide(step, req, e)
-				if err != nil {
-					t.Errorf("Decide(%+v, %v, %v): %v", cf, assign, ev, err)
-					return
-				}
-				id, ign := sp.StepOracle(cf, ev, assign)
-				if out.Ignored != ign || out.RowID != id {
-					t.Errorf("%+v %s %v: Decide=(%q ignored=%v) smcheck=(%q ignored=%v)",
-						cf, ev, assign, out.RowID, out.Ignored, id, ign)
-					return
+				d, ign := stepCase(t, sp, cf, ev, assign, salt)
+				if d {
+					decided++
 				}
 				if ign {
 					ignored++
-					if len(out.Effects) != 0 || out.To != (To{}) {
-						t.Errorf("ignored outcome carries data: %+v", out)
-					}
-					return
 				}
-				decided++
-				checkStepOutcome(t, sp, cf, req, out, id)
 			})
 		}
 	}
 	return decided, ignored
 }
 
-func reqExhaustive(t *testing.T) (decided, ignored int) {
-	sp := loadSpec(t)
+func holdEvents(sp *smcheck.Spec) []string {
 	var events []string
 	for _, r := range sp.HoldRows {
 		if !slices.Contains(events, r.Event) {
@@ -232,41 +249,62 @@ func reqExhaustive(t *testing.T) (decided, ignored int) {
 			}
 		}
 	}
-	for _, ev := range events {
-		var dims []string
-		for _, r := range sp.HoldRows {
-			if r.Event == ev {
-				dims = addDims(dims, r.Guard)
-				if r.To == "rescue_or_owner" {
-					for _, e := range sp.HoldEscalate {
-						dims = addDims(dims, e.Guard)
-					}
+	return events
+}
+
+func holdDims(sp *smcheck.Spec, ev string) []string {
+	var dims []string
+	for _, r := range sp.HoldRows {
+		if r.Event == ev {
+			dims = addDims(dims, r.Guard)
+			if r.To == "rescue_or_owner" {
+				for _, e := range sp.HoldEscalate {
+					dims = addDims(dims, e.Guard)
 				}
 			}
 		}
+	}
+	return dims
+}
+
+// reqCase decides one requirement combination; it reports whether the case
+// was decided or ignored (neither on a failure).
+func reqCase(t *testing.T, sp *smcheck.Spec, hold, ev string, assign map[string]string, salt int) (decided, ignored bool) {
+	req, e, _ := inputs(assign, salt)
+	req.Hold = hold
+	e.Name = ev
+	out, err := DecideReq(req, e)
+	if err != nil {
+		t.Errorf("DecideReq(%s, %v, %s): %v", hold, assign, ev, err)
+		return false, false
+	}
+	id, ign := sp.ReqOracle(hold, ev, assign)
+	if out.Ignored != ign || strings.TrimSuffix(out.RowID, "+roo") != id {
+		t.Errorf("hold=%s %s %v: DecideReq=(%q ignored=%v) oracle=(%q ignored=%v)",
+			hold, ev, assign, out.RowID, out.Ignored, id, ign)
+		return false, false
+	}
+	if ign {
+		return false, true
+	}
+	if !slices.Contains(sp.HoldValues, out.To) {
+		t.Errorf("%s: target %q is not a hold value", out.RowID, out.To)
+	}
+	return true, false
+}
+
+func reqExhaustive(t *testing.T) (decided, ignored int) {
+	sp := loadSpec(t)
+	for _, ev := range holdEvents(sp) {
+		dims := holdDims(sp, ev)
 		for _, hold := range sp.HoldValues {
 			combos(dims, sp.HoldDimValues, func(assign map[string]string, salt int) {
-				req, e, _ := inputs(assign, salt)
-				req.Hold = hold
-				e.Name = ev
-				out, err := DecideReq(req, e)
-				if err != nil {
-					t.Errorf("DecideReq(%s, %v, %s): %v", hold, assign, ev, err)
-					return
-				}
-				id, ign := sp.ReqOracle(hold, ev, assign)
-				if out.Ignored != ign || strings.TrimSuffix(out.RowID, "+roo") != id {
-					t.Errorf("hold=%s %s %v: DecideReq=(%q ignored=%v) oracle=(%q ignored=%v)",
-						hold, ev, assign, out.RowID, out.Ignored, id, ign)
-					return
+				d, ign := reqCase(t, sp, hold, ev, assign, salt)
+				if d {
+					decided++
 				}
 				if ign {
 					ignored++
-					return
-				}
-				decided++
-				if !slices.Contains(sp.HoldValues, out.To) {
-					t.Errorf("%s: target %q is not a hold value", out.RowID, out.To)
 				}
 			})
 		}

@@ -17,10 +17,14 @@ import (
 
 // The columns only this package may write (C-01). TestStateColumnsExist ties
 // them to the migration.
-var (
-	stepStateCols = []string{"state", "stage", "reason", "resume_stage"}
-	reqHoldCols   = []string{"hold"}
-)
+
+func reqHoldCols() []string {
+	return []string{"hold"}
+}
+
+func stepStateCols() []string {
+	return []string{"state", "stage", "reason", "resume_stage"}
+}
 
 var (
 	wsRe = regexp.MustCompile(`\s+`)
@@ -41,9 +45,9 @@ func writesStateSQL(lit string) bool {
 		return false
 	}
 	set, _, _ := strings.Cut(m[2], " where ")
-	cols := stepStateCols
+	cols := stepStateCols()
 	if m[1] == "requirements" {
-		cols = reqHoldCols
+		cols = reqHoldCols()
 	}
 	for _, c := range cols {
 		if regexp.MustCompile(`(^|[\s,])` + c + `\s*=`).MatchString(set) {
@@ -166,7 +170,7 @@ func TestOnlyTransitionWritesStateDetectsViolations(t *testing.T) {
 // migration.
 func TestStateColumnsExist(t *testing.T) {
 	e := newEnv(t)
-	for table, cols := range map[string][]string{"steps": stepStateCols, "requirements": reqHoldCols} {
+	for table, cols := range map[string][]string{"steps": stepStateCols(), "requirements": reqHoldCols()} {
 		have := map[string]bool{}
 		err := e.db.Read(e.ctx, func(tx *sql.Tx) error {
 			rows, err := tx.Query(`SELECT name FROM pragma_table_info(?)`, table)

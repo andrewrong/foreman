@@ -13,10 +13,13 @@ import (
 	"github.com/andrewrong/foreman/internal/workspace/session"
 )
 
-var (
-	sessIdent  = git.Identity{Name: "foreman-session", Email: "foreman-session@users.noreply.example"}
-	integIdent = git.Identity{Name: "foreman", Email: "foreman@users.noreply.example"}
-)
+func integIdent() git.Identity {
+	return git.Identity{Name: "foreman", Email: "foreman@users.noreply.example"}
+}
+
+func sessIdent() git.Identity {
+	return git.Identity{Name: "foreman-session", Email: "foreman-session@users.noreply.example"}
+}
 
 func must(out string, err error) string {
 	if err != nil {
@@ -117,10 +120,10 @@ func newWorld(t *testing.T, def string) *world {
 	remote := seedRemote(t, r, def)
 	m, err := session.CloneMirror(ctx, r, session.MirrorDir(r.Home(), "p"), remote)
 	mustErr(t, err)
-	d, err := Init(ctx, r, m, filepath.Join(t.TempDir(), "integ"), integIdent)
+	d, err := Init(ctx, r, m, filepath.Join(t.TempDir(), "integ"), integIdent())
 	mustErr(t, err)
 	repo, err := session.Create(ctx, r, m, filepath.Join(t.TempDir(), "sess"),
-		session.Spec{ReqID: "r1", BaseBranch: def, Identity: sessIdent})
+		session.Spec{ReqID: "r1", BaseBranch: def, Identity: sessIdent()})
 	mustErr(t, err)
 	rec.cmds = nil
 	return &world{t: t, r: r, rec: rec, remote: remote, mirror: m, integ: d, sess: repo}
@@ -131,7 +134,7 @@ func newWorld(t *testing.T, def string) *world {
 func (w *world) commitOnBranch(branch, from string, files map[string]string, msg string) {
 	w.t.Helper()
 	ctx := context.Background()
-	s := w.r.WithIdentity(sessIdent)
+	s := w.r.WithIdentity(sessIdent())
 	must(s.Run(ctx, w.sess.Dir, "checkout", "--quiet", "-B", branch, from))
 	writeFiles(w.t, w.sess.Dir, files)
 	must(s.Run(ctx, w.sess.Dir, "add", "-A"))

@@ -18,9 +18,9 @@ func TestScenarioFindingsClosedByPassAndApprove(t *testing.T) {
 
 	wantRow(t, e.transition(st, Event{Name: "check_fail", FailingTests: []string{"TestX"}, LogTail: "FAIL"}).RowID, "S50")
 	wantRow(t, e.transition(other, Event{Name: "check_fail", FailingTests: []string{"TestY"}, LogTail: "FAIL"}).RowID, "S50")
-	wantRow(t, e.transition(st, dispatchOK).RowID, "S04")
+	wantRow(t, e.transition(st, dispatchOK()).RowID, "S04")
 	wantRow(t, e.transition(st, Event{Name: "run_ok"}).RowID, "S40")
-	wantRow(t, e.transition(st, dispatchOK).RowID, "S05")
+	wantRow(t, e.transition(st, dispatchOK()).RowID, "S05")
 	wantRow(t, e.transition(st, Event{Name: "check_pass"}).RowID, "S41")
 
 	open := func(scope, kind string) int {
@@ -33,7 +33,7 @@ func TestScenarioFindingsClosedByPassAndApprove(t *testing.T) {
 		t.Errorf("check_fail = %d after check_pass, want 0", n)
 	}
 
-	wantRow(t, e.transition(st, dispatchOK).RowID, "S06")
+	wantRow(t, e.transition(st, dispatchOK()).RowID, "S06")
 	review := Event{Name: "review_changes", Head: "abc123", Findings: []FindingIn{
 		{Severity: "blocking", Path: "a.go", Line: 3, Problem: "p", CloseWhen: "c"}}}
 	wantRow(t, e.transition(st, review).RowID, "S52")
@@ -43,11 +43,11 @@ func TestScenarioFindingsClosedByPassAndApprove(t *testing.T) {
 	if got := e.count(`SELECT COUNT(*) FROM steps WHERE id = ? AND last_reviewed_sha = 'abc123'`, st); got != 1 {
 		t.Error("S52 did not write last_reviewed_sha")
 	}
-	wantRow(t, e.transition(st, dispatchOK).RowID, "S04")
+	wantRow(t, e.transition(st, dispatchOK()).RowID, "S04")
 	wantRow(t, e.transition(st, Event{Name: "run_ok"}).RowID, "S40")
-	wantRow(t, e.transition(st, dispatchOK).RowID, "S05")
+	wantRow(t, e.transition(st, dispatchOK()).RowID, "S05")
 	wantRow(t, e.transition(st, Event{Name: "check_pass"}).RowID, "S41")
-	wantRow(t, e.transition(st, dispatchOK).RowID, "S06")
+	wantRow(t, e.transition(st, dispatchOK()).RowID, "S06")
 	wantRow(t, e.transition(st, Event{Name: "review_approve", Head: "def456"}).RowID, "S42")
 	if open(st, "review") != 0 {
 		t.Error("review finding still open after approval")
@@ -94,7 +94,7 @@ func TestScenarioBadResultAndInfraCountersReset(t *testing.T) {
 	if c := e.info(st).Counters; c["infra"] != 0 || c["bad_result"] != 1 {
 		t.Errorf("after bad_result: infra %d (want 0, a non-infra result), bad_result %d (want 1)", c["infra"], c["bad_result"])
 	}
-	wantRow(t, e.transition(st, dispatchOK).RowID, "S04")
+	wantRow(t, e.transition(st, dispatchOK()).RowID, "S04")
 	wantRow(t, e.transition(st, Event{Name: "run_ok"}).RowID, "S40")
 	if c := e.info(st).Counters["bad_result"]; c != 0 {
 		t.Errorf("bad_result = %d after a valid result, want 0", c)

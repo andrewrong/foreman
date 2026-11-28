@@ -16,6 +16,7 @@ const modulesPath = "spec/design/modules.yaml"
 type moduleDef struct {
 	Module   string   `yaml:"module"`
 	Layer    int      `yaml:"layer"`
+	Uses     []string `yaml:"uses"`
 	Packages []string `yaml:"packages"`
 }
 

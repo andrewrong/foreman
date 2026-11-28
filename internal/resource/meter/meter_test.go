@@ -6,7 +6,9 @@ import (
 	"time"
 )
 
-var t0 = time.Unix(1_800_000_000, 0)
+func t0() time.Time {
+	return time.Unix(1_800_000_000, 0)
+}
 
 func TestIngestClaudeKeepsAbsentWindows(t *testing.T) {
 	s := NewStore()
@@ -15,16 +17,16 @@ func TestIngestClaudeKeepsAbsentWindows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.IngestClaude("a", info, t0)
+	s.IngestClaude("a", info, t0())
 	only7, _ := ParseClaudeRateLimitInfo([]byte(`{"unifiedWindows":{"seven_day":{"utilization":0.91,"resetsAt":1800600000}}}`))
-	s.IngestClaude("a", only7, t0.Add(time.Minute))
+	s.IngestClaude("a", only7, t0().Add(time.Minute))
 
 	r7, _ := s.Get("model/claude/a/7d")
 	r5, _ := s.Get("model/claude/a/5h")
 	if r7.Used != 91 || r7.Capacity != 100 || r7.ResetsAt.Unix() != 1800600000 {
 		t.Fatalf("7d = %+v", r7)
 	}
-	if r5.Used != 20 || !r5.MeasuredAt.Equal(t0) {
+	if r5.Used != 20 || !r5.MeasuredAt.Equal(t0()) {
 		t.Fatalf("5h must keep its last value, got %+v", r5)
 	}
 	if w := s.Windows("claude", "a"); len(w) != 2 || w[0] != "5h" || w[1] != "7d" {
@@ -34,8 +36,8 @@ func TestIngestClaudeKeepsAbsentWindows(t *testing.T) {
 
 func TestObserveIgnoresOlderReading(t *testing.T) {
 	s := NewStore()
-	s.Observe(Reading{Resource: "x", Used: 2, MeasuredAt: t0.Add(time.Minute)})
-	s.Observe(Reading{Resource: "x", Used: 1, MeasuredAt: t0})
+	s.Observe(Reading{Resource: "x", Used: 2, MeasuredAt: t0().Add(time.Minute)})
+	s.Observe(Reading{Resource: "x", Used: 1, MeasuredAt: t0()})
 	if r, _ := s.Get("x"); r.Used != 2 {
 		t.Fatalf("used = %d", r.Used)
 	}
@@ -51,7 +53,7 @@ func TestGitHubHeaders(t *testing.T) {
 		t.Fatal("headers not parsed")
 	}
 	s := NewStore()
-	s.IngestGitHub("github/rest", l, t0)
+	s.IngestGitHub("github/rest", l, t0())
 	r, _ := s.Get("github/rest")
 	if r.Capacity != 5000 || r.Used != 800 || r.ResetsAt.Unix() != 1800003600 {
 		t.Fatalf("reading = %+v", r)

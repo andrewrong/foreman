@@ -25,45 +25,14 @@ func (g *Gate) eval(u unit, d Demand, now time.Time) (reasons, warns []Reason) {
 		return g.evalCounters(u, now), nil
 	}
 
-	var capacity, used int64
-	var rd meter.Reading
-	since := time.Time{} // consumption settled after this is not yet in the reading
-	if k.SelfCounted {
-		capacity = k.DefaultCap
-	} else {
-		var have bool
-		rd, have = g.o.Meters.Get(u.res)
-		if !have {
-			if k.Passive {
-				// the first session produces the first reading
-				return nil, []Reason{{"no_reading", u.res, time.Time{}}}
-			}
-			return unmeasured(u, d, "unmeasured")
-		}
-		if now.Sub(rd.MeasuredAt) > g.o.Config.StaleAfter {
-			if !k.Passive {
-				return unmeasured(u, d, "stale")
-			}
-			warns = append(warns, Reason{"estimated", u.res, time.Time{}})
-		}
-		capacity, used, since = rd.Capacity, rd.Used, rd.MeasuredAt
-		if k.Passive && !rd.ResetsAt.IsZero() && !now.Before(rd.ResetsAt) {
-			used, since = 0, rd.ResetsAt // window rolled over since the reading
-		}
+	r, reasons, warns, done := g.reading(u, d, now)
+	if done {
+		return reasons, warns
 	}
+	capacity, used, since, rd := r.capacity, r.used, r.since, r.rd
 
 	if k.Binary {
-		if capacity < 1 && k.ID == "RES-BASE" && d.BaseFix {
-			return nil, warns
-		}
-		if capacity < 1 {
-			code := "unavailable"
-			if k.ID == "RES-BASE" {
-				code = "red_base"
-			}
-			return []Reason{{code, u.res, time.Time{}}}, warns
-		}
-		return nil, warns
+		return binaryReasons(u, d, capacity), warns
 	}
 
 	var settledAfter int64
@@ -77,20 +46,7 @@ func (g *Gate) eval(u unit, d Demand, now time.Time) (reasons, warns []Reason) {
 		until = rd.ResetsAt
 	}
 
-	need := u.amount + k.Floor.Of(capacity)
-	if !d.Essential {
-		need += k.EssentialReserve
-	}
-	if avail < need {
-		code := "insufficient"
-		switch {
-		case k.SelfCounted:
-			code, until = "slot_full", time.Time{}
-		case !k.Floor.None():
-			code = "below_floor"
-		}
-		reasons = append(reasons, Reason{code, u.res, until})
-	}
+	reasons = shortage(u, d, avail, capacity, until)
 	if k.PriorityGateBelowPct > 0 && avail*100 < capacity*k.PriorityGateBelowPct && d.Priority > k.PriorityGateMax {
 		reasons = append(reasons, Reason{"priority_gate", u.res, until})
 	}
@@ -103,6 +59,78 @@ func (g *Gate) eval(u unit, d Demand, now time.Time) (reasons, warns []Reason) {
 		warns = append(warns, Reason{"below_warn", u.res, until})
 	}
 	return reasons, warns
+}
+
+type unitReading struct {
+	capacity, used int64
+	since          time.Time // consumption settled after this is not yet in the reading
+	rd             meter.Reading
+}
+
+// reading fetches the capacity and usage of a unit; done reports that the
+// returned reasons and warns are already the final answer.
+func (g *Gate) reading(u unit, d Demand, now time.Time) (r unitReading, reasons, warns []Reason, done bool) {
+	k := u.kind
+	if k.SelfCounted {
+		r.capacity = k.DefaultCap
+		return r, nil, nil, false
+	}
+	rd, have := g.o.Meters.Get(u.res)
+	if !have {
+		if k.Passive {
+			// the first session produces the first reading
+			return r, nil, []Reason{{"no_reading", u.res, time.Time{}}}, true
+		}
+		reasons, warns = unmeasured(u, d, "unmeasured")
+		return r, reasons, warns, true
+	}
+	if now.Sub(rd.MeasuredAt) > g.o.Config.StaleAfter {
+		if !k.Passive {
+			reasons, warns = unmeasured(u, d, "stale")
+			return r, reasons, warns, true
+		}
+		warns = append(warns, Reason{"estimated", u.res, time.Time{}})
+	}
+	r = unitReading{capacity: rd.Capacity, used: rd.Used, since: rd.MeasuredAt, rd: rd}
+	if k.Passive && !rd.ResetsAt.IsZero() && !now.Before(rd.ResetsAt) {
+		r.used, r.since = 0, rd.ResetsAt // window rolled over since the reading
+	}
+	return r, nil, warns, false
+}
+
+func binaryReasons(u unit, d Demand, capacity int64) []Reason {
+	k := u.kind
+	if capacity < 1 && k.ID == "RES-BASE" && d.BaseFix {
+		return nil
+	}
+	if capacity < 1 {
+		code := "unavailable"
+		if k.ID == "RES-BASE" {
+			code = "red_base"
+		}
+		return []Reason{{code, u.res, time.Time{}}}
+	}
+	return nil
+}
+
+// shortage returns the reason when the unit lacks the amount plus its floor.
+func shortage(u unit, d Demand, avail, capacity int64, until time.Time) []Reason {
+	k := u.kind
+	need := u.amount + k.Floor.Of(capacity)
+	if !d.Essential {
+		need += k.EssentialReserve
+	}
+	if avail >= need {
+		return nil
+	}
+	code := "insufficient"
+	switch {
+	case k.SelfCounted:
+		code, until = "slot_full", time.Time{}
+	case !k.Floor.None():
+		code = "below_floor"
+	}
+	return []Reason{{code, u.res, until}}
 }
 
 // unmeasured handles a resource that cannot be measured now: only P0 passes.

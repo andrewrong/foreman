@@ -98,66 +98,116 @@ func fxApplyPlanDiff(c *txc, _ string) error {
 		return err
 	}
 
-	// PV-1: every non-terminal, non-integrate step of the basis exactly once.
+	ops, err := classifyPlanOps(p, byID, basis, steps)
+	if err != nil {
+		return err
+	}
+	temp, newDeps, err := c.resolvePlanDeps(ops, byID, steps, maxSeq)
+	if err != nil {
+		return err
+	}
+
+	for id, reason := range ops.drops {
+		if err := c.killRuns(`step_id = ?`, id); err != nil {
+			return err
+		}
+		if err := c.dropSteps(`id = ?`, firstNonEmpty(reason, "dropped by plan"), id); err != nil {
+			return err
+		}
+	}
+	for _, ps := range ops.updates {
+		if err := c.updateStep(byID[ps.ID], ps, newDeps[ps.ID]); err != nil {
+			return err
+		}
+	}
+	for _, ps := range ops.adds {
+		if err := c.addStep(temp[ps.TempID], maxSeqOf(temp[ps.TempID]), ps, newDeps[temp[ps.TempID]]); err != nil {
+			return err
+		}
+	}
+	return c.applySpecPatch(p.SpecPatch)
+}
+
+// planOps is the classified content of a plan diff.
+type planOps struct {
+	drops   map[string]string // id -> reason
+	updates []PlanStep
+	adds    []PlanStep
+}
+
+// classifyPlanOps checks PV-1 (every non-terminal, non-integrate step of the
+// basis exactly once) and sorts the ops into drops, updates and adds.
+func classifyPlanOps(p *PlanDiff, byID map[string]*stepRec, basis map[string]bool, steps []*stepRec) (*planOps, error) {
 	seen := map[string]bool{}
-	drops := map[string]string{} // id -> reason
-	var updates, adds []PlanStep
+	ops := &planOps{drops: map[string]string{}}
 	for i, ps := range p.Steps {
 		switch ps.Op {
 		case "keep", "update", "drop":
 			s := byID[ps.ID]
-			if s == nil {
-				return fmt.Errorf("plan step %d: unknown step %q", i, ps.ID)
-			}
-			if seen[ps.ID] {
-				return fmt.Errorf("plan step %d: %s appears twice (PV-1)", i, ps.ID)
-			}
-			seen[ps.ID] = true
-			if s.typ == "integrate" {
-				return fmt.Errorf("plan step %d: integrate step %s is not planned (DT-2)", i, ps.ID)
-			}
-			if s.state == "dropped" || (s.state == "done" && !basis[s.id]) {
-				return fmt.Errorf("plan step %d: %s is terminal (PV-1)", i, ps.ID)
+			if err := checkPlanStepRef(i, ps, s, seen, basis); err != nil {
+				return nil, err
 			}
 			if s.state == "done" { // finished since the snapshot: keep/update mean keep, drop is invalid (PV-9)
 				continue
 			}
 			if ps.Op == "drop" {
-				drops[ps.ID] = ps.Reason
+				ops.drops[ps.ID] = ps.Reason
 			}
 			if ps.Op == "update" {
-				updates = append(updates, ps)
+				ops.updates = append(ops.updates, ps)
 			}
 		case "add":
-			adds = append(adds, ps)
+			ops.adds = append(ops.adds, ps)
 		default:
-			return fmt.Errorf("plan step %d: op %q", i, ps.Op)
+			return nil, fmt.Errorf("plan step %d: op %q", i, ps.Op)
 		}
 	}
 	for id := range basis {
 		if byID[id] != nil && byID[id].typ != "integrate" && !seen[id] {
-			return fmt.Errorf("apply_plan_diff: step %s missing from the plan (PV-1)", id)
+			return nil, fmt.Errorf("apply_plan_diff: step %s missing from the plan (PV-1)", id)
 		}
 	}
 	// Non-done integrate steps are dropped; DT-2 recreates them.
 	for _, s := range steps {
 		if s.typ == "integrate" && s.state != "done" && s.state != "dropped" {
-			drops[s.id] = "integrate step recreated by DT-2 after replan"
+			ops.drops[s.id] = "integrate step recreated by DT-2 after replan"
 		}
 	}
+	return ops, nil
+}
 
-	// New ids, then dependency resolution and the acyclicity check (PV-3).
+// checkPlanStepRef validates a keep/update/drop op against the step it names.
+func checkPlanStepRef(i int, ps PlanStep, s *stepRec, seen, basis map[string]bool) error {
+	if s == nil {
+		return fmt.Errorf("plan step %d: unknown step %q", i, ps.ID)
+	}
+	if seen[ps.ID] {
+		return fmt.Errorf("plan step %d: %s appears twice (PV-1)", i, ps.ID)
+	}
+	seen[ps.ID] = true
+	if s.typ == "integrate" {
+		return fmt.Errorf("plan step %d: integrate step %s is not planned (DT-2)", i, ps.ID)
+	}
+	if s.state == "dropped" || (s.state == "done" && !basis[s.id]) {
+		return fmt.Errorf("plan step %d: %s is terminal (PV-1)", i, ps.ID)
+	}
+	return nil
+}
+
+// resolvePlanDeps assigns new ids, resolves dependencies and runs the
+// acyclicity check (PV-3). It returns the temp-id map and the new deps.
+func (c *txc) resolvePlanDeps(ops *planOps, byID map[string]*stepRec, steps []*stepRec, maxSeq int) (map[string]string, map[string][]string, error) {
 	temp := map[string]string{}
-	for _, ps := range adds {
+	for _, ps := range ops.adds {
 		if ps.TempID == "" || temp[ps.TempID] != "" {
-			return fmt.Errorf("add step: temp_id %q missing or duplicated", ps.TempID)
+			return nil, nil, fmt.Errorf("add step: temp_id %q missing or duplicated", ps.TempID)
 		}
 		maxSeq++
 		temp[ps.TempID] = fmt.Sprintf("%s/S%d", c.req.id, maxSeq)
 	}
 	deps := map[string][]string{} // all steps that stay
 	for _, s := range steps {
-		if _, dropped := drops[s.id]; !dropped && s.state != "dropped" {
+		if _, dropped := ops.drops[s.id]; !dropped && s.state != "dropped" {
 			deps[s.id] = c.dependsOf(s.id)
 		}
 	}
@@ -166,7 +216,7 @@ func fxApplyPlanDiff(c *txc, _ string) error {
 		for _, r := range refs {
 			if id, ok := temp[r]; ok {
 				r = id
-			} else if _, dropping := drops[r]; byID[r] == nil || byID[r].state == "dropped" || dropping {
+			} else if _, dropping := ops.drops[r]; byID[r] == nil || byID[r].state == "dropped" || dropping {
 				return nil, fmt.Errorf("depends_on %q does not exist or is dropped (PV-3)", r)
 			}
 			out = append(out, r)
@@ -174,43 +224,24 @@ func fxApplyPlanDiff(c *txc, _ string) error {
 		return out, nil
 	}
 	newDeps := map[string][]string{}
-	for _, ps := range updates {
+	for _, ps := range ops.updates {
 		d, err := resolve(ps.DependsOn)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		newDeps[ps.ID], deps[ps.ID] = d, d
 	}
-	for _, ps := range adds {
+	for _, ps := range ops.adds {
 		d, err := resolve(ps.DependsOn)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		newDeps[temp[ps.TempID]], deps[temp[ps.TempID]] = d, d
 	}
 	if cyc := findCycle(deps); cyc != nil {
-		return fmt.Errorf("apply_plan_diff: dependency cycle %s (PV-3)", strings.Join(cyc, " -> "))
+		return nil, nil, fmt.Errorf("apply_plan_diff: dependency cycle %s (PV-3)", strings.Join(cyc, " -> "))
 	}
-
-	for id, reason := range drops {
-		if err := c.killRuns(`step_id = ?`, id); err != nil {
-			return err
-		}
-		if err := c.dropSteps(`id = ?`, firstNonEmpty(reason, "dropped by plan"), id); err != nil {
-			return err
-		}
-	}
-	for _, ps := range updates {
-		if err := c.updateStep(byID[ps.ID], ps, newDeps[ps.ID]); err != nil {
-			return err
-		}
-	}
-	for _, ps := range adds {
-		if err := c.addStep(temp[ps.TempID], maxSeqOf(temp[ps.TempID]), ps, newDeps[temp[ps.TempID]]); err != nil {
-			return err
-		}
-	}
-	return c.applySpecPatch(p.SpecPatch)
+	return temp, newDeps, nil
 }
 
 func maxSeqOf(id string) int {

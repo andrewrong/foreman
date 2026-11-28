@@ -16,21 +16,15 @@ import (
 	"sync"
 
 	"github.com/andrewrong/foreman/internal/clock"
-	"github.com/andrewrong/foreman/internal/forge/ops"
-	"github.com/andrewrong/foreman/internal/harness/api"
+	"github.com/andrewrong/foreman/internal/pipeline/recover"
 	"github.com/andrewrong/foreman/internal/pipeline/state"
 	"github.com/andrewrong/foreman/internal/resource/gate"
 	"github.com/andrewrong/foreman/internal/resource/meter"
-	"github.com/andrewrong/foreman/internal/sandbox/launch"
-	"github.com/andrewrong/foreman/internal/sandbox/policy"
-	"github.com/andrewrong/foreman/internal/spec/model"
 	"github.com/andrewrong/foreman/internal/store/sqlite"
-	wsgit "github.com/andrewrong/foreman/internal/workspace/git"
-	"github.com/andrewrong/foreman/internal/workspace/integrate"
-	"github.com/andrewrong/foreman/internal/workspace/session"
 )
 
 // Deps is everything a Scheduler works with; the composition root builds it.
+// Stages, workspace and forge arrive as the interfaces of ports.go.
 type Deps struct {
 	DB      *sqlite.DB // work.db
 	Engine  *state.Engine
@@ -39,30 +33,19 @@ type Deps struct {
 	Meters  *meter.Store
 	Home    string // FOREMAN_HOME, absolute and short (RunTmp <= 70 bytes)
 	Project string
+	Slots   Slots
 
-	Repo   ops.Repo
-	Ops    *ops.Ops
-	Git    *wsgit.Runner
-	Mirror *session.Mirror
-	Integ  *integrate.Dir
+	Forge     Forge
+	Workspace Workspace
+	Procs     recover.Procs
 
-	SessionIdent wsgit.Identity
-	Launcher     launch.Launcher
-	SessionExe   string        // foreman binary serving launch.FlagRunSession; empty: os.Args[0]
-	Policy       policy.Inputs // run-independent sandbox inputs
-	// NewAdapter builds the harness adapter of a Run with its lease (MD-3).
-	NewAdapter func(role api.Role, lease *gate.Lease) (api.Adapter, error)
-	// RunExtra gives adapter-specific settings of a Run (scripted: script path).
-	RunExtra func(role api.Role, stepID string) map[string]string
-	// L0 are the project's L0 commands (argv form).
-	L0           [][]string
+	Code      SessionStage
+	Review    SessionStage
+	Check     CheckStage
+	Integrate IntegrateStage
+	Merge     MergeStage
+
 	Constitution string
-	// Guardrails is the project's spec/guardrails.yaml path list (D-063); the
-	// merge stage matches it against the PR's real diff (S47).
-	Guardrails []model.Guardrail
-	// Forbidden are the globs L0 refuses (check:forbidden-paths); nil means
-	// the check stage's default (.github/**, G-05).
-	Forbidden []string
 
 	// OnTransition, if set, sees every applied Transition (tests log RowIDs).
 	OnTransition func(stepID string, ev state.Event, out state.Outcome)
@@ -73,8 +56,8 @@ type Scheduler struct {
 	d Deps
 
 	mu     sync.Mutex
-	leases map[string]*gate.Lease    // step id -> lease held while the step runs
-	procs  map[string]*launch.Handle // run id -> session started by this process
+	leases map[string]*gate.Lease // step id -> lease held while the step runs
+	procs  map[string]Proc        // run id -> session started by this process
 }
 
 // New validates deps and returns a Scheduler.
@@ -82,8 +65,9 @@ func New(d Deps) (*Scheduler, error) {
 	var missing []string
 	for name, ok := range map[string]bool{
 		"DB": d.DB != nil, "Engine": d.Engine != nil, "Clock": d.Clock != nil, "Gate": d.Gate != nil,
-		"Meters": d.Meters != nil, "Home": d.Home != "", "Ops": d.Ops != nil, "Git": d.Git != nil,
-		"Mirror": d.Mirror != nil, "Integ": d.Integ != nil, "NewAdapter": d.NewAdapter != nil,
+		"Meters": d.Meters != nil, "Home": d.Home != "", "Forge": d.Forge != nil, "Workspace": d.Workspace != nil,
+		"Procs": d.Procs != nil, "Code": d.Code != nil, "Review": d.Review != nil, "Check": d.Check != nil,
+		"Integrate": d.Integrate != nil, "Merge": d.Merge != nil,
 	} {
 		if !ok {
 			missing = append(missing, name)
@@ -92,7 +76,7 @@ func New(d Deps) (*Scheduler, error) {
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("sched: missing dependencies: %s", strings.Join(sortedStrings(missing), ", "))
 	}
-	return &Scheduler{d: d, leases: map[string]*gate.Lease{}, procs: map[string]*launch.Handle{}}, nil
+	return &Scheduler{d: d, leases: map[string]*gate.Lease{}, procs: map[string]Proc{}}, nil
 }
 
 // Tick does one scheduling round and reports whether any Transition was
@@ -101,7 +85,7 @@ func (s *Scheduler) Tick(ctx context.Context) (bool, error) {
 	// FG-2: GitHub readings go stale after 10 minutes and the Gate then
 	// answers "stale" to every non-P0 call; refresh them here (a no-op while
 	// fresh). A failed probe is not fatal: the Gate decides from what it has.
-	_ = s.d.Ops.EnsureFresh(ctx)
+	_ = s.d.Forge.EnsureFresh(ctx)
 	progressed := false
 	for _, phase := range []func(context.Context) (bool, error){s.wake, s.dispatch, s.reconcile} {
 		p, err := phase(ctx)
@@ -198,27 +182,9 @@ func (s *Scheduler) dispatch(ctx context.Context) (bool, error) {
 		if err != nil {
 			return progressed, err
 		}
-		ev := state.Event{Name: "dispatch", Deps: "pending", Budget: "ok"}
-		if over {
-			ev.Budget = "over"
-		}
-		if depsDone(st, all) {
-			ev.Deps = "done"
-		}
-		var lease *gate.Lease
-		if req.Hold == state.HoldNone && !over && ev.Deps == "done" {
-			if st.Stage == "merge" {
-				s.refreshBase(ctx, req, st)
-			}
-			dec, err := s.d.Gate.Acquire(ctx, s.demand(st, req))
-			if err != nil {
-				return progressed, err
-			}
-			if dec.Allowed() {
-				ev.Lease, lease = "ok", dec.Lease
-			} else {
-				ev.Lease, ev.ResetsAt = "wait", dec.Wait.Until
-			}
+		ev, lease, err := s.dispatchEvent(ctx, st, req, all, over)
+		if err != nil {
+			return progressed, err
 		}
 		out, err := s.apply(ctx, st.ID, ev)
 		if err != nil {
@@ -239,13 +205,41 @@ func (s *Scheduler) dispatch(ctx context.Context) (bool, error) {
 	return progressed, nil
 }
 
+// dispatchEvent builds the dispatch event for one queued step, acquiring a
+// lease when hold, budget and deps already allow it.
+func (s *Scheduler) dispatchEvent(ctx context.Context, st stepRow, req reqRow, all []stepRow, over bool) (state.Event, *gate.Lease, error) {
+	ev := state.Event{Name: "dispatch", Deps: "pending", Budget: "ok"}
+	if over {
+		ev.Budget = "over"
+	}
+	if depsDone(st, all) {
+		ev.Deps = "done"
+	}
+	var lease *gate.Lease
+	if req.Hold == state.HoldNone && !over && ev.Deps == "done" {
+		if st.Stage == "merge" {
+			s.refreshBase(ctx, req, st)
+		}
+		dec, err := s.d.Gate.Acquire(ctx, s.demand(st, req))
+		if err != nil {
+			return ev, nil, err
+		}
+		if dec.Allowed() {
+			ev.Lease, lease = "ok", dec.Lease
+		} else {
+			ev.Lease, ev.ResetsAt = "wait", dec.Wait.Until
+		}
+	}
+	return ev, lease, nil
+}
+
 // refreshBase polls the repository once so that the base-health reading the
 // merge lease depends on is fresh. RES-BASE is not passive: a missing or
 // stale reading makes the Gate answer "unmeasured" to every non-P0 merge, and
 // the daemon's periodic batch poll (FG-7) does not exist yet. A failed poll
 // is not fatal: the Gate then decides from what it has.
 func (s *Scheduler) refreshBase(ctx context.Context, req reqRow, st stepRow) {
-	_, _ = s.d.Ops.Poll(ctx, s.opsCall(req, st), ops.PollInput{Repo: s.d.Repo, BaseBranch: s.d.Integ.Default, Active: true})
+	s.d.Forge.RefreshBase(ctx, s.opsCall(req, st))
 }
 
 func (s *Scheduler) hold(stepID string, l *gate.Lease) {

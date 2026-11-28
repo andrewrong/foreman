@@ -156,17 +156,15 @@ func (e *liveEnv) waitFor(ctx context.Context, what string, limit, every time.Du
 // Fixture calls have no OP in forge.yaml (branches and commits are made by
 // sessions through git, not by foreman). They go through the same Gate wrapper
 // as every OP, using go-github directly: the only direct go-github use here.
-var (
-	fixRead  = spec{id: "FIXTURE-read"}
-	fixWrite = spec{id: "FIXTURE-write", essential: true, write: true}
-)
+func fixRead() spec  { return spec{id: "FIXTURE-read"} }
+func fixWrite() spec { return spec{id: "FIXTURE-write", essential: true, write: true} }
 
 // newBranch creates branch name from the default branch tip with one commit
 // adding a file, and returns the commit sha.
 func (e *liveEnv) newBranch(ctx context.Context, name string) (string, error) {
 	r := e.repo
 	var tip string
-	err := e.o.do(ctx, call, fixRead, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	err := e.o.do(ctx, call(), fixRead(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		ref, resp, err := gh.Git.GetRef(ctx, r.Owner, r.Name, "heads/"+e.base)
 		if err == nil {
 			tip = ref.GetObject().GetSHA()
@@ -176,7 +174,7 @@ func (e *liveEnv) newBranch(ctx context.Context, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	err = e.o.do(ctx, call, fixWrite, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	err = e.o.do(ctx, call(), fixWrite(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		_, resp, err := gh.Git.CreateRef(ctx, r.Owner, r.Name, github.CreateRef{Ref: "refs/heads/" + name, SHA: tip})
 		return resp, err
 	})
@@ -187,7 +185,7 @@ func (e *liveEnv) newBranch(ctx context.Context, name string) (string, error) {
 	e.branches = append(e.branches, name)
 	e.mu.Unlock()
 	var sha string
-	err = e.o.do(ctx, call, fixWrite, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	err = e.o.do(ctx, call(), fixWrite(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		msg := "test: foreman live fixture " + name
 		out, resp, err := gh.Repositories.CreateFile(ctx, r.Owner, r.Name, ".foreman-live/"+name+".txt", &github.RepositoryContentFileOptions{
 			Message: &msg, Content: []byte(name + "\n"), Branch: &name,
@@ -202,7 +200,7 @@ func (e *liveEnv) newBranch(ctx context.Context, name string) (string, error) {
 
 // defaultBranch reads the repository's default branch.
 func (e *liveEnv) defaultBranch(ctx context.Context) error {
-	return e.o.do(ctx, call, fixRead, func(ctx context.Context, gh *github.Client) (*github.Response, error) {
+	return e.o.do(ctx, call(), fixRead(), func(ctx context.Context, gh *github.Client) (*github.Response, error) {
 		rp, resp, err := gh.Repositories.Get(ctx, e.repo.Owner, e.repo.Name)
 		if err == nil {
 			e.base = rp.GetDefaultBranch()
@@ -239,12 +237,12 @@ func (e *liveEnv) cleanup() {
 	prs, branches := slices.Collect(maps.Keys(e.openPRs)), slices.Clone(e.branches)
 	e.mu.Unlock()
 	for _, n := range prs {
-		if err := e.o.PRClose(ctx, call, e.repo, n); err != nil {
+		if err := e.o.PRClose(ctx, call(), e.repo, n); err != nil {
 			e.t.Logf("cleanup: close PR %d: %v", n, err)
 		}
 	}
 	for _, b := range branches {
-		if err := e.o.RefDelete(ctx, call, e.repo, b); err != nil {
+		if err := e.o.RefDelete(ctx, call(), e.repo, b); err != nil {
 			e.t.Logf("cleanup: delete branch %s: %v", b, err)
 		}
 	}
@@ -283,7 +281,7 @@ func (e *liveEnv) mergeRetry(ctx context.Context, n int, sha string, limit time.
 		var err error
 		for _, method := range []string{"squash", "merge"} {
 			var res MergeResult
-			res, err = e.o.PRMerge(ctx, call, e.repo, n, sha, method)
+			res, err = e.o.PRMerge(ctx, call(), e.repo, n, sha, method)
 			if err == nil {
 				if !res.Merged {
 					return false, fmt.Errorf("merge answered without merged: %s", res.Message)

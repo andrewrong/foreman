@@ -41,7 +41,7 @@ func (sc *Scanner) CheckCommit(c Commit) []Finding {
 }
 
 // CheckCommit is CheckCommit with the default rules.
-func CheckCommit(c Commit) []Finding { return defaultScanner.CheckCommit(c) }
+func CheckCommit(c Commit) []Finding { return defaultScanner().CheckCommit(c) }
 
 func isNoreply(email string) bool {
 	if !strings.Contains(email, "@") {

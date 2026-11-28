@@ -8,7 +8,9 @@ import (
 
 // xholdRows is req_hold.table with every to: rescue_or_owner row replaced by
 // its expansions (ids get a "+roo" suffix).
-var xholdRows = expandHoldRows()
+func xholdRows() []holdRow {
+	return expandHoldRows()
+}
 
 func expandHoldRows() []holdRow {
 	var out []holdRow
@@ -48,8 +50,8 @@ func DecideReq(req ReqView, ev Event) (ReqOutcome, error) {
 		hold = HoldNone
 	}
 	var cands, hits []*holdRow
-	for i := range xholdRows {
-		r := &xholdRows[i]
+	for i := range xholdRows() {
+		r := &xholdRows()[i]
 		if r.Event == ev.Name && slices.Contains(r.From, hold) {
 			cands = append(cands, r)
 			if guardsHold(r.Guard, nil, req, ev) {
