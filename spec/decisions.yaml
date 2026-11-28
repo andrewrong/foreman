@@ -591,3 +591,9 @@ decisions:
     statement: "（owner 用 mise 管理工具链；2026-11-28 实测）会话的工具链由项目仓库根的 mise.toml 声明。foremand 在沙箱外、每次启动会话前，于会话仓库目录运行 mise env --json（MISE_GLOBAL_CONFIG_FILE 指向一个空文件，只取项目声明的工具，不带 owner 全局配置里的 gh 等；MISE_TRUSTED_CONFIG_PATHS 为会话目录），取 PATH 中各工具的安装目录，去掉 shims（shim 在 srt 内无法运行），realpath 后放入会话 PATH 与 allowRead（只读）。声明的版本未安装（mise 报 missing）时拒绝启动该会话并说明，foremand 不自动安装。会话内不运行 mise。项目没有 mise.toml 时会话只有系统工具。取代以 sandbox.read_paths 手写工具链目录的做法（该键保留给其他只读路径）"
     enforced_by: "test:session-toolchain-from-mise"
     status: active
+
+  - id: D-086
+    date: 2026-11-28
+    statement: "（owner 2026-11-28）运行目录用完即删：会话结束后 foremand 读取 out/ 并在一个事务中写入结果，事务提交后删除整个 FOREMAN_HOME/runs/<run id>/；顺序不可颠倒。foremand 启动时（D-047 的固定步骤之后）删除 runs/ 下数据库中不处于运行中的目录，运行中的（含待接管的分离会话）保留。只删除 runs/ 的直接子目录，删除前 realpath 确认在 runs/ 之内，不跟随符号链接。失败的运行不保留目录（日志与结果已入库）。任何时刻 runs/ 下的目录数不超过运行中的会话数"
+    enforced_by: "test:run-dir-removed-after-run"
+    status: active

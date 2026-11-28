@@ -256,6 +256,9 @@ tests:
 - name: test:run-config-snapshot
   covers:
   - C-13
+- name: test:run-dir-removed-after-run
+  covers:
+  - D-086
 - name: test:sandbox-env-has-only-allowed-credentials
   covers:
   - D-065
@@ -363,6 +366,7 @@ not_in_code:
 - test:nightly-flaky-rerun
 - test:profile-selected-by-extension
 - test:reviewer-context-delta-only
+- test:run-dir-removed-after-run
 - test:sandbox-layout-policy
 - test:selfupdate-rollback
 - test:session-toolchain-from-mise
