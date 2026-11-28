@@ -43,3 +43,6 @@ articles:
   - id: C-13
     rule: "配置文件带 revision；每次 AI 运行开始时把配置和规则复制进运行目录，运行期间只读副本"
     enforced_by: test:run-config-snapshot
+  - id: C-14
+    rule: "优先用多人维护的现成库（便于出问题时恢复）；只有找不到合适的库、或合适的库性价比低或不稳定时才自写，且须由 decision 记录评估过的候选库与理由（D-076）；外部依赖只能是 design/modules.yaml deps 中登记的"
+    enforced_by: "check:deps-registry；check:spec-lint"

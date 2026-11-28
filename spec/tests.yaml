@@ -7,6 +7,10 @@ tests:
 - name: check:agents-md-size
   covers:
   - C-11
+- name: check:deps-registry
+  covers:
+  - C-14
+  - D-076
 - name: check:forbidden-paths
   covers:
   - D-063
@@ -39,10 +43,12 @@ tests:
 - name: check:spec-lint
   covers:
   - C-12
+  - C-14
   - D-015
   - D-025
   - D-058
   - D-062
+  - D-076
 - name: check:spec-phase-tags
   covers:
   - D-042
