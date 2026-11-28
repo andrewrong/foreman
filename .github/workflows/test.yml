@@ -33,6 +33,15 @@ jobs:
           export TMPDIR=/dev/shm/foreman-test && mkdir -p "$TMPDIR"
           export GOTMPDIR="$RUNNER_TEMP"
           go test -v -race -timeout 15m ./... | tee "$RUNNER_TEMP/go-test.log"
+      - name: failures as annotations
+        # Annotations are readable through the public API without a token, so a failure's cause
+        # can be read without opening the run page.
+        if: failure()
+        run: |
+          [ -f "$RUNNER_TEMP/go-test.log" ] || exit 0
+          grep -nE -A8 '^[[:space:]]*--- FAIL|^panic:|^FAIL[[:space:]]|test timed out' "$RUNNER_TEMP/go-test.log" \
+            | head -150 | awk 'BEGIN{ORS="%0A"} {print}' | fold -w 4000 | head -9 \
+            | while IFS= read -r chunk; do echo "::error title=go test failure::$chunk"; done
       - name: slowest tests
         if: always()
         run: |
