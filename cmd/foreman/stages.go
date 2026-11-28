@@ -194,6 +194,8 @@ func (s sessionStage) Start(ctx context.Context, job sched.SessionJob, beforeLau
 	h, err := env.Launcher.StartDetached(prep.Policy, prep.Inv.Argv, launch.Detached{
 		RunDir: job.RunDir, Exe: s.exe, Stdin: prep.Inv.Stdin, ExtraEnv: prep.Inv.Env,
 		StdoutPath: filepath.Join(job.RunDir, "stdout.log"), StderrPath: filepath.Join(job.RunDir, "stderr.log"),
+		// A pass-through launcher only starts the scripted model, which never runs go.
+		NoGoCache: env.Launcher.PassThrough,
 	})
 	if err != nil {
 		return nil, err

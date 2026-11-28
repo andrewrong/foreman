@@ -28,23 +28,15 @@ import (
 func TestMain(m *testing.M) {
 	launch.MaybeRunSession() // ... and as the session launcher
 	scripted.MaybeRunChild() // the test binary doubles as the scripted model process
-	os.Exit(m.Run())
-}
-
-// goCacheDir is the Go build cache of the process running the tests. The
-// pipeline gives every L0 Run an empty GOCACHE (session cache cloning is not
-// wired yet), so each `go test` compiled the standard library from scratch:
-// ~1000 files written and removed per Run, which was almost all of a
-// scenario's wall time. L0 here points at the warm cache instead (the Go
-// cache is safe for concurrent use); it only stores compiler output, and L0
-// still builds and runs the fixture module's tests every time (-count=1).
-func goCacheDir(t *testing.T, goBin string) string {
-	t.Helper()
-	out, err := exec.Command(goBin, "env", "GOCACHE").Output()
-	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
-		t.Fatalf("go env GOCACHE: %v", err)
+	root := warmSeed()
+	if root != "" {
+		os.Setenv(warmSeedEnv, root)
 	}
-	return strings.TrimSpace(string(out))
+	code := m.Run()
+	if root != "" {
+		os.RemoveAll(root)
+	}
+	os.Exit(code)
 }
 
 const (
@@ -147,13 +139,14 @@ func (f *fixture) remoteSHA(ref string) string {
 }
 
 func (f *fixture) config(clk clock.Clock, ghURL string, on func(string, state.Event, state.Outcome)) Config {
+	seedWarmCache(f.t, f.home, "p", f.remoteSHA("refs/heads/main"))
 	return Config{
 		Home: f.home, Project: "p", Remote: f.remote, Repo: ops.Repo{Owner: "acme", Name: "widgets"},
 		GitHubBase: ghURL, GitHubToken: "test-token", Clock: clk, Harness: "scripted",
 		SessionGit: wsgit.Identity{Name: "foreman-session", Email: "foreman-session@users.noreply.example"},
 		Models:     map[string]string{"coder": "scripted", "reviewer": "scripted"},
 		Scripts:    f.scripts, Path: filepath.Dir(f.goBin) + ":" + wsgit.SystemPath(),
-		L0:     [][]string{{"/bin/sh", "-c", `GOCACHE="$1" exec "$0" test -count=1 ./...`, f.goBin, goCacheDir(f.t, f.goBin)}},
+		L0:     [][]string{{f.goBin, "test", "-count=1", "./..."}},
 		Ledger: ledger.New(), OnTransition: on, Constitution: "C-01: only Transition writes state.",
 	}
 }

@@ -109,6 +109,8 @@ type Detached struct {
 	ExtraEnv   map[string]string
 	StdoutPath string
 	StderrPath string
+	// NoGoCache: see IO.NoGoCache.
+	NoGoCache bool
 }
 
 // StartDetached starts argv through a launcher in its own session so that it
@@ -116,7 +118,7 @@ type Detached struct {
 // handshake, not polling). The caller creates launch.lock before and records
 // the pid in the Run after.
 func (l Launcher) StartDetached(pol policy.Policy, argv []string, d Detached) (*Handle, error) {
-	spec, err := l.spec(pol, argv, IO{ExtraEnv: d.ExtraEnv})
+	spec, err := l.spec(pol, argv, IO{ExtraEnv: d.ExtraEnv, NoGoCache: d.NoGoCache})
 	if err != nil {
 		return nil, err
 	}

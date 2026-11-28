@@ -81,7 +81,7 @@ func startupPathRules(t *testing.T) {
 
 func startupLayout(t *testing.T, home string) {
 	cs, err := Preflight(home, "p")
-	if err != nil || names(cs) != "home-path layout" {
+	if err != nil || names(cs) != "home-path layout volume" {
 		t.Fatalf("Preflight = %v, %v", cs, err)
 	}
 	for _, d := range layoutDirs("p") {

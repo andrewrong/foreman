@@ -308,6 +308,17 @@ func (p Policy) DenyWritePaths() []string {
 // Home is the HOME of the session, inside the run tmp.
 func (p Policy) Home() string { return filepath.Join(p.in.RunTmp, "home") }
 
+// ProjectCacheDir is the project cache master (never writable from the
+// session); empty when the policy has none.
+func (p Policy) ProjectCacheDir() string { return p.in.ProjectCacheDir }
+
+// DefaultGoFlags are the GOFLAGS of sessions, L0 and the cache warm-up (they
+// must agree, or the build cache would not hit). -trimpath keeps package
+// action IDs independent of the per-run module cache path; without it every
+// dependency in GOMODCACHE would recompile in each run. -modcacherw keeps the
+// module cache deletable (D-086 removes the run directory).
+const DefaultGoFlags = "-trimpath -modcacherw"
+
 // GoCache is the session's writable clone of the project Go build cache.
 func (p Policy) GoCache() string { return filepath.Join(p.in.RunTmp, "gocache") }
 

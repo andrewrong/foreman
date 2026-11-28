@@ -57,6 +57,9 @@ type Config struct {
 	// Toolchain resolves a session repo's mise.toml (D-085); nil means system
 	// tools only (scripted tests).
 	Toolchain launch.ToolchainSource
+	// Environ supplies the proxy/TLS variables forwarded to the cache warm-up
+	// (nil: the process environment).
+	Environ func() []string
 	// SessionGit is the identity of the generated session gitconfig and of
 	// the commits foremand makes in session workspaces (D-082, session_git.*).
 	// It is an owner key (D-074): Compose refuses an unset identity.
@@ -102,6 +105,7 @@ type App struct {
 	Mirror    *session.Mirror
 	Integ     *integrate.Dir
 	ProjectID string
+	cacheDir  string // FOREMAN_HOME/cache/<project>, the warm cache master
 	// Startup is the list of D-047 check lines (what `foreman status` prints).
 	Startup []recover.Check
 }
@@ -158,7 +162,7 @@ func Compose(ctx context.Context, cfg Config) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	app := &App{Stores: stores, ProjectID: cfg.Project, Startup: checks}
+	app := &App{Stores: stores, ProjectID: cfg.Project, Startup: checks, cacheDir: filepath.Join(cfg.Home, "cache", cfg.Project)}
 	if err := app.wire(ctx, cfg); err != nil {
 		_ = stores.Close()
 		return nil, err
@@ -172,6 +176,10 @@ func Compose(ctx context.Context, cfg Config) (*App, error) {
 		return nil, err
 	}
 	app.Sched.AdoptLeases(rep.Leases)
+	// Warming the project cache is an optimisation: a failure is reported in
+	// the startup checks, never a reason to refuse the start (runs then use
+	// empty caches).
+	app.Startup = append(app.Startup, app.WarmCache(ctx, cfg))
 	return app, nil
 }
 
@@ -307,5 +315,6 @@ func sessionPolicy(cfg Config, integDir, mirrorDir, defaultBranch string) policy
 			filepath.Join(cfg.Home, "projects", cfg.Project, "repo.git"), integDir},
 		ProjectCacheDir: filepath.Join(cfg.Home, "cache", cfg.Project),
 		Path:            cfg.Path,
+		GoFlags:         policy.DefaultGoFlags,
 	}
 }

@@ -54,6 +54,10 @@ type IO struct {
 	// name the policy environment already sets is refused, so an adapter
 	// cannot override HOME, TMPDIR, PATH or a credential.
 	ExtraEnv map[string]string
+	// NoGoCache gives the process empty GOCACHE and GOMODCACHE instead of
+	// clones of the project's warm cache: for processes that never run go
+	// (the scripted model adapter), where a clone is pure cost.
+	NoGoCache bool
 }
 
 // Launcher starts sandboxed processes.
@@ -114,6 +118,7 @@ func (l Launcher) spec(pol policy.Policy, argv []string, io IO) (Spec, error) {
 	if err := os.MkdirAll(pol.Home(), 0o700); err != nil {
 		return Spec{}, err
 	}
+	prepareCaches(pol, io.NoGoCache) // the run's own GOCACHE and GOMODCACHE, cloned from the warm cache
 	if err := writePrivate(pol.SettingsPath(), settings); err != nil {
 		return Spec{}, err
 	}

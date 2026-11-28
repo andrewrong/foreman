@@ -55,7 +55,7 @@ func removeChild(runs, name string) error {
 		if real != entry {
 			return fmt.Errorf("recover: %s resolves to %s, outside runs/", entry, real)
 		}
-		return os.RemoveAll(entry) // does not follow symlinks inside the tree
+		return removeTree(entry) // does not follow symlinks inside the tree
 	}
 	return nil // a regular file is not a run directory: left alone
 }
@@ -108,4 +108,22 @@ func SweepRunDirs(ctx context.Context, d Deps) (int, error) {
 		}
 	}
 	return removed, nil
+}
+
+// removeTree is os.RemoveAll that, when it fails, first restores owner write
+// and search permission on every directory below path and tries again: a Go
+// module cache is read-only unless the toolchain ran with -modcacherw. Symbolic
+// links are never followed (WalkDir does not, and a link is not chmod-ed).
+func removeTree(path string) error {
+	err := os.RemoveAll(path)
+	if err == nil {
+		return nil
+	}
+	_ = filepath.WalkDir(path, func(p string, d os.DirEntry, werr error) error {
+		if d != nil && d.IsDir() {
+			_ = os.Chmod(p, 0o700)
+		}
+		return nil
+	})
+	return os.RemoveAll(path)
 }

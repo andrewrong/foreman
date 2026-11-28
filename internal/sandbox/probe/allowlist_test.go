@@ -162,6 +162,7 @@ func newAllowlistEnv(t *testing.T) *allowlistEnv {
 		SessionGit:   policy.SessionGit{Name: "Session", Email: allowlistEmail, DefaultBranch: "main"},
 		Families:     []policy.Family{policy.FamilyGo},
 		Path:         filepath.Join(lts, "bin") + ":/usr/bin:/bin",
+		GoFlags:      policy.DefaultGoFlags,
 	})
 	if err != nil {
 		t.Fatal(err)

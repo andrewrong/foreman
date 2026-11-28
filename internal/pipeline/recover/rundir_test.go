@@ -118,3 +118,48 @@ func TestSweepRunDirsKeepsOnlyRunningRuns(t *testing.T) {
 		t.Errorf("last startup line = %s", last)
 	}
 }
+
+// TestRemoveRunDirWithReadOnlyModCache: a Go module cache written without
+// -modcacherw is read-only; the run directory still goes away (D-086), and a
+// symlink inside it is not followed.
+func TestRemoveRunDirWithReadOnlyModCache(t *testing.T) {
+	home := shortHome(t)
+	runs := filepath.Join(home, "runs")
+	outside := filepath.Join(filepath.Dir(home), "outside")
+	mkfile(t, filepath.Join(outside, "keep.txt"))
+	mod := filepath.Join(runs, "r1", "gomodcache", "example.com", "m@v1")
+	mkfile(t, filepath.Join(mod, "sub", "f.go"))
+	if err := os.Symlink(outside, filepath.Join(mod, "link")); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{filepath.Join(mod, "sub", "f.go"), filepath.Join(mod, "sub"), mod, filepath.Dir(mod)} {
+		if err := os.Chmod(p, 0o500); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := RemoveRunDir(home, "r1"); err != nil {
+		t.Fatal(err)
+	}
+	if exists(filepath.Join(runs, "r1")) {
+		t.Error("run dir still there")
+	}
+	if !exists(filepath.Join(outside, "keep.txt")) {
+		t.Error("a symlink target outside runs/ was removed")
+	}
+}
+
+// TestPreflightSameVolume: projects/, cache/ and runs/ of a normal home share
+// one volume; a path on another one is refused (D-047).
+func TestPreflightSameVolume(t *testing.T) {
+	home := shortHome(t)
+	cs, err := Preflight(home, "p")
+	if err != nil || cs[len(cs)-1].Name != "volume" || !cs[len(cs)-1].OK {
+		t.Fatalf("Preflight = %v, %v", cs, err)
+	}
+	if err := checkSameVolume([]string{home, home}); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkSameVolume([]string{home, "/dev"}); err == nil {
+		t.Error("home and /dev reported on one volume")
+	}
+}

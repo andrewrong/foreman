@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/andrewrong/foreman/internal/resource/gate"
 	"github.com/andrewrong/foreman/internal/resource/ledger"
@@ -73,7 +74,45 @@ func Preflight(home, project string) ([]Check, error) {
 			return fail("layout", "%v", err)
 		}
 	}
-	return append(out, Check{Name: "layout", OK: true, Detail: strings.Join(layoutDirs(project), " ")}), nil
+	out = append(out, Check{Name: "layout", OK: true, Detail: strings.Join(layoutDirs(project), " ")})
+	// D-047, config.yaml: cache/ is cloned (cp -c) into runs/ and the session
+	// repos borrow from projects/; none of that works across volumes.
+	// runs/ is checked too: it is where the clones land.
+	dirs := []string{filepath.Join(home, "projects"), filepath.Join(home, "cache"), filepath.Join(home, "runs")}
+	if err := checkSameVolume(dirs); err != nil {
+		return fail("volume", "%v", err)
+	}
+	return append(out, Check{Name: "volume", OK: true, Detail: "projects/, cache/, runs/ on one volume"}), nil
+}
+
+// checkSameVolume fails unless every path has the st_dev of the first.
+func checkSameVolume(paths []string) error {
+	var first uint64
+	for i, p := range paths {
+		dev, err := volumeOf(p)
+		if err != nil {
+			return err
+		}
+		if i == 0 {
+			first = dev
+		} else if dev != first {
+			return fmt.Errorf("%s and %s are on different volumes (st_dev %d vs %d); cache clones and shared session repos need one APFS volume", p, paths[0], dev, first)
+		}
+	}
+	return nil
+}
+
+// volumeOf is the st_dev of path.
+func volumeOf(path string) (uint64, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, fmt.Errorf("%s: no device number on this platform", path)
+	}
+	return uint64(st.Dev), nil //nolint:unconvert // int32 on darwin
 }
 
 // Deps is what Startup works on. The directory lock (D-047 step 1) is held by
