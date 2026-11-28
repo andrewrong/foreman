@@ -35,7 +35,7 @@ type Action struct {
 
 // Write creates a file. Path is relative to the working directory; a
 // "$RUN_DIR/" prefix means the run directory. Content or JSON gives the body;
-// {{HEAD}} is replaced by the short sha of HEAD and {{RUN_ID}} by the run id.
+// {{HEAD}} is replaced by the full sha of HEAD and {{RUN_ID}} by the run id.
 // Writes are atomic (tmp + rename, PP-2) unless NonAtomic is set.
 type Write struct {
 	Path      string          `json:"path"`
@@ -177,7 +177,7 @@ func (c *child) do(a Action) (code int, stop bool, err error) {
 
 func (c *child) expand(s string) (string, error) {
 	if strings.Contains(s, "{{HEAD}}") {
-		out, err := exec.Command("git", "rev-parse", "--short", "HEAD").Output()
+		out, err := exec.Command("git", "rev-parse", "HEAD").Output()
 		if err != nil {
 			return "", fmt.Errorf("{{HEAD}}: %w", err)
 		}

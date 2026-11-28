@@ -119,7 +119,7 @@ func TestCodeStageScriptedCommitProducesRunOK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	head, _ := w.git.Line(context.Background(), w.repo, "rev-parse", "--short", "HEAD")
+	head, _ := w.git.Line(context.Background(), w.repo, "rev-parse", "HEAD")
 	if ev.Name != model.EventRunOK || ev.Head != head || ev.Usage.Output != 5 {
 		t.Fatalf("event %+v, head %s", ev, head)
 	}

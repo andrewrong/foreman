@@ -8,7 +8,7 @@ var resultFieldLines = []string{
 	"- `run_id` (string; required): 必须等于运行目录对应的 run id",
 	"- `role` (string; required): 必须等于 Run.role",
 	"- `status` (enum ok|spec_conflict|access_request; required): 会话无法继续时必须二选一：spec_conflict（spec 与现实不符）或 access_request（缺资源）；check_failed / infra / budget_exceeded 由 foremand 判定，会话不能自报",
-	"- `commits` ([]sha; required when role == coder && status == ok): at least 1 items",
+	"- `commits` ([]sha; required when role == coder && status == ok): at least 1 items; 每项是完整的 40 位小写十六进制提交号，不接受缩写",
 	"- `acceptance` ([]{id, result: pass|fail|cannot_check, evidence}; required when role == coder && status == ok): 覆盖当前步骤的全部 acceptance；cannot_check 表示沙箱内无法验证，该条目改由 reviewer 按 reading 判断，不算失败（ACR-09）",
 	"- `findings` ([]Finding 字段（不含 id/status/round，kind 固定为 review）; required when role == reviewer && status == ok)",
 	"- `verdict` (enum approve|changes; required when role == reviewer && status == ok): 存在 severity=blocking 的 finding 时必须为 changes",
@@ -25,6 +25,6 @@ const resultRunIDPlaceholder = "{{run_id}}"
 
 // resultExamples maps a role to one valid result.json example.
 var resultExamples = map[string]string{
-	"coder":    "{\n  \"acceptance\": [\n    {\n      \"evidence\": \"TestConcurrentDemand 通过\",\n      \"id\": \"A3\",\n      \"result\": \"pass\"\n    }\n  ],\n  \"commits\": [\n    \"3f2a9c1\"\n  ],\n  \"discoveries\": [\n    {\n      \"evidence\": {\n        \"cmd\": \"go test ./internal/forge/cache -run TestConditionalGetNotCounted\",\n        \"output_line\": \"ok  internal/forge/cache\"\n      },\n      \"kind\": \"answer\",\n      \"ref\": \"U1\",\n      \"text\": \"GitHub 304 响应不计入 core 限额\"\n    }\n  ],\n  \"role\": \"coder\",\n  \"run_id\": \"{{run_id}}\",\n  \"schema_version\": 1,\n  \"status\": \"ok\"\n}",
+	"coder":    "{\n  \"acceptance\": [\n    {\n      \"evidence\": \"TestConcurrentDemand 通过\",\n      \"id\": \"A3\",\n      \"result\": \"pass\"\n    }\n  ],\n  \"commits\": [\n    \"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\"\n  ],\n  \"discoveries\": [\n    {\n      \"evidence\": {\n        \"cmd\": \"go test ./internal/forge/cache -run TestConditionalGetNotCounted\",\n        \"output_line\": \"ok  internal/forge/cache\"\n      },\n      \"kind\": \"answer\",\n      \"ref\": \"U1\",\n      \"text\": \"GitHub 304 响应不计入 core 限额\"\n    }\n  ],\n  \"role\": \"coder\",\n  \"run_id\": \"{{run_id}}\",\n  \"schema_version\": 1,\n  \"status\": \"ok\"\n}",
 	"reviewer": "{\n  \"findings\": [\n    {\n      \"close_when\": \"实际 \\u003e 预留时按实际扣减，并有测试覆盖\",\n      \"location\": {\n        \"line\": 88,\n        \"path\": \"internal/resource/ledger/ledger.go\"\n      },\n      \"problem\": \"Settle 未处理实际用量大于预留的情况，available 会变成负数\",\n      \"scope\": \"R-foreman-12/S2\",\n      \"severity\": \"blocking\"\n    }\n  ],\n  \"role\": \"reviewer\",\n  \"run_id\": \"{{run_id}}\",\n  \"schema_version\": 1,\n  \"status\": \"ok\",\n  \"verdict\": \"changes\"\n}",
 }

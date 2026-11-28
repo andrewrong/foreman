@@ -7,7 +7,7 @@ import (
 	"testing/fstest"
 )
 
-const coderOK = `{"schema_version":1,"run_id":"R-foreman-12/S2/r1","role":"coder","status":"ok","commits":["3f2a9c1"],
+const coderOK = `{"schema_version":1,"run_id":"R-foreman-12/S2/r1","role":"coder","status":"ok","commits":["a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"],
  "acceptance":[{"id":"A3","result":"pass","evidence":"TestConcurrentDemand"}],
  "discoveries":[{"kind":"answer","ref":"U1","text":"304 not counted","evidence":{"cmd":"go test","output_line":"ok"}}]}`
 
@@ -37,7 +37,7 @@ func TestResultCoderOK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Commits[0] != "3f2a9c1" || r.Discoveries[0].Ref != "U1" {
+	if r.Commits[0] != "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1" || r.Discoveries[0].Ref != "U1" {
 		t.Fatalf("decoded wrong: %+v", r)
 	}
 }
@@ -47,7 +47,7 @@ func TestResultCoderRules(t *testing.T) {
 	ctx.AcceptanceIDs = []string{"A3", "A4"}
 	wantProblem(t, coderOK, ctx, "A4 not covered")
 	ctx.AcceptanceIDs = []string{"A3"}
-	wantProblem(t, strings.Replace(coderOK, `"commits":["3f2a9c1"]`, `"commits":[]`, 1), ctx, "commits")
+	wantProblem(t, strings.Replace(coderOK, `"commits":["a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"]`, `"commits":[]`, 1), ctx, "commits")
 	wantProblem(t, strings.Replace(coderOK, `"pass"`, `"maybe"`, 1), ctx, "result")
 	wantProblem(t, strings.Replace(coderOK, `"evidence":{"cmd":"go test","output_line":"ok"}`, `"evidence":{"cmd":"go test"}`, 1), ctx, "evidence")
 	// non-ok statuses need no commits or acceptance
@@ -142,4 +142,9 @@ func TestSessionOutputOnlyResultFiles(t *testing.T) {
 	if len(stray) != 2 {
 		t.Fatalf("stray %v", stray)
 	}
+}
+
+// An abbreviated commit id is refused: foremand compares it with full ids (layer-5 live run).
+func TestResultRejectsAbbreviatedCommit(t *testing.T) {
+	wantProblem(t, strings.Replace(coderOK, "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1", "3f2a9c1", 1), ctxFor("R-foreman-12/S2/r1", RoleCoder), "full 40-character")
 }

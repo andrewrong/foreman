@@ -139,7 +139,7 @@ func TestScriptedCoderEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, raw)
 	}
-	if head := git(t, s.repo, "rev-parse", "--short", "HEAD"); res.Commits[0] != head {
+	if head := git(t, s.repo, "rev-parse", "HEAD"); res.Commits[0] != head {
 		t.Fatalf("commit %s, head %s", res.Commits[0], head)
 	}
 	// No stray files in the run dir, and no .tmp left behind (atomic write).

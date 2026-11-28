@@ -77,7 +77,7 @@ files:
       - { name: run_id, type: string, required: true, rule: "必须等于运行目录对应的 run id" }
       - { name: role, type: string, required: true, rule: "必须等于 Run.role" }
       - { name: status, type: "enum ok|spec_conflict|access_request", required: true, note: "会话无法继续时必须二选一：spec_conflict（spec 与现实不符）或 access_request（缺资源）；check_failed / infra / budget_exceeded 由 foremand 判定，会话不能自报" }
-      - { name: commits, type: "[]sha", required_when: "role == coder && status == ok", min_items: 1 }
+      - { name: commits, type: "[]sha", required_when: "role == coder && status == ok", min_items: 1, rule: "每项是完整的 40 位小写十六进制提交号，不接受缩写" }
       - { name: acceptance, type: "[]{id, result: pass|fail|cannot_check, evidence}", required_when: "role == coder && status == ok", rule: "覆盖当前步骤的全部 acceptance；cannot_check 表示沙箱内无法验证，该条目改由 reviewer 按 reading 判断，不算失败（ACR-09）" }
       - { name: findings, type: "[]Finding 字段（不含 id/status/round，kind 固定为 review）", required_when: "role == reviewer && status == ok" }
       - { name: verdict, type: "enum approve|changes", required_when: "role == reviewer && status == ok", rule: "存在 severity=blocking 的 finding 时必须为 changes" }
@@ -89,7 +89,7 @@ files:
       - { name: note, type: string, required: false, max_len: 500 }
     examples:
       - name: coder_ok
-        value: { schema_version: 1, run_id: "R-foreman-12/S2/r1", role: coder, status: ok, commits: ["3f2a9c1"], acceptance: [ { id: A3, result: pass, evidence: "TestConcurrentDemand 通过" } ], discoveries: [ { kind: answer, ref: U1, text: "GitHub 304 响应不计入 core 限额", evidence: { cmd: "go test ./internal/forge/cache -run TestConditionalGetNotCounted", output_line: "ok  internal/forge/cache" } } ] }
+        value: { schema_version: 1, run_id: "R-foreman-12/S2/r1", role: coder, status: ok, commits: ["a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"], acceptance: [ { id: A3, result: pass, evidence: "TestConcurrentDemand 通过" } ], discoveries: [ { kind: answer, ref: U1, text: "GitHub 304 响应不计入 core 限额", evidence: { cmd: "go test ./internal/forge/cache -run TestConditionalGetNotCounted", output_line: "ok  internal/forge/cache" } } ] }
       - name: reviewer_changes
         value: { schema_version: 1, run_id: "R-foreman-12/S2/r2", role: reviewer, status: ok, verdict: changes, findings: [ { scope: "R-foreman-12/S2", severity: blocking, location: { path: "internal/resource/ledger/ledger.go", line: 88 }, problem: "Settle 未处理实际用量大于预留的情况，available 会变成负数", close_when: "实际 > 预留时按实际扣减，并有测试覆盖" } ] }
       - name: invalid_reviewer_verdict

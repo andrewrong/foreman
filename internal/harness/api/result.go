@@ -189,6 +189,11 @@ func validateCoder(r *Result, ctx ResultContext, bad func(string, ...any)) {
 	if len(r.Commits) < 1 {
 		bad("commits: at least 1 required for coder ok")
 	}
+	for _, c := range r.Commits {
+		if !fullSHA(c) {
+			bad("commits: %q is not a full 40-character lowercase hex commit id (no abbreviations)", c)
+		}
+	}
 	seen := map[string]bool{}
 	for _, a := range r.Acceptance {
 		if a.ID == "" {
@@ -278,4 +283,17 @@ func validateDiscovery(i int, d Discovery, bad func(string, ...any)) {
 			bad("discovery %d: evidence {path,line} or {cmd,output_line} required for kind %s", i, d.Kind)
 		}
 	}
+}
+
+// fullSHA reports whether s is a full 40-character lowercase hex object id.
+func fullSHA(s string) bool {
+	if len(s) != 40 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
