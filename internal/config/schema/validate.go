@@ -50,7 +50,10 @@ func (c *checker) absPath(key, v string, required bool) {
 func validateRuntime(file string, r *Runtime) []error {
 	c := &checker{file: file}
 	c.absPath("secrets_dir", r.SecretsDir, false)
-	c.rangeInt("parallel.workers", r.Parallel.Workers, 1, 64)
+	// Owner-required keys at zero are reported by missingOwnerKeys, not here.
+	if r.Parallel.Workers != 0 {
+		c.rangeInt("parallel.workers", r.Parallel.Workers, 1, 64)
+	}
 	c.rangeInt("parallel.steps_per_requirement", r.Parallel.StepsPerRequirement, 1, 64)
 	l := r.Limits
 	for _, f := range []struct {
@@ -69,7 +72,9 @@ func validateRuntime(file string, r *Runtime) []error {
 	if l.H4BudgetFactor < 1 || l.H4BudgetFactor > 20 {
 		c.bad("limits.h4_budget_multiplier", "%v out of range [1, 20]", l.H4BudgetFactor)
 	}
-	c.rangeInt("improve.min_interval_hours", r.Improve.MinIntervalHours, 1, 24*365)
+	if r.Improve.MinIntervalHours != 0 {
+		c.rangeInt("improve.min_interval_hours", r.Improve.MinIntervalHours, 1, 24*365)
+	}
 	c.rangeInt("improve.weekly_cap", r.Improve.WeeklyCap, 0, 100)
 	x := r.Resources
 	c.rangeInt("resources.github_rest_per_hour", x.GitHubRestPerHour, 1, 1_000_000)
@@ -102,7 +107,7 @@ func validateRoles(file string, roles map[string]Role) []error {
 			c.bad(k+"effort", "invalid effort %q (low, medium, high, xhigh, max or empty)", r.Effort)
 		}
 		c.rangeInt(k+"max_tokens", r.MaxTokens, 0, 100_000_000)
-		if d := r.Timeout.D(); d < time.Minute || d > 24*time.Hour {
+		if d := r.Timeout.D(); d != 0 && (d < time.Minute || d > 24*time.Hour) {
 			c.bad(k+"timeout", "%s out of range [1m, 24h]", d)
 		}
 		if r.Advisor && !modelRE.MatchString(r.AdvisorModel) {
@@ -117,11 +122,11 @@ func validateRoles(file string, roles map[string]Role) []error {
 
 func validateProject(file string, p *Project) []error {
 	c := &checker{file: file}
-	c.absPath("repo_path", p.RepoPath, true)
+	c.absPath("repo_path", p.RepoPath, false)
 	if p.GitHubRepo != "" && !repoRE.MatchString(p.GitHubRepo) {
 		c.bad("github_repo", "want owner/name, got %q", p.GitHubRepo)
 	}
-	if !branchRE.MatchString(p.DefaultBranch) || strings.Contains(p.DefaultBranch, "..") {
+	if p.DefaultBranch != "" && !branchRE.MatchString(p.DefaultBranch) || strings.Contains(p.DefaultBranch, "..") {
 		c.bad("default_branch", "invalid branch name %q", p.DefaultBranch)
 	}
 	seen := map[string]bool{}

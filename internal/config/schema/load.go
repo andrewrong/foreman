@@ -55,7 +55,9 @@ func Classify(rel string) (Kind, string) {
 // Dir, slash separated) against the schema, without touching disk.
 func ValidateFile(rel string, data []byte) error {
 	e := Defaults()
-	return applyFile(e, rel, data)
+	err := applyFile(e, rel, data)
+	kind, name := Classify(rel)
+	return errors.Join(err, ownerKeysError(missingOwnerKeys(e, kind, rel, name)))
 }
 
 func applyFile(e *Effective, rel string, data []byte) error {
@@ -126,7 +128,8 @@ func loadRoles(rel string, data []byte, e *Effective) []error {
 }
 
 // Load reads FOREMAN_HOME/config and returns the effective configuration.
-// Missing files mean defaults. Every problem in every file is reported.
+// Missing files mean defaults. Every problem in every file is reported,
+// including, in one error, every owner-required key that is not set (D-074).
 func Load(home string) (*Effective, error) {
 	root := filepath.Join(home, Dir)
 	e := Defaults()
@@ -156,6 +159,19 @@ func Load(home string) (*Effective, error) {
 			continue
 		}
 		read(rel)
+	}
+	missing := missingOwnerKeys(e, KindRuntime, RuntimeFile, "")
+	missing = append(missing, missingOwnerKeys(e, KindRoles, RolesFile, "")...)
+	names := make([]string, 0, len(e.Projects))
+	for n := range e.Projects {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		missing = append(missing, missingOwnerKeys(e, KindProject, ProjectsDir+"/"+n+projectExt, n)...)
+	}
+	if err := ownerKeysError(missing); err != nil {
+		errs = append(errs, err)
 	}
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)

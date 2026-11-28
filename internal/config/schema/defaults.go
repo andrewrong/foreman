@@ -1,72 +1,162 @@
 package schema
 
-import "time"
+import (
+	"fmt"
+	"reflect"
+	"strconv"
+	"strings"
+	"time"
+)
+
+//go:generate go run ./configgen
 
 // RoleNames lists the roles a roles.toml may configure (skills.yaml).
 var RoleNames = []string{"intake", "planner", "coder", "reviewer", "rescuer", "diagnoser", "improver"}
 
-// DefaultRoles returns the per-role defaults. Models follow skills.yaml and
-// D-040/D-044/D-065: coder and intake sonnet, reviewer opus (writing and
-// reviewing use different models), coder advisor on with an opus advisor and
-// opus for the retry after cap-1. Effort, token cap and timeout have no
-// spec value: effort is left to the harness, max_tokens 0 means only
-// max_turns and timeout bound a session (protocol-run PP-5).
+// Defaults are not written in code (D-074). keyTable (defaults_gen.go) is
+// generated from the keys table of design/config.yaml; the functions below
+// copy each row's default into the matching struct field, found by walking
+// the toml tags with reflection. A default of "unset" or "owner" leaves the
+// zero value: "unset" means the feature is off or unbounded, "owner" means
+// the owner must supply the value (see missingOwnerKeys).
+const (
+	defUnset = "unset"
+	defOwner = "owner"
+)
+
+// DefaultRoles returns the per-role defaults. A role.*.<key> row applies to
+// every role in RoleNames; a role.<name>.<key> row overrides it for one role.
 func DefaultRoles() map[string]Role {
-	r := func(model string, advisor bool) Role {
-		x := Role{Model: model, Timeout: Duration(30 * time.Minute), Advisor: advisor}
-		if advisor {
-			x.AdvisorModel = "opus"
+	roles := make(map[string]Role, len(RoleNames))
+	for _, n := range RoleNames {
+		roles[n] = Role{}
+	}
+	for _, wildcard := range []bool{true, false} {
+		for _, r := range keyTable {
+			parts := strings.SplitN(r.Key, ".", 3)
+			if r.File != RolesFile || len(parts) != 3 || parts[0] != "role" || (parts[1] == "*") != wildcard {
+				continue
+			}
+			for _, n := range RoleNames {
+				if parts[1] != "*" && parts[1] != n {
+					continue
+				}
+				role := roles[n]
+				applyDefault(reflect.ValueOf(&role).Elem(), parts[2], r)
+				roles[n] = role
+			}
 		}
-		return x
 	}
-	roles := map[string]Role{
-		"intake":    r("sonnet", false),
-		"planner":   r("opus", false),
-		"coder":     r("sonnet", true),
-		"reviewer":  r("opus", false),
-		"rescuer":   r("opus", true),
-		"diagnoser": r("opus", false),
-		"improver":  r("opus", true),
-	}
-	c := roles["coder"]
-	c.RetryUpgradeModel = "opus"
-	roles["coder"] = c
 	return roles
 }
 
-// DefaultRuntime returns runtime defaults. Retry caps are the ladder of
-// D-053 (check_fail 3, review_rounds 2, merge_conflict 2, bad_result 2,
-// infra 6, replans 2, planner_failures 2, req_rescues 2, fix_steps 3);
-// resource numbers are those of design/resources.yaml.
+// DefaultRuntime returns runtime.toml defaults.
 func DefaultRuntime() Runtime {
-	return Runtime{
-		Parallel: Parallel{Workers: 2, StepsPerRequirement: 3},
-		Limits: Limits{
-			CheckFail: 3, ReviewRounds: 2, MergeConflict: 2, BadResult: 2, Infra: 6,
-			Replans: 2, PlannerFails: 2, ReqRescues: 2, FixSteps: 3,
-			PRSplitLines: 800, H4BudgetFactor: 2, // pr_split_lines: D-006/D-054 (split is v2; v1 keeps one PR)
-		},
-		Improve: Improve{MinIntervalHours: 24, WeeklyCap: 3},
-		Resources: ResourceCfg{
-			GitHubRestPerHour: 5000, GitHubGraphQLPerHour: 5000,
-			GitHubWritePerMinute: 60, GitHubWritePerHour: 400, GitHubMergeReserve: 500,
-			L0Slots: 2, DiskFloorGiB: 10, QuotaFloorPercent: 10, QuotaWarnPercent: 30,
-		},
-	}
+	var rt Runtime
+	applyFileDefaults(reflect.ValueOf(&rt).Elem(), RuntimeFile)
+	return rt
 }
 
-// DefaultProject returns project defaults (CF-12: 120s / 2 / 2GB; CF-07: the
-// production SQL tool is off, 500 rows when enabled per prod-access.yaml).
+// DefaultProject returns projects/<name>.toml defaults.
 func DefaultProject(name string) Project {
-	return Project{
-		Name:          name,
-		DefaultBranch: "main",
-		L0Budget:      L0Budget{Timeout: Duration(120 * time.Second), GoMaxProcs: 2, MemoryMB: 2048},
-		Prod:          Prod{RowsMax: 500},
-	}
+	p := Project{Name: name}
+	applyFileDefaults(reflect.ValueOf(&p).Elem(), projectFileKey)
+	return p
 }
+
+// projectFileKey is the file column of project rows in the keys table.
+const projectFileKey = "projects/<p>.toml"
 
 // Defaults returns the effective configuration with no files present.
 func Defaults() *Effective {
 	return &Effective{Runtime: DefaultRuntime(), Roles: DefaultRoles(), Projects: map[string]Project{}}
+}
+
+func applyFileDefaults(v reflect.Value, file string) {
+	for _, r := range keyTable {
+		if r.File == file {
+			applyDefault(v, r.Key, r)
+		}
+	}
+}
+
+// applyDefault sets the field of struct v named by the dotted key. A row that
+// names no field, or whose default does not parse, is a spec/schema mismatch
+// and panics: TestConfigKeysMatchSchema runs every row through here.
+func applyDefault(v reflect.Value, key string, r keyRow) {
+	if r.Default == defUnset || r.Default == defOwner {
+		return
+	}
+	f, ok := fieldByKey(v, key)
+	if !ok {
+		panic(fmt.Sprintf("schema: key %q of %s has no field", r.Key, r.File))
+	}
+	if err := setFromString(f, r.Default); err != nil {
+		panic(fmt.Sprintf("schema: default of %q in %s: %v", r.Key, r.File, err))
+	}
+}
+
+// tomlName returns the toml key of a struct field, or "" when it has none.
+func tomlName(f reflect.StructField) string {
+	name, _, _ := strings.Cut(f.Tag.Get("toml"), ",")
+	if name == "-" {
+		return ""
+	}
+	return name
+}
+
+// fieldByKey finds the field of struct v addressed by a dotted toml key.
+func fieldByKey(v reflect.Value, key string) (reflect.Value, bool) {
+	head, rest, more := strings.Cut(key, ".")
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		if tomlName(t.Field(i)) != head {
+			continue
+		}
+		f := v.Field(i)
+		if !more {
+			return f, true
+		}
+		if f.Kind() != reflect.Struct {
+			return reflect.Value{}, false
+		}
+		return fieldByKey(f, rest)
+	}
+	return reflect.Value{}, false
+}
+
+var durationType = reflect.TypeOf(Duration(0))
+
+func setFromString(f reflect.Value, s string) error {
+	switch {
+	case f.Type() == durationType:
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return err
+		}
+		f.SetInt(int64(d))
+	case f.Kind() == reflect.String:
+		f.SetString(s)
+	case f.Kind() == reflect.Int:
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return err
+		}
+		f.SetInt(n)
+	case f.Kind() == reflect.Float64:
+		x, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			return err
+		}
+		f.SetFloat(x)
+	case f.Kind() == reflect.Bool:
+		b, err := strconv.ParseBool(s)
+		if err != nil {
+			return err
+		}
+		f.SetBool(b)
+	default:
+		return fmt.Errorf("cannot set a %s field from a string default", f.Kind())
+	}
+	return nil
 }

@@ -19,11 +19,25 @@ func write(t *testing.T, home, rel, content string) {
 	}
 }
 
-func TestConfigRoleModelDefaults(t *testing.T) {
-	e, err := Load(t.TempDir()) // no files at all
-	if err != nil {
-		t.Fatal(err)
+// rolesText renders a roles.toml that sets the owner-required timeout of every
+// role, plus extra lines per role.
+func rolesText(extra map[string]string) string {
+	var b strings.Builder
+	for _, n := range RoleNames {
+		b.WriteString("[role." + n + "]\ntimeout = \"30m\"\n" + extra[n] + "\n")
 	}
+	return b.String()
+}
+
+// writeOwner writes runtime.toml and roles.toml with only the owner-required keys.
+func writeOwner(t *testing.T, home string, roleExtra map[string]string) {
+	t.Helper()
+	write(t, home, RuntimeFile, "secrets_dir = \"/srv/example/secrets\"\n[parallel]\nworkers = 2\n")
+	write(t, home, RolesFile, rolesText(roleExtra))
+}
+
+func TestConfigRoleModelDefaults(t *testing.T) {
+	e := Defaults() // no files at all
 	want := map[string]string{
 		"coder": "sonnet", "reviewer": "opus", "intake": "sonnet",
 		"planner": "opus", "rescuer": "opus",
@@ -46,8 +60,8 @@ func TestConfigRoleModelDefaults(t *testing.T) {
 
 	// An override changes only the named field; everything else keeps defaults.
 	home := t.TempDir()
-	write(t, home, RolesFile, "[role.reviewer]\nmodel = \"claude-opus-5-5\"\n\n[role.coder]\nadvisor = false\n")
-	e, err = Load(home)
+	writeOwner(t, home, map[string]string{"reviewer": "model = \"claude-opus-5-5\"", "coder": "advisor = false"})
+	e, err := Load(home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,24 +73,6 @@ func TestConfigRoleModelDefaults(t *testing.T) {
 	}
 }
 
-func TestConfigDefaultsMatchSpec(t *testing.T) {
-	e := Defaults()
-	l := e.Runtime.Limits
-	if l.CheckFail != 3 || l.ReviewRounds != 2 || l.MergeConflict != 2 || l.BadResult != 2 || l.Infra != 6 || l.FixSteps != 3 {
-		t.Errorf("limits = %+v", l)
-	}
-	p := DefaultProject("x")
-	if p.L0Budget.Timeout.D() != 120*time.Second || p.L0Budget.GoMaxProcs != 2 || p.L0Budget.MemoryMB != 2048 {
-		t.Errorf("l0 budget = %+v", p.L0Budget)
-	}
-	if err := validateRuntime("runtime.toml", &e.Runtime); err != nil {
-		t.Errorf("default runtime invalid: %v", err)
-	}
-	if err := validateRoles("roles.toml", e.Roles); err != nil {
-		t.Errorf("default roles invalid: %v", err)
-	}
-}
-
 func TestConfigSchemaRejectsBadInput(t *testing.T) {
 	cases := []struct {
 		name, rel, body, wantSub string
@@ -84,7 +80,7 @@ func TestConfigSchemaRejectsBadInput(t *testing.T) {
 		{"unknown runtime key", RuntimeFile, "workerz = 3\n", `unknown key "workerz"`},
 		{"unknown nested key", RuntimeFile, "[limits]\ncheck_fial = 3\n", "limits.check_fial"},
 		{"wrong type", RuntimeFile, "[parallel]\nworkers = \"many\"\n", "workers"},
-		{"out of range", RuntimeFile, "[parallel]\nworkers = 0\n", "parallel.workers: 0 out of range"},
+		{"out of range", RuntimeFile, "[parallel]\nworkers = 100\n", "parallel.workers: 100 out of range"},
 		{"relative secrets dir", RuntimeFile, "secrets_dir = \"secrets\"\n", "secrets_dir: must be an absolute path"},
 		{"warn below floor", RuntimeFile, "[resources]\nmodel_quota_floor_percent = 50\nmodel_quota_warn_percent = 20\n", "must not be below"},
 		{"toml syntax", RuntimeFile, "[parallel\n", "runtime.toml"},
@@ -123,9 +119,11 @@ func TestConfigSchemaRejectsBadInput(t *testing.T) {
 
 func TestConfigLoadProject(t *testing.T) {
 	home := t.TempDir()
+	writeOwner(t, home, nil)
 	write(t, home, "projects/demo.toml", `
 repo_path = "/work/demo"
 github_repo = "someone/demo"
+default_branch = "main"
 pii_mask = ["\\b\\d{11}\\b"]
 l0 = [["go", "vet", "./..."], ["go", "test", "./..."]]
 
