@@ -554,3 +554,9 @@ decisions:
     statement: "（补充 D-077）D-077 的许可证要求只针对被导入、随 foreman 分发的库；只在开发时运行、不被导入也不分发的工具（go.mod tool 指令，如 golangci-lint，GPL 3.0 许可证）不受许可证白名单限制，仍须满足主流标准并在 deps 中以 kind: tool 登记。另记：cmd/foreman 的场景测试约 115s，超出 C-06 的单 package 30s，属既有问题，待拆分或改为并行"
     enforced_by: "check:deps-registry"
     status: active
+
+  - id: D-080
+    date: 2026-11-28
+    statement: "（owner 2026-11-28 要求检查主目录配置是否可读；探测见 docs/probes/phase-1.md P5）沙箱读权限改为白名单：srt 设置的 denyRead 包含 owner 主目录整体与 FOREMAN_HOME 所在数据卷的根（以及其他配置的数据根），allowRead 只列出本次运行需要读的路径：会话仓库、运行目录、harness 安装目录、工具链目录（Go、node、git 等，由配置给出）、项目缓存副本。原来只禁读 ~/.ssh 等少数目录的做法下，~/.claude（含全部会话记录）、shell 历史、~/.docker、~/.npmrc、钥匙串文件、其他项目与 Gemini 评审目录都可读。写权限不变。由带开关的真实沙箱测试（test:sandbox-read-allowlist，在 srt 内用 shell 逐项读取，不经模型）保证"
+    enforced_by: "test:sandbox-read-allowlist"
+    status: active

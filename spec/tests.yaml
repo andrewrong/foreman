@@ -265,6 +265,9 @@ tests:
   - C-08
   - D-045
   - D-056
+- name: test:sandbox-read-allowlist
+  covers:
+  - D-080
 - name: test:secret-file-check
   covers:
   - D-026
@@ -348,5 +351,6 @@ not_in_code:
 - test:profile-selected-by-extension
 - test:reviewer-context-delta-only
 - test:sandbox-layout-policy
+- test:sandbox-read-allowlist
 - test:selfupdate-rollback
 - test:web-no-github-import

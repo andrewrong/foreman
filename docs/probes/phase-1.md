@@ -63,3 +63,15 @@ Claude Code 2.1.332、srt（agent-crew 工具目录中的版本），haiku，for
 | srt 自身 | PATH 中的 node 若是 mise shim，srt 启动失败；须给真实 node 目录 |
 
 结论：层 3 可行。遗留：launcher 需要可配置的 node 目录（srt 是 node 脚本）；网络只放行了 api.anthropic.com，未见其他主机被拒。
+
+## P5 沙箱读边界（2026-11-28）
+
+用 shell 脚本（不经模型）在 srt 内逐项尝试读取，只记录能否读到。
+
+**现行策略（只禁读少数目录）**：写边界正确（主目录、仓库、FOREMAN_HOME/db 都不可写，只有会话仓库与运行目录可写）。读边界几乎不存在：
+- 可读：~/.claude.json、~/.claude/（含全部会话记录 projects/）、~/.gitconfig、~/.zshrc、~/.zsh_history、~/.config、~/.npmrc、~/.docker/config.json、~/.kube、~/Library/Keychains、~/Library/Cookies、~/Library/Application Support、~/Documents、~/Desktop、~/Downloads；外置盘上的 Gemini 评审目录、agent-crew 仓库、本仓库 .local/、FOREMAN_HOME/db。
+- 不可读：~/.ssh、~/.config/gh、secrets 目录（策略列出的几项）。
+- 钥匙串查询（security find-*-password）返回 44（找不到条目）：HOME 指向运行目录所致，属偶然而非设计。
+- 与 agent-crew 一致：其 README 记为"已知放松：除 deny_read 外读不受限制"。
+
+**白名单方式（srt 0.0.78 的 allowRead）**：denyRead 整个主目录与整个数据卷，allowRead 只给 claude 安装目录、运行目录、会话仓库。上面所有路径都读不到（连是否存在也看不到）；claude 在其中正常完成 Bash、写文件、git。唯一副作用：git 的 xcrun 写系统缓存目录失败，打印警告。
