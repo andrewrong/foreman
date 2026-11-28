@@ -179,6 +179,10 @@ func TestPushLiveGitHub(t *testing.T) {
 		if got, err := e.gr.Line(ctx, e.integ.Path, "ls-remote", "origin", "refs/heads/"+e.branch); err != nil || got == "" {
 			return
 		}
+		// The gate refuses until the REST meter has been measured once.
+		if err := o.RateLimit(ctx); err != nil {
+			t.Errorf("OP-11 RateLimit before cleanup: %v", err)
+		}
 		if err := o.RefDelete(ctx, ops.Call{Priority: gate.P2}, ops.Repo{Owner: owner, Name: name}, e.branch); err != nil {
 			t.Errorf("OP-14 RefDelete of %s failed (delete it by hand if it exists): %v", e.branch, err)
 		}
