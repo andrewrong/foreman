@@ -16,6 +16,8 @@ foreman 是 agent-crew 的 Go 重写：程序驱动的 AI 开发流水线。spec
 - 测试名与 spec/tests.yaml 一致：test:foo-bar → TestFooBar，写在对应 package
 - 访问 GitHub 只经 internal/forge，访问模型只经 internal/harness（C-10）
 - 不执行 gh 命令（check:no-gh-exec）；GitHub 用 HTTP 客户端
+- 能用主流库就不自己写（含手写系统调用、解析器、协议客户端）。需要新的直接依赖时按 D-077 自查，
+  并在 spec/design/modules.yaml 的 deps 登记表加一条——这是允许的 spec 改动，不需要先停下报告
 
 ## 改 spec
 - spec 与代码冲突时停下，报告冲突，不要自行改 spec 迁就代码
