@@ -7,7 +7,7 @@ import (
 	"sort"
 	"testing"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // catalogNames reads the effects catalog of state-machine.yaml.

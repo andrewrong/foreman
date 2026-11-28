@@ -535,3 +535,10 @@ decisions:
     statement: "（owner 2026-11-28 要求，与 agent-crew 一致）先找现成库：优先用多人维护的现成代码，出问题时恢复方便；只有没有合适的库、或合适的库性价比低、不稳定时才自写。自写或换库须写 decision，列出评估过的候选库（名称、维护情况、不选的理由）。所有外部依赖登记在 design/modules.yaml deps（模块、用途、出处）；check:deps-registry 比对 go.mod 直接依赖与 import：未登记的依赖、登记为 required 却未被导入的库都失败。补登记三个此前由实现自行选定、spec 未记录的依赖：gopkg.in/yaml.v3、modernc.org/sqlite（D-004 只定了 sqlite，未定驱动；选纯 Go 驱动以免 cgo）、github.com/BurntSushi/toml；三者都是多人维护的主流库，符合本条，owner 确认后保留"
     enforced_by: "check:deps-registry；check:spec-lint"
     status: active
+
+  - id: D-077
+    date: 2026-11-28
+    statement: "（owner 2026-11-28）选库不需要 owner 审批，按以下标准自查后直接登记：满足其一即为主流库：① 近 12 个月有发版或提交，且被广泛使用（star 或 pkg.go.dev 导入数在千级以上）；② 由大厂或知名组织维护且被广泛使用，即使近期不更新。另须许可证兼容（MIT、BSD、Apache-2.0、MPL-2.0）；原库停止维护而有维护中的继任者时用继任者。登记时在 deps 写 evidence（维护方、最近发版、使用规模）。据此把 gopkg.in/yaml.v3（2022 年后无发版）换为继任者 go.yaml.in/yaml/v3，并取消 D-076 中『owner 确认后保留』"
+    amends: D-076
+    enforced_by: "check:deps-registry"
+    status: active

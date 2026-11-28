@@ -3,7 +3,7 @@ package privguard
 import (
 	"fmt"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // ParseAllowReasons reads .privguard/allow.yaml: a list of registered reason

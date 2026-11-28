@@ -3,12 +3,12 @@ module github.com/andrewrong/foreman
 go 1.27
 
 require (
-	gopkg.in/yaml.v3 v3.0.1
+	github.com/BurntSushi/toml v1.6.0
+	go.yaml.in/yaml/v3 v3.0.6
 	modernc.org/sqlite v1.47.0
 )
 
 require (
-	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
