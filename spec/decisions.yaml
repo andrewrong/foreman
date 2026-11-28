@@ -548,3 +548,10 @@ decisions:
     statement: "（owner 2026-11-28）解耦与组合由程序检查，不靠模型审查：modules.yaml 为每个模块声明 uses 白名单（MD-10），stage、role 兄弟 package 互不导入（MD-11），只有 cli 组装、其他 package 导入本仓库 package ≤ 8 个（MD-12），禁止可变全局变量（MD-13）、函数认知复杂度 ≤ 30（MD-14）。MD-10..MD-12 在 test:module-deps 中检查；MD-13、MD-14 用 golangci-lint（go.mod tool 指令固定版本，go tool golangci-lint run）。不设历史例外：现有违反（pipeline 依赖 forge、harness、sandbox、stage、workspace；sched 导入 21 个 package；stage 兄弟导入 3 处）在接入检查的同一任务中改掉：pipeline 通过自身定义的接口调度阶段，具体阶段由 cli 注入。模型只在修改架构声明时参与"
     enforced_by: "test:module-deps；check:golangci-lint"
     status: active
+
+  - id: D-079
+    date: 2026-11-28
+    statement: "D-077 的许可证要求只针对被导入、随 foreman 分发的库；只在开发时运行、不被导入也不分发的工具（go.mod tool 指令，如 golangci-lint，GPL-3.0）不受许可证白名单限制，仍须满足主流标准并在 deps 中以 kind: tool 登记。另记：cmd/foreman 的场景测试约 115s，超出 C-06 的单 package 30s，属既有问题，待拆分或改为并行"
+    amends: D-077
+    enforced_by: "check:deps-registry"
+    status: active

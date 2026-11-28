@@ -12,6 +12,7 @@ tests:
   - C-14
   - D-076
   - D-077
+  - D-079
 - name: check:forbidden-paths
   covers:
   - D-063

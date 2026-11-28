@@ -45,7 +45,7 @@ allowed_deps:   # 除"低层可被高层导入"之外的额外限制
   - { rule: "禁止 package 级可变变量（错误值、编译后的正则、只读表除外），由 golangci-lint gochecknoglobals 检查", id: MD-13 }
   - { rule: "单个函数认知复杂度 ≤ 30，由 golangci-lint gocognit 检查", id: MD-14 }
   - { rule: "layer 2 内部模块之间不得互相导入（resource 除外：forge、harness 可导入 resource/gate 与 resource/meter）", id: MD-6 }
-  - { rule: "layer 3 跨模块的边只有：pipeline → stage、role（sched、recover 调用）；role → stage（只限 internal/stage/context）。stage、role、prod 不导入 pipeline：执行后返回事件值（类型在 layer 0 的 internal/spec/model），由 sched 交给 state.Transition（C-01）", id: MD-7 }
+  - { rule: "（D-078 起 pipeline 不再导入 stage、role：通过自身定义的接口调度，具体实现由 cli 注入）layer 3 跨模块的边只有：role → stage（只限 internal/stage/context）。stage、role、prod 不导入 pipeline：执行后返回事件值（类型在 layer 0 的 internal/spec/model），由 sched 交给 state.Transition（C-01）", id: MD-7 }
   - { rule: "internal/pipeline/state 不导入 pipeline 模块内其它 package（保持状态转移纯净）；internal/pipeline/state/tablegen 是生成器（go:generate 运行的 main 包），读 spec/design/state-machine.yaml 生成 state 包内的 table_gen.go，任何 package 不得导入它", id: MD-8 }
   - { rule: "layer 1 跨模块的边只有：config → store（config/revision 写 global.db）", id: MD-9 }
 
