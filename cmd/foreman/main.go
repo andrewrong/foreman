@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -22,6 +23,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "foreman %s\n", version)
 		return 0
 	}
-	fmt.Fprintln(stderr, "usage: foreman version")
+	if len(args) == 1 && args[0] == "daemon" {
+		return runDaemon(context.Background(), os.Getenv("FOREMAN_HOME"), stdout, stderr)
+	}
+	fmt.Fprintln(stderr, "usage: foreman version | daemon")
 	return 2
 }

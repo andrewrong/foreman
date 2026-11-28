@@ -36,6 +36,10 @@ type Config struct {
 	Project string
 	Remote  string // clone URL or path of the project's remote
 	Repo    ops.Repo
+	// RepoPath and DefaultBranch are the project's repo_path and
+	// default_branch (CF-01). RepoPath is the owner's checkout, which foremand
+	// never touches; DefaultBranch, when set, must match the mirror's.
+	RepoPath, DefaultBranch string
 
 	GitHubBase  string // API base URL; empty means api.github.com
 	GitHubToken string // read by the secrets module in the daemon (D-026)
@@ -50,14 +54,14 @@ type Config struct {
 	// (D-080, D-081); OwnerHome is added to the deny roots by the policy.
 	ReadPaths, DenyRoots []string
 	OwnerHome            string
-	// SessionGit is the identity of the generated session gitconfig (D-082,
-	// session_git.*); empty falls back to the session workspace identity.
+	// SessionGit is the identity of the generated session gitconfig and of
+	// the commits foremand makes in session workspaces (D-082, session_git.*).
+	// It is an owner key (D-074): Compose refuses an unset identity.
 	SessionGit wsgit.Identity
-	// HarnessBinary is the absolute path of the claude CLI. The adapter
-	// declares its real path and directory to the read allowlist; empty keeps
-	// the bare command name, and the owner then lists the install directory in
-	// sandbox.read_paths.
-	HarnessBinary string
+	// SecretsDir is runtime.toml secrets_dir (D-026); Workers is
+	// parallel.workers (CF-04). Both are owner keys.
+	SecretsDir string
+	Workers    int
 	// Harness is "scripted" or "claude".
 	Harness string
 	// Models maps a role to its model name (skills.yaml in the daemon).
@@ -140,6 +144,9 @@ func Compose(ctx context.Context, cfg Config) (*App, error) {
 	if cfg.Ledger == nil {
 		return nil, errors.New("compose: gate needs the daemon's ledger (RC-2); refusing the in-memory fallback")
 	}
+	if cfg.SessionGit.Name == "" || cfg.SessionGit.Email == "" {
+		return nil, errors.New("compose: session_git.name and session_git.email are owner keys (D-074); no built-in identity")
+	}
 	checks, err := recover.Preflight(cfg.Home, cfg.Project)
 	if err != nil {
 		return nil, err
@@ -179,7 +186,7 @@ func (a *App) wire(ctx context.Context, cfg Config) error {
 	}
 
 	foremanIdent := wsgit.Identity{Name: "foreman", Email: "foreman@users.noreply.example"}
-	sessionIdent := wsgit.Identity{Name: "foreman-session", Email: "foreman-session@users.noreply.example"}
+	sessionIdent := cfg.SessionGit
 	if a.Git, err = wsgit.New(wsgit.Config{Home: filepath.Join(cfg.Home, "githome"), Clock: cfg.Clock, Ident: &foremanIdent}); err != nil {
 		return err
 	}
@@ -219,13 +226,13 @@ func (a *App) wire(ctx context.Context, cfg Config) error {
 	if cfg.Harness != "scripted" && cfg.Harness != "claude" {
 		return fmt.Errorf("compose: unknown harness %q", cfg.Harness)
 	}
-	policyIn, err := a.layoutPolicy(ctx, cfg, integDir, sessionIdent)
+	policyIn, err := a.layoutPolicy(ctx, cfg, integDir)
 	if err != nil {
 		return err
 	}
 	newAdapter := func(role api.Role, lease *gate.Lease) (api.Adapter, error) {
 		if cfg.Harness == "claude" {
-			return claude.New(lease, claude.Config{Binary: cfg.HarnessBinary})
+			return claude.New(lease, claude.Config{})
 		}
 		return scripted.New(lease, scripted.Config{})
 	}
@@ -263,15 +270,14 @@ func (a *App) wire(ctx context.Context, cfg Config) error {
 
 // layoutPolicy creates the layout directories the policy lists (it refuses a
 // path that does not exist, D-081 ②; access.yaml layout) and returns the
-// run-independent policy inputs. An unset session_git identity falls back to
-// fallback, the session workspace identity.
-func (a *App) layoutPolicy(ctx context.Context, cfg Config, integDir string, fallback wsgit.Identity) (policy.Inputs, error) {
+// run-independent policy inputs.
+func (a *App) layoutPolicy(ctx context.Context, cfg Config, integDir string) (policy.Inputs, error) {
 	defBranch, err := a.Mirror.DefaultBranch(ctx)
 	if err != nil {
 		return policy.Inputs{}, err
 	}
-	if cfg.SessionGit == (wsgit.Identity{}) {
-		cfg.SessionGit = fallback
+	if cfg.DefaultBranch != "" && cfg.DefaultBranch != defBranch {
+		return policy.Inputs{}, fmt.Errorf("compose: config default_branch %q, mirror default branch %q", cfg.DefaultBranch, defBranch)
 	}
 	for _, d := range []string{"db", "config", filepath.Join("cache", cfg.Project)} {
 		if err := os.MkdirAll(filepath.Join(cfg.Home, d), 0o700); err != nil {

@@ -14,9 +14,9 @@ func TestRun(t *testing.T) {
 		wantStderr string
 	}{
 		{"version", []string{"version"}, 0, "foreman dev\n", ""},
-		{"no args", nil, 2, "", "usage: foreman version\n"},
-		{"unknown", []string{"bogus"}, 2, "", "usage: foreman version\n"},
-		{"version extra arg", []string{"version", "x"}, 2, "", "usage: foreman version\n"},
+		{"no args", nil, 2, "", "usage: foreman version | daemon\n"},
+		{"unknown", []string{"bogus"}, 2, "", "usage: foreman version | daemon\n"},
+		{"version extra arg", []string{"version", "x"}, 2, "", "usage: foreman version | daemon\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

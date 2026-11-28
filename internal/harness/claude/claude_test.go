@@ -2,6 +2,7 @@ package claude
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -33,7 +34,8 @@ func files(m map[string]string) func(string) ([]byte, error) {
 
 func newAdapter(t *testing.T, fs map[string]string) *Adapter {
 	t.Helper()
-	a, err := New(testLease(t), Config{Binary: "claude", ReadFile: files(fs)})
+	useFakeClaude(t)
+	a, err := New(testLease(t), Config{ReadFile: files(fs)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,13 +58,17 @@ func coderSpec() api.RunSpec {
 }
 
 func TestHarnessClaudeArgv(t *testing.T) {
-	a := newAdapter(t, promptFS())
+	real := useFakeClaude(t)
+	a, err := New(testLease(t), Config{ReadFile: files(promptFS())})
+	if err != nil {
+		t.Fatal(err)
+	}
 	inv, err := a.BuildInvocation(coderSpec())
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
-		"claude", "-p", "--output-format", "stream-json", "--verbose",
+		real, "-p", "--output-format", "stream-json", "--verbose",
 		"--model", "sonnet", "--max-turns", "40",
 		"--strict-mcp-config", "--disable-slash-commands", "--setting-sources", "",
 		"--tools", "Bash,Read,Edit,Write,Glob,Grep",
@@ -230,4 +236,34 @@ func TestBudgetFallbackDefault(t *testing.T) {
 	if _, err := a.BuildInvocation(s); err == nil {
 		t.Fatal("without max_turns and timeout the invocation must be refused")
 	}
+}
+
+// useFakeClaude puts an executable named claude, behind a symlink, on PATH
+// for the test and returns its resolved path.
+func useFakeClaude(t *testing.T) string {
+	t.Helper()
+	root := shortDir(t)
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(root, "claude-real")
+	if err := os.WriteFile(real, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(root, "bin", Command)); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", filepath.Join(root, "bin"))
+	return real
+}
+
+// shortDir is a temporary directory with a symlink-free path.
+func shortDir(t *testing.T) string {
+	t.Helper()
+	d := t.TempDir()
+	real, err := filepath.EvalSymlinks(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return real
 }

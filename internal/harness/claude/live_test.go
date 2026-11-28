@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -20,7 +21,13 @@ func TestLiveClaude(t *testing.T) {
 		t.Skip("FOREMAN_TEST_CLAUDE not set")
 	}
 	dir := t.TempDir()
-	a, err := New(testLease(t), Config{Binary: bin, ReadFile: files(map[string]string{"p.md": "Reply with the single word: pong"})})
+	// The adapter finds claude on PATH (D-084): expose the named binary so.
+	linkDir := t.TempDir()
+	if err := os.Symlink(bin, filepath.Join(linkDir, Command)); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", linkDir)
+	a, err := New(testLease(t), Config{ReadFile: files(map[string]string{"p.md": "Reply with the single word: pong"})})
 	if err != nil {
 		t.Fatal(err)
 	}
