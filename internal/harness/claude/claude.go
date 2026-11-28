@@ -26,6 +26,9 @@ type Config struct {
 // Command is the executable name looked up on foremand's own PATH (D-084).
 const Command = "claude"
 
+// ModelHost is the API host of the claude CLI (access.yaml R0).
+const ModelHost = "api.anthropic.com"
+
 // Locate finds claude on foremand's PATH and resolves every symlink on the
 // way (D-084). The adapter does it again at every launch, so an upgrade that
 // moves the link is picked up by the next session; the daemon calls it at
@@ -159,7 +162,7 @@ func (a *Adapter) BuildInvocation(s api.RunSpec) (api.Invocation, error) {
 	if err != nil {
 		return api.Invocation{}, err
 	}
-	return api.Invocation{Argv: argv, Stdin: prompt, Timeout: s.Timeout, ReadPaths: []string{binary, filepath.Dir(binary)}}, nil
+	return api.Invocation{Argv: argv, Stdin: prompt, Timeout: s.Timeout, ReadPaths: []string{binary, filepath.Dir(binary)}, ModelHost: ModelHost}, nil
 }
 
 // assemblePrompt builds role prompt, then the role's skills, then the

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/andrewrong/foreman/internal/clock"
 	"github.com/andrewrong/foreman/internal/forge/cache"
@@ -43,6 +44,13 @@ type Config struct {
 
 	GitHubBase  string // API base URL; empty means api.github.com
 	GitHubToken string // read by the secrets module in the daemon (D-026)
+	// ModelToken is the harness credential (C-08): it reaches model sessions
+	// only, never L0. Empty means the session has no model credential.
+	ModelToken string
+	// SessionTimeout and SessionMaxTurns bound one model session (PP-5);
+	// zero means the stage defaults.
+	SessionTimeout  time.Duration
+	SessionMaxTurns int
 
 	Clock clock.Clock
 	// SrtPath is the sandbox runtime. Empty runs scripted sessions and L0
@@ -265,6 +273,11 @@ func (a *App) wire(ctx context.Context, cfg Config) error {
 		}
 		return nil
 	}
+	// L0 runs AI-written code and never gets the model token (C-08).
+	sessionIn := policyIn
+	if cfg.ModelToken != "" {
+		sessionIn.Model = &policy.ModelToken{Name: modelTokenEnv, Value: cfg.ModelToken}
+	}
 	merger := reviewMerger{integ: a.Integ, mirror: a.Mirror, ident: sessionIdent}
 	a.Sched, err = sched.New(sched.Deps{
 		DB: a.Stores.Work, Engine: a.Engine, Clock: cfg.Clock, Gate: a.Gate, Meters: a.Meters,
@@ -273,10 +286,10 @@ func (a *App) wire(ctx context.Context, cfg Config) error {
 		Forge:     forgeAdapter{ops: a.Ops, repo: cfg.Repo, integ: a.Integ},
 		Workspace: workspaceAdapter{git: a.Git, mirror: a.Mirror, integ: a.Integ, ident: sessionIdent},
 		Procs:     launchProcs{},
-		Code: sessionStage{prompt: coderPrompt, launcher: launcher, toolchain: cfg.Toolchain, policy: policyIn, newAdapter: newAdapter,
-			runExtra: runExtra, finish: codeFinish},
-		Review: sessionStage{prompt: reviewerPrompt, launcher: launcher, toolchain: cfg.Toolchain, policy: policyIn, newAdapter: newAdapter,
-			runExtra: runExtra, finish: merger.finish},
+		Code: sessionStage{prompt: coderPrompt, launcher: launcher, toolchain: cfg.Toolchain, policy: sessionIn, newAdapter: newAdapter,
+			runExtra: runExtra, finish: codeFinish, timeout: cfg.SessionTimeout, maxTurns: cfg.SessionMaxTurns},
+		Review: sessionStage{prompt: reviewerPrompt, launcher: launcher, toolchain: cfg.Toolchain, policy: sessionIn, newAdapter: newAdapter,
+			runExtra: runExtra, finish: merger.finish, timeout: cfg.SessionTimeout, maxTurns: cfg.SessionMaxTurns},
 		Check:        checkStage{integ: a.Integ, launcher: launcher, toolchain: cfg.Toolchain, policy: policyIn, forbidden: cfg.Forbidden, l0: cfg.L0},
 		Integrate:    integrateStage{integ: a.Integ, ops: a.Ops, repo: cfg.Repo},
 		Merge:        mergeStage{ops: a.Ops, repo: cfg.Repo, integ: a.Integ, mirror: a.Mirror, guardrails: cfg.Guardrails},
@@ -319,5 +332,6 @@ func sessionPolicy(cfg Config, integDir, mirrorDir, defaultBranch string) policy
 		ProjectCacheDir: filepath.Join(cfg.Home, "cache", cfg.Project),
 		Path:            cfg.Path,
 		GoFlags:         policy.DefaultGoFlags,
+		Families:        policy.AllFamilies(), // access.yaml R0: package hosts, always granted
 	}
 }

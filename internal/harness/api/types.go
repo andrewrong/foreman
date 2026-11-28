@@ -97,6 +97,9 @@ type Invocation struct {
 	// ReadPaths are install paths the process must read (the harness binary
 	// and its directory); the sandbox adds them to allowRead (D-080).
 	ReadPaths []string
+	// ModelHost is the model API host the process talks to (access.yaml R0:
+	// declared by the adapter); the sandbox adds it to the allowed hosts.
+	ModelHost string
 }
 
 // Adapter is a model backend.

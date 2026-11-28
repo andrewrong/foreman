@@ -123,6 +123,9 @@ func (e Env) Prepare(ctx context.Context, r Request) (Prepared, error) {
 		}
 		in = in.WithToolchain(tc.Path, tc.Read)
 	}
+	if inv.ModelHost != "" {
+		in.ModelHost = inv.ModelHost
+	}
 	in.HarnessPaths = append(append([]string{}, in.HarnessPaths...), inv.ReadPaths...)
 	pol, err := policy.New(in)
 	if err != nil {

@@ -73,7 +73,7 @@
 | 2 | sandbox | 本机 srt | 探测通过；会话启动未在 srt 中验证 |
 | 3 | harness | claude 在 srt 内用专用 token | 探测通过（P4）；修 CLAUDE_CODE_TMPDIR；待：launcher 的 node 目录配置、把探测改成带开关的真实测试 |
 | 4 | forge | foreman-sandbox 仓库 | done：TestForgeLiveSmoke 覆盖 OP-01..OP-14 与 FG-8，83s 通过（2026-11-28）；rerun 在绿 CI 上 403 属预期；分支保护 403＝unavailable |
-| 5 | 单个 stage | code 阶段：真实会话仓库 + 层 2–3 | 未做 |
+| 5 | 单个 stage | code 阶段：真实会话仓库 + 层 2–3 | 测试已写（TestLayer5CodeStageLive，环境变量开关），待 owner 会话实跑 |
 | 6 | 一个需求端到端 | foreman-sandbox 上从接需求到合并 | 未做 |
 - smcheck 瘦身 done：1597 → 1080 行，YAML 只在 model.go 解析一次（tablegen、exhaustive 共用），tools/smcheck.rb 删除（T2 行为历史记录）。变异测试全部保留，只改了期望的错误文字格式。
 - forge 改用 go-github v93 + githubv4（D-075）done，TestDepsRegistry（check:deps-registry）done。自写代码 1073 → 1217 行（spec 估计 600–900，未达到）。真实 GitHub 冒烟只覆盖 3 个只读操作（RateLimit、PRListOpen、RunsList）；写操作（开 PR、合并、rerun、update-branch、job 日志、GraphQL 批量）未在真实 GitHub 上验证，属于逐层计划第 4 层。GraphQL 非 200 错误未类型化。

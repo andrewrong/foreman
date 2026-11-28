@@ -36,6 +36,8 @@ const (
 		"session repository, commit, and write result.json as protocol-run.yaml PF-RESULT describes.\n"
 	reviewerPrompt = "You are the reviewer of one step. Read context.md in the run directory, judge the diff against " +
 		"the acceptance items, and write result.json with a verdict.\n"
+	// modelTokenEnv is the variable the claude CLI reads its token from.
+	modelTokenEnv = "CLAUDE_CODE_OAUTH_TOKEN"
 	// maxDiffBytes caps the diff given to a reviewer.
 	maxDiffBytes = 100 << 10
 )
@@ -153,18 +155,26 @@ type sessionStage struct {
 	policy     policy.Inputs
 	exe        string // foreman binary serving launch.FlagRunSession; empty: os.Args[0]
 	newAdapter func(role api.Role, lease *gate.Lease) (api.Adapter, error)
+	timeout    time.Duration // 0: ctxmd.DefaultTimeout
+	maxTurns   int           // 0: ctxmd.DefaultMaxTurns
 	runExtra   func(role api.Role, stepID string) map[string]string
 	finish     func(ctx context.Context, env ctxmd.Env, job sched.SessionJob, req ctxmd.Request, res ctxmd.Result) (model.Event, error)
 }
 
-func (s sessionStage) Timeout() time.Duration { return ctxmd.DefaultTimeout }
+func (s sessionStage) Timeout() time.Duration {
+	if s.timeout > 0 {
+		return s.timeout
+	}
+	return ctxmd.DefaultTimeout
+}
 
 func (s sessionStage) env(job sched.SessionJob) (ctxmd.Env, error) {
 	ad, err := s.newAdapter(api.Role(job.Role), job.Lease)
 	if err != nil {
 		return ctxmd.Env{}, err
 	}
-	return ctxmd.Env{Launcher: s.launcher, Adapter: ad, Policy: s.policy, Toolchain: s.toolchain}, nil
+	return ctxmd.Env{Launcher: s.launcher, Adapter: ad, Policy: s.policy, Toolchain: s.toolchain,
+		Timeout: s.timeout, MaxTurns: s.maxTurns}, nil
 }
 
 func (s sessionStage) request(job sched.SessionJob) ctxmd.Request {
