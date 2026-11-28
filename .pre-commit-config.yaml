@@ -1,0 +1,37 @@
+# Checks run before every commit (pre-commit framework, https://pre-commit.com).
+# Each language a repository uses adds its own hooks here; this repository is Go.
+# A failing hook refuses the commit. Keep the set fast (seconds): the full
+# `go test ./...` stays a separate step.
+repos:
+  - repo: local
+    hooks:
+      - id: gofmt
+        name: gofmt (no unformatted files)
+        language: system
+        entry: bash -c 'out=$(gofmt -l . | grep -v "^.claude/"); [ -z "$out" ] || { echo "$out"; exit 1; }'
+        pass_filenames: false
+        types_or: [go]
+      - id: go-vet
+        name: go vet
+        language: system
+        entry: go vet ./...
+        pass_filenames: false
+        types_or: [go]
+      - id: golangci-lint
+        name: golangci-lint (MD-13, MD-14)
+        language: system
+        entry: go tool golangci-lint run ./...
+        pass_filenames: false
+        types_or: [go]
+      - id: privguard-and-spec-lint
+        name: privguard scan and spec lint (C-09, C-12)
+        language: system
+        entry: go test -count=1 ./internal/privguard/... ./internal/spec/...
+        pass_filenames: false
+        always_run: true
+      - id: privacy-grep
+        name: no local paths or real addresses (AGENTS.md)
+        language: system
+        entry: bash -c 'git grep -nE "/Users/|/Volumes/|/private/tmp|@gmail" -- . ":!spec/design/privguard.yaml" ":!AGENTS.md" ":!.pre-commit-config.yaml" && exit 1 || exit 0'  # privguard:allow rule-definition
+        pass_filenames: false
+        always_run: true
