@@ -75,3 +75,4 @@
 | 4 | forge | foreman-sandbox 仓库 | 只有接口冒烟 |
 | 5 | 单个 stage | code 阶段：真实会话仓库 + 层 2–3 | 未做 |
 | 6 | 一个需求端到端 | foreman-sandbox 上从接需求到合并 | 未做 |
+- smcheck 瘦身 done：1597 → 1080 行，YAML 只在 model.go 解析一次（tablegen、exhaustive 共用），tools/smcheck.rb 删除（T2 行为历史记录）。变异测试全部保留，只改了期望的错误文字格式。
