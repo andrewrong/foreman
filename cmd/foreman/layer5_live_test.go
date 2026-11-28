@@ -90,7 +90,7 @@ func live5Requirement() model.Requirement {
 			Goal:    "Package calc gains func Max(a, b int) int that returns the larger of its two arguments, covered by a table-driven test.",
 			Current: []model.Ref{{Module: "calc", Path: "calc"}},
 			Change:  []string{"calc/calc.go", "calc/calc_test.go"},
-			Outcome: []model.Acceptance{{ID: "A1", EARS: "When Max(a, b) is called the system shall return the larger of a and b",
+			Outcome: []model.Acceptance{{ID: "A1", EARS: "当调用 Max(2, 3) 时，系统应当返回 3",
 				Verify: model.VerifyTest, VerifyDetail: "go test ./calc/... runs TestMax with equal, ascending, descending and negative inputs", SandboxOK: true}},
 			Boundaries: []string{"Touch only files under calc/", "Do not change go.mod, mise.toml or anything under .github/"},
 		}}
