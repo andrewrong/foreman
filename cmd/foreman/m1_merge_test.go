@@ -26,6 +26,7 @@ func readme(first, last string) string {
 // the reviewer sees the new delta, approves (S43) and the merge pins the new
 // head. The local integration branch follows the remote merge commit.
 func TestM1MergeUpdateBranchIntersectingFilesNeedsRereview(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	s.f.pushMain(map[string]string{"README.txt": readme("first", "last")}, "add readme")
 	s.q.push("coder", coderCommits("edit readme", map[string]string{"sum.go": sumGo, "sum_test.go": sumTst,
@@ -75,6 +76,7 @@ func TestM1MergeUpdateBranchIntersectingFilesNeedsRereview(t *testing.T) {
 // Same, but the base changed a file the PR does not touch: no re-review; L1
 // runs again on the new head and only then does the merge go ahead (ACR-02).
 func TestM1MergeUpdateBranchDisjointFilesOnlyRerunsL1(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	s.atStep(step2, "queued", "merge", "", 80)
 	oldHead := s.remoteHead()
@@ -104,6 +106,7 @@ func TestM1MergeUpdateBranchDisjointFilesOnlyRerunsL1(t *testing.T) {
 // approved head and the merge goes ahead. A new head (here after
 // update-branch) is not covered by the approval and asks again.
 func TestM1GuardrailHoldAskGrantMerge(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	s.q.push("coder", coderCommits("touch workspace", map[string]string{"sum.go": sumGo, "sum_test.go": sumTst,
 		"internal/workspace/guard.go": "package workspace\n"}))
@@ -173,6 +176,7 @@ func coderRemoves(msg, path string) scripted.Script {
 // step (S50) at once with a finding that tells the coder what to do instead,
 // and a head without the path passes.
 func TestM1ForbiddenPathFailsCheckBeforeL0(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	s.q.push("coder", coderCommits("add workflow", map[string]string{"sum.go": sumGo, "sum_test.go": sumTst,
 		".github/workflows/ci.yml": "name: ci\n"}))

@@ -19,6 +19,7 @@ const sumDocGo = "package sum\n\n// Sum adds two ints; the integration fix docum
 // longer single-step, so the pass goes through integrate review (S30, S43)
 // before the merge.
 func TestM1L1FailBecomesFixStep(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	failHead := ""
 	s.gh.plan = func(head string, _ int) ciOutcome {
@@ -105,6 +106,7 @@ func TestM1L1FailBecomesFixStep(t *testing.T) {
 // head (ACR-10). Cancelled job then green: no l1_fail ever; the single-step
 // shortcut (S29) goes on to the merge.
 func TestM1L1ClassificationRerunsCancelledJob(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	s.gh.plan = func(_ string, attempt int) ciOutcome {
 		if attempt == 0 {
@@ -127,6 +129,7 @@ func TestM1L1ClassificationRerunsCancelledJob(t *testing.T) {
 
 // A failed job whose log shows no failing test is transient too.
 func TestM1L1ClassificationNoFailingTestIsRerun(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	s.gh.plan = func(_ string, attempt int) ciOutcome {
 		if attempt == 0 {
@@ -145,6 +148,7 @@ func TestM1L1ClassificationNoFailingTestIsRerun(t *testing.T) {
 // l1_fail follows the rerun's own result, not the stale failure the fake
 // keeps listing for one poll after the rerun.
 func TestM1L1SecondFailureIsL1Fail(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	s.gh.plan = func(string, int) ciOutcome { return ciOutcome{Conclusion: "cancelled"} }
 	s.atStep(step2, "waiting", "check", "fix", 80)
@@ -167,6 +171,7 @@ func TestM1L1SecondFailureIsL1Fail(t *testing.T) {
 // in progress), never at each poll; the Run stays; at the cap (12) the next
 // deadline holds the requirement for the owner (S38b, H7).
 func TestM1CIProgressExtendsDeadlineOnlyAtDeadline(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	s.gh.pending = true
 	s.atStep(step2, "waiting", "check", "ci", 80)
@@ -216,6 +221,7 @@ func TestM1CIProgressExtendsDeadlineOnlyAtDeadline(t *testing.T) {
 // its deadline, then the deadline is extended (S37, not an infra count) and
 // the Run goes on.
 func TestM1LeaseWaitExtendsDeadlineOnlyAtDeadline(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	s.atStep(step2, "waiting", "check", "ci", 80)
 	s.gh.set(func() { s.gh.limited, s.gh.resetUnix = true, s.clk.Now().Unix() })

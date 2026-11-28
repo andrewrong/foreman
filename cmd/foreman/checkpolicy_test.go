@@ -11,6 +11,7 @@ import (
 // L0 runs AI-written code, so the check policy keeps integrate/ denyWrite
 // (access.yaml layout); the l0 checkout under runs/<id>/ is still accepted.
 func TestCheckPolicyKeepsIntegrateDenyWrite(t *testing.T) {
+	t.Parallel()
 	d, err := os.MkdirTemp("/tmp", "fmc")
 	if err != nil {
 		t.Fatal(err)

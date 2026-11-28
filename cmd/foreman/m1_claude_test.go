@@ -15,6 +15,7 @@ import (
 // before any process or run directory exists, and the step stays running(code)
 // with its lease still held for a retry once srt is configured.
 func TestClaudeHarnessWithoutSrtIsRefused(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	clk := clock.NewFake(time.Unix(1_800_000_000, 0))

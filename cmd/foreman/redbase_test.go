@@ -76,6 +76,7 @@ func (r *baseRig) acquire(t *testing.T, baseFix bool) gate.Decision {
 // Poll blocks the merge lease with red_base, a green one releases it, and
 // only the base-fix merge passes a red base (D-067).
 func TestRedBaseFromPollBlocksMergeLease(t *testing.T) {
+	t.Parallel()
 	r := newBaseRig(t)
 
 	// Nothing measured yet: RES-BASE is not passive, so a non-P0 merge waits

@@ -17,6 +17,7 @@ import (
 // pushes of the project (D-050). The flag lives in global.db, so a restarted
 // daemon refuses to push until the owner clears it.
 func TestPushHaltSurvivesRestart(t *testing.T) {
+	t.Parallel()
 	e := newCrashEnv(t, false)
 	gitBin, err := exec.LookPath("git")
 	if err != nil {

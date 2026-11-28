@@ -27,6 +27,7 @@ func (s *scenario) finish() {
 // "Previous failure" section of PF-CTX. The second commit passes and the
 // requirement reaches done; the fixed finding is closed and the counter reset.
 func TestM1CheckFailRetryReachesNextContext(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	s.q.push("coder", coderCommits("first try", map[string]string{"sum.go": sumGo, "sum_test.go": brokenTst}))
 	s.q.push("coder", coderCommits("fix the test", okFiles()))
@@ -79,6 +80,7 @@ func TestM1CheckFailRetryReachesNextContext(t *testing.T) {
 // reviewer's second context carries only the delta since last_reviewed_sha
 // and is free of coder-only material.
 func TestM1ReviewChangesRoundAndDelta(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	s.q.push("coder", coderCommits("implement Sum", okFiles()))
 	s.q.push("coder", coderCommits("address review", map[string]string{"extra.go": extraGo}))
@@ -147,6 +149,7 @@ func TestM1ReviewChangesRoundAndDelta(t *testing.T) {
 // invocation built for it carry opus once check_fail reached cap-1 (2 of 3),
 // and a passing check resets the counter.
 func TestM1RetryModelEscalation(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	bad := coderCommits("broken", map[string]string{"sum.go": sumGo, "sum_test.go": brokenTst})
 	s.q.push("coder", bad)
@@ -177,6 +180,7 @@ func TestM1RetryModelEscalation(t *testing.T) {
 // M1, so its Run stays pending), no further coder Run is created and the
 // requirement does not move on, however long the clock runs.
 func TestM1CheckFailCapEscalatesToRescue(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	for i := 1; i <= 4; i++ { // a repeated identical commit would be "nothing to commit"
 		s.q.push("coder", coderCommits(fmt.Sprintf("attempt %d", i), map[string]string{"sum.go": sumGo, "sum_test.go": brokenTst,
@@ -224,6 +228,7 @@ func TestM1CheckFailCapEscalatesToRescue(t *testing.T) {
 // A session that exits cleanly with an invalid result.json is a bad_result:
 // the same stage reruns (S75) and a valid result resets the counter.
 func TestM1BadResultRerunsAndResets(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	s.q.push("coder", coderBadResult())
 	s.q.push("coder", coderBadResult())
@@ -246,6 +251,7 @@ func TestM1BadResultRerunsAndResets(t *testing.T) {
 // bad_result at its cap (2) escalates like any other cap: the step waits for
 // the rescuer and no further coder Run starts.
 func TestM1BadResultCapEscalates(t *testing.T) {
+	t.Parallel()
 	s := newScenario(t)
 	s.q.push("coder", coderBadResult())
 	s.until(40, "escalation", func() bool { _, _, reason := s.stepPos(step1); return reason == "rescue" })

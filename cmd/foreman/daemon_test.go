@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -47,15 +48,15 @@ const rolesTOML = "[role.intake]\ntimeout = \"20m\"\n[role.planner]\ntimeout = \
 // and names every missing key, one per line, before the database or the
 // network is touched (D-074): the home gets no db directory.
 func TestDaemonRefusesMissingOwnerKeys(t *testing.T) {
+	t.Parallel()
 	home := shortHome(t)
 	writeConfig(t, home, map[string]string{
 		"runtime.toml":       "[limits]\ncheck_fail = 4\n",
 		"roles.toml":         rolesTOML,
 		"projects/demo.toml": "repo_path = \"/srv/x\"\n",
 	})
-	t.Setenv("FOREMAN_HOME", home)
 	var out, errb bytes.Buffer
-	if code := run([]string{"daemon"}, &out, &errb); code == 0 {
+	if code := runDaemon(context.Background(), home, &out, &errb); code == 0 {
 		t.Fatalf("daemon started without owner keys; stdout %q", out.String())
 	}
 	lines := strings.Split(strings.TrimSpace(errb.String()), "\n")
@@ -82,6 +83,7 @@ func TestDaemonRefusesMissingOwnerKeys(t *testing.T) {
 
 // Every value Compose needs comes from the three file kinds.
 func TestConfigFromFilesMapsEveryOwnerKey(t *testing.T) {
+	t.Parallel()
 	home := shortHome(t)
 	writeConfig(t, home, map[string]string{
 		"runtime.toml": "secrets_dir = \"/srv/s\"\n[parallel]\nworkers = 3\n[sandbox]\nsrt_path = \"/srv/srt\"\nnode_dir = \"/srv/node\"\n" +

@@ -31,6 +31,22 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// goCacheDir is the Go build cache of the process running the tests. The
+// pipeline gives every L0 Run an empty GOCACHE (session cache cloning is not
+// wired yet), so each `go test` compiled the standard library from scratch:
+// ~1000 files written and removed per Run, which was almost all of a
+// scenario's wall time. L0 here points at the warm cache instead (the Go
+// cache is safe for concurrent use); it only stores compiler output, and L0
+// still builds and runs the fixture module's tests every time (-count=1).
+func goCacheDir(t *testing.T, goBin string) string {
+	t.Helper()
+	out, err := exec.Command(goBin, "env", "GOCACHE").Output()
+	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
+		t.Fatalf("go env GOCACHE: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 const (
 	reqID  = "R-m1"
 	step1  = reqID + "/S1"
@@ -137,7 +153,7 @@ func (f *fixture) config(clk clock.Clock, ghURL string, on func(string, state.Ev
 		SessionGit: wsgit.Identity{Name: "foreman-session", Email: "foreman-session@users.noreply.example"},
 		Models:     map[string]string{"coder": "scripted", "reviewer": "scripted"},
 		Scripts:    f.scripts, Path: filepath.Dir(f.goBin) + ":" + wsgit.SystemPath(),
-		L0:     [][]string{{f.goBin, "test", "./..."}},
+		L0:     [][]string{{"/bin/sh", "-c", `GOCACHE="$1" exec "$0" test -count=1 ./...`, f.goBin, goCacheDir(f.t, f.goBin)}},
 		Ledger: ledger.New(), OnTransition: on, Constitution: "C-01: only Transition writes state.",
 	}
 }
@@ -208,6 +224,7 @@ func containsInOrder(rows, want []string) bool {
 // Step-Id trailer -> push to a local bare remote -> PR on a fake GitHub ->
 // L1 poll -> merge under the merge-slot lease -> done.
 func TestM1FastLane(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	clk := clock.NewFake(time.Unix(1_800_000_000, 0))
@@ -321,6 +338,7 @@ func TestM1FastLane(t *testing.T) {
 }
 
 func TestComposeRefusesNilLedgerAndLongHome(t *testing.T) {
+	t.Parallel()
 	if _, err := newGate(gate.Options{}); err == nil {
 		t.Fatal("gate built without a ledger")
 	}

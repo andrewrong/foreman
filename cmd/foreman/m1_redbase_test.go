@@ -14,6 +14,7 @@ import (
 // (S03, quota) with no merge call; when the base is green again the next
 // dispatch after the wait deadline merges.
 func TestM1RedBaseHoldsMergeUntilGreen(t *testing.T) {
+	t.Parallel()
 	f := newFixture(t)
 	ctx := context.Background()
 	clk := clock.NewFake(time.Unix(1_800_000_000, 0))

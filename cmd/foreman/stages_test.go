@@ -34,6 +34,7 @@ func (stubAdapter) ParseStream(io.Reader) iter.Seq[api.Event] { return func(func
 // queue handing out one script per call would otherwise be drained by polls.
 // The stage consults it once per launch, in Start, before launch.lock is taken.
 func TestDriveSessionPollsDoNotConsultRunExtra(t *testing.T) {
+	t.Parallel()
 	short := func() string { // t.TempDir is too long for the 70-byte socket path limit on macOS
 		d, err := os.MkdirTemp("/tmp", "fms")
 		if err != nil {
@@ -71,6 +72,7 @@ func TestDriveSessionPollsDoNotConsultRunExtra(t *testing.T) {
 // with the recorded start time is Alive; the same pid with another start time
 // (pid reuse) and a pid with no process are Exited.
 func TestInspectTellsLiveFromGoneAndRecycledPid(t *testing.T) {
+	t.Parallel()
 	clk := clock.NewFake(time.Unix(1_800_000_000, 0))
 	dir := t.TempDir()
 	own, _, ok := launch.ProcInfo(os.Getpid())

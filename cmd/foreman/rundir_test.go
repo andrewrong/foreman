@@ -35,6 +35,7 @@ func writeFile(t *testing.T, path, body string) {
 // target untouched) while the directory of a session that is still running is
 // kept.
 func TestRunDirRemovedAfterRun(t *testing.T) {
+	t.Parallel()
 	t.Run("runs is empty after a full run", runDirsEmptyAfterRun)
 	t.Run("startup removes leftovers and keeps a running session", runDirsSweptAtStartup)
 }

@@ -224,6 +224,7 @@ func (e *crashEnv) coderStarted(app *App) (runID, dir string, pid int) {
 // requirement reaches done without a second PR, a second Run for a stage, or
 // an inconsistent ledger.
 func TestRestartRecovery(t *testing.T) {
+	t.Parallel()
 	t.Run("coder session still alive at the restart", restartCoderAlive)
 	t.Run("coder session ended before the restart", restartCoderEnded)
 	t.Run("launch.lock without pid.json is relaunched once after 60 seconds", restartLaunchLockRelaunch)
@@ -232,6 +233,7 @@ func TestRestartRecovery(t *testing.T) {
 }
 
 func restartCoderAlive(t *testing.T) {
+	t.Parallel()
 	e := newCrashEnv(t, true)
 	app1, led1 := e.open()
 	seed(t, app1, e.clk)
@@ -262,6 +264,7 @@ func restartCoderAlive(t *testing.T) {
 }
 
 func restartCoderEnded(t *testing.T) {
+	t.Parallel()
 	e := newCrashEnv(t, true)
 	app1, _ := e.open()
 	seed(t, app1, e.clk)
@@ -279,6 +282,7 @@ func restartCoderEnded(t *testing.T) {
 }
 
 func restartLaunchLockRelaunch(t *testing.T) {
+	t.Parallel()
 	e := newCrashEnv(t, true)
 	app1, _ := e.open()
 	seed(t, app1, e.clk)
@@ -310,6 +314,7 @@ func restartLaunchLockRelaunch(t *testing.T) {
 }
 
 func restartKilledNoResult(t *testing.T) {
+	t.Parallel()
 	e := newCrashEnv(t, true)
 	app1, _ := e.open()
 	seed(t, app1, e.clk)
@@ -337,6 +342,7 @@ func restartKilledNoResult(t *testing.T) {
 }
 
 func restartKilledInCI(t *testing.T) {
+	t.Parallel()
 	e := newCrashEnv(t, false)
 	app1, _ := e.open()
 	seed(t, app1, e.clk)

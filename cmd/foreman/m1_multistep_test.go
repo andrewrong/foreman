@@ -61,6 +61,7 @@ func secondStep() scripted.Script {
 // so the session was refreshed), the integrate step takes the many-step path
 // (S30, review S06/S43, merge) and its review reads the whole requirement diff.
 func TestM1MultiStepRequirement(t *testing.T) {
+	t.Parallel()
 	s := newScenarioSeeded(t, seedMulti)
 	s.q.push("coder", coderCommits("implement Sum", okFiles()))
 	s.q.push("coder", secondStep())
