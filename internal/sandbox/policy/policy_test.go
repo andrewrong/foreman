@@ -27,7 +27,7 @@ func newFixture(t *testing.T) fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, sub := range []string{"w/sessions/r1", "w/run/r1", "h/.foreman/cache/p", "h/secrets", "h/.ssh", "m/repo.git", "tc/go", "data"} {
+	for _, sub := range []string{"w/sessions/r1", "w/run/r1", "h/.foreman/cache/p", "h/secrets", "h/.ssh", "m/repo.git/objects", "tc/go", "data"} {
 		if err := os.MkdirAll(filepath.Join(root, sub), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -230,13 +230,13 @@ func TestPolicySettingsStructure(t *testing.T) {
 	}
 }
 
-// D-080, D-081 ①: allowRead is the session repo, the run dir, the mirror
-// repo.git, the harness paths and the configured read paths, sorted and
+// D-080, D-081 ①: allowRead is the session repo, the run dir, the mirror's
+// objects/ only (access.yaml R0), the harness paths and the configured read paths, sorted and
 // without duplicates (a path both declared and configured appears once).
 func TestPolicyAllowReadIsTheAllowlist(t *testing.T) {
 	fx := newFixture(t)
 	s := parse(t, mustNew(t, fx.in))
-	want := []string{fx.p("m/repo.git"), fx.p("tc/go"), fx.p("w/run/r1"), fx.p("w/sessions/r1")}
+	want := []string{fx.p("m/repo.git/objects"), fx.p("tc/go"), fx.p("w/run/r1"), fx.p("w/sessions/r1")}
 	if g := strs(s["filesystem"]["allowRead"]); strings.Join(g, ",") != strings.Join(want, ",") {
 		t.Errorf("allowRead %v, want %v", g, want)
 	}

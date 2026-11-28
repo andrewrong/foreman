@@ -73,8 +73,9 @@ type Inputs struct {
 	// HarnessPaths and ReadPaths. Nothing is inferred; the owner configures
 	// ReadPaths and DenyRoots (sandbox.read_paths, sandbox.deny_roots).
 	DenyRoots []string
-	// MirrorRepo is the project's mirror repo.git: allowRead (session repos
-	// borrow its objects, access.yaml R0). Its write protection comes from
+	// MirrorRepo is the project's mirror repo.git. Only its objects/ is
+	// allowRead (session repos borrow its objects, access.yaml R0); config and
+	// refs stay unreadable. Its write protection comes from
 	// the caller listing it in DenyWrite.
 	MirrorRepo string
 	// HarnessPaths are the install paths the harness adapter declares
@@ -85,7 +86,8 @@ type Inputs struct {
 	// SessionGit fills the generated session .gitconfig (D-082).
 	SessionGit SessionGit
 
-	ownerSecrets []string // resolved by New: OwnerHome/<secret dirs>
+	ownerSecrets  []string // resolved by New: OwnerHome/<secret dirs>
+	mirrorObjects string   // resolved by New: MirrorRepo/objects (access.yaml R0)
 
 	Families   []Family // R0 package hosts
 	ModelHost  string   // declared by the harness adapter
@@ -277,8 +279,8 @@ func (p Policy) DenyReadPaths() []string {
 // AllowReadPaths returns the sorted allowRead list (D-080, D-081).
 func (p Policy) AllowReadPaths() []string {
 	set := map[string]bool{p.in.SessionRepo: true, p.in.RunTmp: true}
-	if p.in.MirrorRepo != "" {
-		set[p.in.MirrorRepo] = true
+	if p.in.mirrorObjects != "" {
+		set[p.in.mirrorObjects] = true
 	}
 	for _, l := range [][]string{p.in.HarnessPaths, p.in.ReadPaths} {
 		for _, d := range l {

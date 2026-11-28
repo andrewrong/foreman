@@ -38,6 +38,9 @@ type Env struct {
 	// hosts ...); SessionRepo (the l0 checkout) and RunTmp are set
 	// per Run.
 	Policy policy.Inputs
+	// Toolchain resolves the tools the checkout declares in mise.toml
+	// (D-085); nil means system tools only.
+	Toolchain launch.ToolchainSource
 	// Forbidden are the path globs no step may touch (check:forbidden-paths,
 	// D-063); nil means DefaultForbidden.
 	Forbidden []string
@@ -82,6 +85,13 @@ func Run(ctx context.Context, env Env, r Request) (model.Event, error) {
 	}
 	in := env.Policy
 	in.SessionRepo, in.RunTmp = work, r.RunDir
+	if env.Toolchain != nil {
+		tc, err := env.Toolchain.Toolchain(ctx, work) // D-085: the checkout's mise.toml
+		if err != nil {
+			return model.Event{}, err
+		}
+		in = in.WithToolchain(tc.Path, tc.Read)
+	}
 	pol, err := policy.New(in)
 	if err != nil {
 		return model.Event{}, err

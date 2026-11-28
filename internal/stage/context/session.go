@@ -43,9 +43,12 @@ type Env struct {
 	Adapter api.Adapter
 	// Policy carries the run-independent sandbox inputs (Path, DenyWrite,
 	// ProjectCacheDir, hosts ...); SessionRepo and RunTmp are set per Run.
-	Policy   policy.Inputs
-	Timeout  time.Duration
-	MaxTurns int
+	Policy policy.Inputs
+	// Toolchain resolves the tools the session repo declares in mise.toml
+	// (D-085); nil means system tools only.
+	Toolchain launch.ToolchainSource
+	Timeout   time.Duration
+	MaxTurns  int
 }
 
 // Request describes one session Run.
@@ -79,7 +82,7 @@ type Prepared struct {
 // Prepare writes context.md, prompt.md and the adapter's files into the run
 // directory and resolves the invocation and sandbox policy. It does not start
 // anything, so it is safe to repeat.
-func (e Env) Prepare(r Request) (Prepared, error) {
+func (e Env) Prepare(ctx context.Context, r Request) (Prepared, error) {
 	if sandboxRequired()[e.Adapter.Name()] && !e.Launcher.Sandboxed() {
 		return Prepared{}, ErrNeedsSandbox
 	}
@@ -113,6 +116,13 @@ func (e Env) Prepare(r Request) (Prepared, error) {
 	}
 	in := e.Policy
 	in.SessionRepo, in.RunTmp = r.SessionRepo, r.RunDir
+	if e.Toolchain != nil {
+		tc, err := e.Toolchain.Toolchain(ctx, r.SessionRepo) // D-085: refuses a missing tool
+		if err != nil {
+			return Prepared{}, err
+		}
+		in = in.WithToolchain(tc.Path, tc.Read)
+	}
 	in.HarnessPaths = append(append([]string{}, in.HarnessPaths...), inv.ReadPaths...)
 	pol, err := policy.New(in)
 	if err != nil {
@@ -150,7 +160,7 @@ func (e Env) Collect(r Request, exit *launch.Exit, timedOut bool) Result {
 // RunSession launches the session and waits for it to end (synchronous path,
 // for callers that do not supervise a detached process).
 func (e Env) RunSession(ctx context.Context, r Request) (Result, error) {
-	prep, err := e.Prepare(r)
+	prep, err := e.Prepare(ctx, r)
 	if err != nil {
 		return Result{}, err
 	}

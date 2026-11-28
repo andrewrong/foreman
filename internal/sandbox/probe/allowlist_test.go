@@ -205,6 +205,9 @@ func TestSandboxReadAllowlist(t *testing.T) {
 	if r := e.sh(readFile, filepath.Join(e.harness, "bin/tool")); r.code != 0 {
 		t.Errorf("harness path declared by the adapter not readable: %+v", r)
 	}
+	if r := e.sh(listDir, filepath.Join(e.mirror, "objects")); r.code != 0 {
+		t.Errorf("mirror objects/ (alternates target) not readable: %+v", r)
+	}
 	t.Run("denied reads", e.deniedReads)
 	t.Run("denied writes", e.deniedWrites)
 	t.Run("allowed read and write", e.allowedReadWrite)
@@ -222,6 +225,8 @@ func (e *allowlistEnv) deniedReads(t *testing.T) {
 		"owner Library":       filepath.Join(e.owner, "Library/Keychains/login.keychain-db"),
 		"sibling on the root": filepath.Join(e.data, "sibling/secret.txt"),
 		"foreman db":          filepath.Join(e.home, "db/global.db"),
+		"mirror config":       filepath.Join(e.mirror, "config"),
+		"mirror HEAD":         filepath.Join(e.mirror, "HEAD"),
 	}
 	for name, p := range files {
 		if r := e.sh(readFile, p); r.code == 0 {
@@ -229,7 +234,8 @@ func (e *allowlistEnv) deniedReads(t *testing.T) {
 		}
 	}
 	dirs := map[string]string{"owner home": e.owner, ".ssh": filepath.Join(e.owner, ".ssh"),
-		"Library": filepath.Join(e.owner, "Library"), "data root": e.data, "config dir": filepath.Join(e.home, "config")}
+		"Library": filepath.Join(e.owner, "Library"), "data root": e.data, "config dir": filepath.Join(e.home, "config"),
+		"mirror refs": filepath.Join(e.mirror, "refs"), "mirror root": e.mirror}
 	for name, p := range dirs {
 		if r := e.sh(listDir, p); r.code == 0 {
 			t.Errorf("%s: listable, want denied", name)

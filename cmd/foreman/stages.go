@@ -149,6 +149,7 @@ func briefInput(b sched.Brief) ctxmd.Input {
 type sessionStage struct {
 	prompt     string
 	launcher   launch.Launcher
+	toolchain  launch.ToolchainSource
 	policy     policy.Inputs
 	exe        string // foreman binary serving launch.FlagRunSession; empty: os.Args[0]
 	newAdapter func(role api.Role, lease *gate.Lease) (api.Adapter, error)
@@ -163,7 +164,7 @@ func (s sessionStage) env(job sched.SessionJob) (ctxmd.Env, error) {
 	if err != nil {
 		return ctxmd.Env{}, err
 	}
-	return ctxmd.Env{Launcher: s.launcher, Adapter: ad, Policy: s.policy}, nil
+	return ctxmd.Env{Launcher: s.launcher, Adapter: ad, Policy: s.policy, Toolchain: s.toolchain}, nil
 }
 
 func (s sessionStage) request(job sched.SessionJob) ctxmd.Request {
@@ -174,7 +175,7 @@ func (s sessionStage) request(job sched.SessionJob) ctxmd.Request {
 // Start adds the adapter settings of the Run only when a session is about to
 // be launched, never per poll of a running one, so a runExtra that hands out
 // one script per call sees one call per launch.
-func (s sessionStage) Start(_ context.Context, job sched.SessionJob, beforeLaunch func() error) (sched.Proc, error) {
+func (s sessionStage) Start(ctx context.Context, job sched.SessionJob, beforeLaunch func() error) (sched.Proc, error) {
 	env, err := s.env(job)
 	if err != nil {
 		return nil, err
@@ -183,7 +184,7 @@ func (s sessionStage) Start(_ context.Context, job sched.SessionJob, beforeLaunc
 	if s.runExtra != nil {
 		req.Extra = s.runExtra(req.Role, req.StepID)
 	}
-	prep, err := env.Prepare(req)
+	prep, err := env.Prepare(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -239,13 +240,14 @@ func (w reviewMerger) finish(ctx context.Context, env ctxmd.Env, job sched.Sessi
 type checkStage struct {
 	integ     *integrate.Dir
 	launcher  launch.Launcher
+	toolchain launch.ToolchainSource
 	policy    policy.Inputs // L0 runs AI-written code in a throwaway checkout: the session's deny-write list, integrate/ included
 	forbidden []string
 	l0        [][]string
 }
 
 func (c checkStage) Run(ctx context.Context, job sched.CheckJob) (model.Event, error) {
-	return stagecheck.Run(ctx, stagecheck.Env{Integ: c.integ, Launcher: c.launcher, Policy: c.policy, Forbidden: c.forbidden},
+	return stagecheck.Run(ctx, stagecheck.Env{Integ: c.integ, Launcher: c.launcher, Policy: c.policy, Toolchain: c.toolchain, Forbidden: c.forbidden},
 		stagecheck.Request{RunID: job.RunID, StepID: job.StepID, SessionRepo: job.SessionRepo, SessionBranch: job.SessionBranch,
 			RunDir: job.RunDir, Commands: c.l0})
 }

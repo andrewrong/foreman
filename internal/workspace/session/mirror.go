@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/andrewrong/foreman/internal/workspace/git"
 )
@@ -16,6 +17,9 @@ import (
 type Mirror struct {
 	Dir string
 	r   *git.Runner
+
+	mu    sync.Mutex
+	token string // fetch credential, see UseToken
 }
 
 // MirrorDir returns the conventional mirror path for project p under home.
@@ -44,10 +48,15 @@ func CloneMirror(ctx context.Context, r *git.Runner, dir, source string) (*Mirro
 	return OpenMirror(r, dir), nil
 }
 
-// Update fetches from the remote into the mirror (hardened, pruning).
+// Update fetches from the remote into the mirror (hardened, pruning),
+// authenticating with the token of UseToken when one is set.
 func (m *Mirror) Update(ctx context.Context) error {
-	_, err := m.r.Run(ctx, m.Dir, "-c", "fetch.fsckObjects=true", "fetch", "--prune", "--no-tags", "origin")
-	return err
+	r, err := m.fetchRunner(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.Run(ctx, m.Dir, "-c", "fetch.fsckObjects=true", "fetch", "--prune", "--no-tags", "origin")
+	return m.scrub(err)
 }
 
 // ImportBranch fetches refs/heads/<branch> of another foremand-owned repo

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/andrewrong/foreman/internal/forge/ops"
 	"github.com/andrewrong/foreman/internal/harness/claude"
 	"github.com/andrewrong/foreman/internal/resource/ledger"
+	"github.com/andrewrong/foreman/internal/sandbox/launch"
 	"github.com/andrewrong/foreman/internal/secrets"
 	wsgit "github.com/andrewrong/foreman/internal/workspace/git"
 )
@@ -51,6 +53,7 @@ func configFromFiles(home, ownerHome string, eff *schema.Effective) (Config, err
 		SessionGit: wsgit.Identity{Name: rt.SessionGit.Name, Email: rt.SessionGit.Email},
 		SecretsDir: rt.SecretsDir, Workers: rt.Parallel.Workers,
 		Path: wsgit.DefaultPath, L0: p.L0, Ledger: ledger.New(),
+		Toolchain: launch.Mise{EmptyConfig: filepath.Join(home, "githome", "mise", "config.toml")},
 	}, nil
 }
 

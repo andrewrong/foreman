@@ -366,8 +366,6 @@ not_in_code:
 - test:nightly-flaky-rerun
 - test:profile-selected-by-extension
 - test:reviewer-context-delta-only
-- test:run-dir-removed-after-run
 - test:sandbox-layout-policy
 - test:selfupdate-rollback
-- test:session-toolchain-from-mise
 - test:web-no-github-import

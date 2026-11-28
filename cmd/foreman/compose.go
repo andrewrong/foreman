@@ -54,6 +54,9 @@ type Config struct {
 	// (D-080, D-081); OwnerHome is added to the deny roots by the policy.
 	ReadPaths, DenyRoots []string
 	OwnerHome            string
+	// Toolchain resolves a session repo's mise.toml (D-085); nil means system
+	// tools only (scripted tests).
+	Toolchain launch.ToolchainSource
 	// SessionGit is the identity of the generated session gitconfig and of
 	// the commits foremand makes in session workspaces (D-082, session_git.*).
 	// It is an owner key (D-074): Compose refuses an unset identity.
@@ -213,6 +216,9 @@ func (a *App) wire(ctx context.Context, cfg Config) error {
 		if err := a.Integ.UseToken(cfg.GitHubToken); err != nil {
 			return err
 		}
+		if err := a.Mirror.UseToken(cfg.GitHubToken); err != nil {
+			return err
+		}
 	}
 	if err := a.Integ.UseHaltStore(ctx, pushHalts{db: a.Stores.Global, project: cfg.Project, clock: cfg.Clock}); err != nil {
 		return err
@@ -256,11 +262,11 @@ func (a *App) wire(ctx context.Context, cfg Config) error {
 		Forge:     forgeAdapter{ops: a.Ops, repo: cfg.Repo, integ: a.Integ},
 		Workspace: workspaceAdapter{git: a.Git, mirror: a.Mirror, integ: a.Integ, ident: sessionIdent},
 		Procs:     launchProcs{},
-		Code: sessionStage{prompt: coderPrompt, launcher: launcher, policy: policyIn, newAdapter: newAdapter,
+		Code: sessionStage{prompt: coderPrompt, launcher: launcher, toolchain: cfg.Toolchain, policy: policyIn, newAdapter: newAdapter,
 			runExtra: runExtra, finish: codeFinish},
-		Review: sessionStage{prompt: reviewerPrompt, launcher: launcher, policy: policyIn, newAdapter: newAdapter,
+		Review: sessionStage{prompt: reviewerPrompt, launcher: launcher, toolchain: cfg.Toolchain, policy: policyIn, newAdapter: newAdapter,
 			runExtra: runExtra, finish: merger.finish},
-		Check:        checkStage{integ: a.Integ, launcher: launcher, policy: policyIn, forbidden: cfg.Forbidden, l0: cfg.L0},
+		Check:        checkStage{integ: a.Integ, launcher: launcher, toolchain: cfg.Toolchain, policy: policyIn, forbidden: cfg.Forbidden, l0: cfg.L0},
 		Integrate:    integrateStage{integ: a.Integ, ops: a.Ops, repo: cfg.Repo},
 		Merge:        mergeStage{ops: a.Ops, repo: cfg.Repo, integ: a.Integ, mirror: a.Mirror, guardrails: cfg.Guardrails},
 		Constitution: cfg.Constitution, OnTransition: cfg.OnTransition,

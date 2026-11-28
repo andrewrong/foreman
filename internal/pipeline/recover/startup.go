@@ -128,6 +128,11 @@ func Startup(ctx context.Context, d Deps) (*Report, error) {
 		return rep, err
 	}
 	add(Check{Name: "ledger", OK: true, Detail: fmt.Sprintf("%d reservation(s) rebuilt from Runs", n)})
+	swept, err := SweepRunDirs(ctx, d)
+	if err != nil {
+		return rep, err
+	}
+	add(Check{Name: "run-dirs", OK: true, Detail: fmt.Sprintf("%d run directory(ies) of ended Runs removed", swept)})
 	return rep, nil
 }
 

@@ -108,7 +108,7 @@ func startupChecks(t *testing.T, ctx context.Context, clk clock.Clock, stores *s
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := names(rep.Checks); got != "lock integrity-global integrity-work integrity-ci orphans ledger" {
+	if got := names(rep.Checks); got != "lock integrity-global integrity-work integrity-ci orphans ledger run-dirs" {
 		t.Errorf("startup lines: %s", got)
 	}
 	for _, c := range rep.Checks {

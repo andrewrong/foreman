@@ -196,6 +196,14 @@ func TestPushLiveGitHub(t *testing.T) {
 	if err != nil || !strings.HasPrefix(got, e.head) {
 		t.Fatalf("remote %s = %q (err %v), want %s", e.branch, got, err, e.head)
 	}
+	// The mirror fetch authenticates the same way (environment only): update
+	// it with the token set, then check argv and files together with the push.
+	if err := e.mirror.UseToken(token); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.mirror.Update(ctx); err != nil {
+		t.Fatalf("mirror update with the token: %v", err)
+	}
 	if bad := e.rec.leaks(token, b64); len(bad) > 0 {
 		t.Errorf("token in git argv: %v", bad)
 	}

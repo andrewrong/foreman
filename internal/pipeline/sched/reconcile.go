@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/andrewrong/foreman/internal/pipeline/recover"
 	"github.com/andrewrong/foreman/internal/pipeline/state"
 	"github.com/andrewrong/foreman/internal/resource/gate"
 	"github.com/andrewrong/foreman/internal/spec/model"
@@ -83,6 +84,12 @@ func (s *Scheduler) reconcileStep(ctx context.Context, st stepRow) (bool, error)
 		if err := s.settle(ctx, lease); err != nil {
 			return true, err
 		}
+	}
+	// D-086: the results are committed (the Transition and endRun above), so
+	// the run directory is garbage now. A failure here leaves a directory the
+	// startup sweep removes.
+	if err := recover.RemoveRunDir(s.d.Home, run.ID); err != nil {
+		return true, fmt.Errorf("sched: remove run dir of %s: %w", run.ID, err)
 	}
 	return true, nil
 }

@@ -55,6 +55,11 @@ func resolveInputs(in Inputs) (Inputs, error) {
 	in.DenyRead = r.list("DenyRead", in.DenyRead)
 	in.DenyRoots = r.list("DenyRoots", in.DenyRoots)
 	in.MirrorRepo = r.one("MirrorRepo", in.MirrorRepo)
+	if in.MirrorRepo != "" {
+		// R0: only the object store is readable (clone --shared alternates);
+		// the mirror's config and refs stay unreadable.
+		in.mirrorObjects = r.one("MirrorRepo objects", filepath.Join(in.MirrorRepo, "objects"))
+	}
 	in.HarnessPaths = r.list("HarnessPaths", in.HarnessPaths)
 	in.ReadPaths = r.list("ReadPaths", in.ReadPaths)
 	if in.Path != "" {
@@ -94,7 +99,7 @@ func checkAllowRead(in Inputs) error {
 	if in.OwnerHome != "" {
 		denied = append(denied, in.OwnerHome)
 	}
-	allowed := []string{in.SessionRepo, in.RunTmp, in.MirrorRepo}
+	allowed := []string{in.SessionRepo, in.RunTmp, in.mirrorObjects}
 	allowed = append(allowed, in.HarnessPaths...)
 	allowed = append(allowed, in.ReadPaths...)
 	for _, a := range allowed {

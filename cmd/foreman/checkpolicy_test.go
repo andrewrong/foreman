@@ -21,7 +21,7 @@ func TestCheckPolicyKeepsIntegrateDenyWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	integ := filepath.Join(home, "projects/p/integrate")
-	for _, sub := range []string{"db", "config", "projects/p/repo.git", "projects/p/integrate", "cache/p", "runs/r1/l0"} {
+	for _, sub := range []string{"db", "config", "projects/p/repo.git/objects", "projects/p/integrate", "cache/p", "runs/r1/l0"} {
 		if err := os.MkdirAll(filepath.Join(home, sub), 0o700); err != nil {
 			t.Fatal(err)
 		}

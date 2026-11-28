@@ -130,6 +130,7 @@ func newScenarioSeeded(t *testing.T, seedFn func(*testing.T, *App, clock.Clock))
 	s.gh = gh
 	gh.updateBranch = f.githubUpdateBranch
 	cfg := f.config(s.clk, ghURL, func(stepID string, ev state.Event, out state.Outcome) {
+		s.archiveRuns() // the Transition comes before the run directory is removed (D-086)
 		s.rows = append(s.rows, out.RowID)
 		s.trace = append(s.trace, stepID+" "+out.RowID)
 		t.Logf("transition %-8s %-14s -> RowID %-8s state=%s stage=%s reason=%s", stepID, ev.Name, out.RowID, out.To.State, out.To.Stage, out.To.Reason)
@@ -230,7 +231,7 @@ func models(rs []runInfo) []string {
 // contextOf reads the context.md the Run's session was given.
 func (s *scenario) contextOf(runID string) map[string]string {
 	s.t.Helper()
-	raw, err := os.ReadFile(filepath.Join(s.f.home, "runs", runID, "context.md"))
+	raw, err := os.ReadFile(s.archivePath(runID, "context.md"))
 	if err != nil {
 		s.t.Fatal(err)
 	}
@@ -263,7 +264,7 @@ func sections(md string) map[string]string {
 // scripted child echoes it in the stream's init line.
 func (s *scenario) invocationModel(runID string) string {
 	s.t.Helper()
-	raw, err := os.ReadFile(filepath.Join(s.f.home, "runs", runID, "stdout.log"))
+	raw, err := os.ReadFile(s.archivePath(runID, "stdout.log"))
 	if err != nil {
 		s.t.Fatal(err)
 	}
@@ -315,7 +316,7 @@ func (s *scenario) sessionHead() string {
 
 func (s *scenario) rawContext(runID string) string {
 	s.t.Helper()
-	raw, err := os.ReadFile(filepath.Join(s.f.home, "runs", runID, "context.md"))
+	raw, err := os.ReadFile(s.archivePath(runID, "context.md"))
 	if err != nil {
 		s.t.Fatal(err)
 	}
