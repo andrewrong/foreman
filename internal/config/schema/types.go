@@ -53,10 +53,27 @@ type Runtime struct {
 	// SecretsDir is the directory holding foreman.<name> secret files
 	// (D-026). Empty means not configured; readers then refuse.
 	SecretsDir string      `toml:"secrets_dir"`
-	Parallel   Parallel    `toml:"parallel"`  // CF-04
-	Limits     Limits      `toml:"limits"`    // CF-05
-	Improve    Improve     `toml:"improve"`   // CF-09
-	Resources  ResourceCfg `toml:"resources"` // CF-11
+	Parallel   Parallel    `toml:"parallel"`    // CF-04
+	Limits     Limits      `toml:"limits"`      // CF-05
+	Improve    Improve     `toml:"improve"`     // CF-09
+	Resources  ResourceCfg `toml:"resources"`   // CF-11
+	Sandbox    Sandbox     `toml:"sandbox"`     // D-080, D-081
+	SessionGit SessionGit  `toml:"session_git"` // D-082
+}
+
+// Sandbox holds the owner-supplied paths of the read allowlist (D-080, D-081).
+// Nothing here is inferred by the program.
+type Sandbox struct {
+	SrtPath   string   `toml:"srt_path"`   // srt executable
+	NodeDir   string   `toml:"node_dir"`   // real node directory, not a mise shim
+	ReadPaths []string `toml:"read_paths"` // extra readable paths (toolchains)
+	DenyRoots []string `toml:"deny_roots"` // owner home, data volume roots
+}
+
+// SessionGit is the identity of the generated session .gitconfig (D-082).
+type SessionGit struct {
+	Name  string `toml:"name"`
+	Email string `toml:"email"` // a noreply address (privguard P4)
 }
 
 // Parallel is CF-04.

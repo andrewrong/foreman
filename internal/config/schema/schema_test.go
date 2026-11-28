@@ -32,7 +32,7 @@ func rolesText(extra map[string]string) string {
 // writeOwner writes runtime.toml and roles.toml with only the owner-required keys.
 func writeOwner(t *testing.T, home string, roleExtra map[string]string) {
 	t.Helper()
-	write(t, home, RuntimeFile, "secrets_dir = \"/srv/example/secrets\"\n[parallel]\nworkers = 2\n")
+	write(t, home, RuntimeFile, "secrets_dir = \"/srv/example/secrets\"\n[parallel]\nworkers = 2\n[sandbox]\nsrt_path = \"/srv/example/srt\"\nnode_dir = \"/srv/example/node\"\nread_paths = [\"/srv/example/go\"]\ndeny_roots = [\"/srv/example/ownerhome\"]\n[session_git]\nname = \"foreman\"\nemail = \"foreman@users.noreply.example.com\"\n")
 	write(t, home, RolesFile, rolesText(roleExtra))
 }
 

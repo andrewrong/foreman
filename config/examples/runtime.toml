@@ -9,6 +9,16 @@ secrets_dir = "/srv/example/secrets"   # files foreman.<name>, mode 0600; direct
 [parallel]                  # CF-04
 workers = 2                 # no default: the owner chooses
 
+[sandbox]                   # D-080, D-081: no defaults, the owner supplies every path
+srt_path = "/srv/example/tools/srt/node_modules/.bin/srt"
+node_dir = "/srv/example/tools/node/bin"            # real node directory, not a mise shim
+read_paths = ["/srv/example/toolchains/go"]         # extra readable paths (toolchains)
+deny_roots = ["/srv/example/ownerhome", "/srv/example/data"]   # owner home and data volume roots
+
+[session_git]               # D-082: identity of the generated session .gitconfig
+name = "foreman"
+email = "foreman@users.noreply.example.com"
+
 [limits]                    # CF-05 (override example; the default is 3)
 check_fail = 4
 

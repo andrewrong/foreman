@@ -8,6 +8,7 @@ import (
 	"io"
 	"iter"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -133,7 +134,23 @@ func (a *Adapter) BuildInvocation(s api.RunSpec) (api.Invocation, error) {
 	if err != nil {
 		return api.Invocation{}, err
 	}
-	return api.Invocation{Argv: argv, Stdin: prompt, Timeout: s.Timeout}, nil
+	return api.Invocation{Argv: argv, Stdin: prompt, Timeout: s.Timeout, ReadPaths: a.readPaths()}, nil
+}
+
+// readPaths declares what the sandbox must let the CLI read: the real binary
+// (a symlink is followed: the link's directory is not the install directory)
+// and its directory. A bare command name or a binary that cannot be resolved
+// declares nothing; the owner then lists the install path in
+// sandbox.read_paths, and policy.New refuses a path that does not exist.
+func (a *Adapter) readPaths() []string {
+	if !filepath.IsAbs(a.cfg.Binary) {
+		return nil
+	}
+	real, err := filepath.EvalSymlinks(a.cfg.Binary)
+	if err != nil {
+		return nil
+	}
+	return []string{real, filepath.Dir(real)}
 }
 
 // assemblePrompt builds role prompt, then the role's skills, then the

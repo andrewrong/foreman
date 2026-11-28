@@ -94,11 +94,15 @@ func newWorldExec(t *testing.T, ex wsgit.ExecFunc) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(root, "db"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	return &world{t: t, root: root, git: gr, sess: sess, integ: integ, env: Env{Integ: integ,
 		Launcher: launch.Launcher{PassThrough: true},
 		// integrate/ stays denyWrite, as in the deployed policy.
 		Policy: policy.Inputs{DenyWrite: []string{filepath.Join(root, "db"), integ.Path},
-			Path: filepath.Dir(goBin) + ":" + wsgit.DefaultPath}}}
+			Path:       filepath.Dir(goBin) + ":" + wsgit.DefaultPath,
+			SessionGit: policy.SessionGit{Name: "foreman-session", Email: "foreman-session@users.noreply.example", DefaultBranch: "main"}}}}
 }
 
 // commit stands in for the coder.

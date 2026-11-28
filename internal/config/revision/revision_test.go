@@ -55,7 +55,7 @@ const projBody = "repo_path = \"/work/demo\"\ngithub_repo = \"example/demo\"\nde
 
 // rt is a complete runtime.toml (owner keys set) with the given worker count.
 func rt(workers int) string {
-	return "secrets_dir = \"/srv/example/secrets\"\n[parallel]\nworkers = " + strconv.Itoa(workers) + "\n"
+	return "secrets_dir = \"/srv/example/secrets\"\n[parallel]\nworkers = " + strconv.Itoa(workers) + "\n[sandbox]\nsrt_path = \"/srv/example/srt\"\nnode_dir = \"/srv/example/node\"\nread_paths = [\"/srv/example/go\"]\ndeny_roots = [\"/srv/example/ownerhome\"]\n[session_git]\nname = \"foreman\"\nemail = \"foreman@users.noreply.example.com\"\n"
 }
 
 // rolesBody is a complete roles.toml: the owner-required timeout of every

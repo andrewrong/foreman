@@ -355,7 +355,5 @@ not_in_code:
 - test:profile-selected-by-extension
 - test:reviewer-context-delta-only
 - test:sandbox-layout-policy
-- test:sandbox-read-allowlist
 - test:selfupdate-rollback
-- test:session-gitconfig-generated
 - test:web-no-github-import

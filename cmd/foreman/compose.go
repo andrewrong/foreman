@@ -44,6 +44,20 @@ type Config struct {
 	// SrtPath is the sandbox runtime. Empty runs scripted sessions and L0
 	// commands directly (pass-through) and refuses the claude adapter.
 	SrtPath string
+	// NodeDir is the real node directory srt starts with (sandbox.node_dir).
+	NodeDir string
+	// ReadPaths and DenyRoots are sandbox.read_paths and sandbox.deny_roots
+	// (D-080, D-081); OwnerHome is added to the deny roots by the policy.
+	ReadPaths, DenyRoots []string
+	OwnerHome            string
+	// SessionGit is the identity of the generated session gitconfig (D-082,
+	// session_git.*); empty falls back to the session workspace identity.
+	SessionGit wsgit.Identity
+	// HarnessBinary is the absolute path of the claude CLI. The adapter
+	// declares its real path and directory to the read allowlist; empty keeps
+	// the bare command name, and the owner then lists the install directory in
+	// sandbox.read_paths.
+	HarnessBinary string
 	// Harness is "scripted" or "claude".
 	Harness string
 	// Models maps a role to its model name (skills.yaml in the daemon).
@@ -186,19 +200,32 @@ func (a *App) wire(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
+	if cfg.GitHubToken != "" {
+		// Only foremand pushes (C-08); the token reaches git through the
+		// environment of the push process alone.
+		if err := a.Integ.UseToken(cfg.GitHubToken); err != nil {
+			return err
+		}
+	}
 	if err := a.Integ.UseHaltStore(ctx, pushHalts{db: a.Stores.Global, project: cfg.Project, clock: cfg.Clock}); err != nil {
 		return err
 	}
 
 	a.Engine = state.NewEngine(cfg.Clock, state.Config{Models: cfg.Models, Harness: cfg.Harness, RunsDir: filepath.Join(cfg.Home, "runs")})
-	launcher := launch.Launcher{SrtPath: cfg.SrtPath, PassThrough: cfg.SrtPath == ""}
+	launcher, err := launch.Launcher{SrtPath: cfg.SrtPath, NodeDir: cfg.NodeDir, PassThrough: cfg.SrtPath == ""}.Resolve()
+	if err != nil {
+		return err
+	}
 	if cfg.Harness != "scripted" && cfg.Harness != "claude" {
 		return fmt.Errorf("compose: unknown harness %q", cfg.Harness)
 	}
-	policyIn := sessionPolicy(cfg, integDir)
+	policyIn, err := a.layoutPolicy(ctx, cfg, integDir, sessionIdent)
+	if err != nil {
+		return err
+	}
 	newAdapter := func(role api.Role, lease *gate.Lease) (api.Adapter, error) {
 		if cfg.Harness == "claude" {
-			return claude.New(lease, claude.Config{})
+			return claude.New(lease, claude.Config{Binary: cfg.HarnessBinary})
 		}
 		return scripted.New(lease, scripted.Config{})
 	}
@@ -234,14 +261,36 @@ func (a *App) wire(ctx context.Context, cfg Config) error {
 	return err
 }
 
+// layoutPolicy creates the layout directories the policy lists (it refuses a
+// path that does not exist, D-081 ②; access.yaml layout) and returns the
+// run-independent policy inputs. An unset session_git identity falls back to
+// fallback, the session workspace identity.
+func (a *App) layoutPolicy(ctx context.Context, cfg Config, integDir string, fallback wsgit.Identity) (policy.Inputs, error) {
+	defBranch, err := a.Mirror.DefaultBranch(ctx)
+	if err != nil {
+		return policy.Inputs{}, err
+	}
+	if cfg.SessionGit == (wsgit.Identity{}) {
+		cfg.SessionGit = fallback
+	}
+	for _, d := range []string{"db", "config", filepath.Join("cache", cfg.Project)} {
+		if err := os.MkdirAll(filepath.Join(cfg.Home, d), 0o700); err != nil {
+			return policy.Inputs{}, err
+		}
+	}
+	return sessionPolicy(cfg, integDir, a.Mirror.Dir, defBranch), nil
+}
+
 // sessionPolicy is the run-independent sandbox policy of sessions and of L0.
 // denyWrite lists subdirectories of the home, never the home itself
 // (sessions/ and runs/ live inside it): access.yaml layout. L0 runs
 // AI-written code in a throwaway checkout under the Run's directory, so the
 // deny-write list is the session's own, integrate/ included: it must not be
 // able to alter the directory foremand runs its VCS in.
-func sessionPolicy(cfg Config, integDir string) policy.Inputs {
+func sessionPolicy(cfg Config, integDir, mirrorDir, defaultBranch string) policy.Inputs {
 	return policy.Inputs{
+		MirrorRepo: mirrorDir, ReadPaths: cfg.ReadPaths, DenyRoots: cfg.DenyRoots, OwnerHome: cfg.OwnerHome,
+		SessionGit: policy.SessionGit{Name: cfg.SessionGit.Name, Email: cfg.SessionGit.Email, DefaultBranch: defaultBranch},
 		DenyWrite: []string{filepath.Join(cfg.Home, "db"), filepath.Join(cfg.Home, "config"),
 			filepath.Join(cfg.Home, "projects", cfg.Project, "repo.git"), integDir},
 		ProjectCacheDir: filepath.Join(cfg.Home, "cache", cfg.Project),
