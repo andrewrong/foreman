@@ -58,7 +58,7 @@ func TestPushTokenNotSentToNonHTTPSOrigin(t *testing.T) {
 			t.Errorf("credential injected for %s", u)
 		}
 	}
-	must(w.r.Run(context.Background(), w.integ.Path, "config", "remote.origin.url", "https://user:" + "pw@github.example/o/r.git"))
+	must(w.r.Run(context.Background(), w.integ.Path, "config", "remote.origin.url", "https://user:"+"pw@github.example/o/r.git"))
 	if _, err := w.integ.authRunner(context.Background()); err == nil {
 		t.Error("origin URL with embedded credentials accepted")
 	}
