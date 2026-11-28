@@ -32,6 +32,9 @@ tests:
   covers:
   - C-07
   - D-060
+- name: check:pre-commit-config
+  covers:
+  - D-083
 - name: check:privguard
   covers:
   - C-09
@@ -153,6 +156,9 @@ tests:
 - name: test:guardrail-reviewer-metric-split
   covers:
   - guardrails:GR-2
+- name: test:harness-binary-from-path
+  covers:
+  - D-084
 - name: test:harness-claude-argv
   covers:
   - D-066
@@ -333,6 +339,7 @@ not_testable_or_v2:
 - 'D-028 (none: 交付流程，记录在 docs/reviews/)'
 not_in_code:
 - check:no-text-pin-tests
+- check:pre-commit-config
 - check:privguard
 - check:prompts-size
 - check:test-budget
@@ -347,6 +354,7 @@ not_in_code:
 - test:feedback-report-generated
 - test:guardrail-improve-evidence
 - test:guardrail-reviewer-metric-split
+- test:harness-binary-from-path
 - test:intake-model-selection
 - test:l0-covers-l1
 - test:l0-runs-outside-integration-dir
