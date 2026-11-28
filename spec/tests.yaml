@@ -302,6 +302,9 @@ tests:
 - name: test:session-repo-no-upstream
   covers:
   - D-050
+- name: test:session-toolchain-from-mise
+  covers:
+  - D-085
 - name: test:skills-injected-by-role
   covers:
   - D-059
@@ -362,4 +365,5 @@ not_in_code:
 - test:reviewer-context-delta-only
 - test:sandbox-layout-policy
 - test:selfupdate-rollback
+- test:session-toolchain-from-mise
 - test:web-no-github-import

@@ -585,3 +585,9 @@ decisions:
     statement: "（owner 2026-11-28：harness 位置不应由 owner 写死；与 agent-crew 一致）harness 可执行文件在 foremand 自己的 PATH 上查找（claude 适配器找 claude），每次启动会话时 realpath 解析，把解析后的文件所在目录加入 allowRead 并以该路径启动；找不到时拒绝启动并说明。不设配置键；claude 自动升级后下一次启动自动使用新版本目录"
     enforced_by: "test:harness-binary-from-path"
     status: active
+
+  - id: D-085
+    date: 2026-11-28
+    statement: "（owner 用 mise 管理工具链；2026-11-28 实测）会话的工具链由项目仓库根的 mise.toml 声明。foremand 在沙箱外、每次启动会话前，于会话仓库目录运行 mise env --json（MISE_GLOBAL_CONFIG_FILE 指向一个空文件，只取项目声明的工具，不带 owner 全局配置里的 gh 等；MISE_TRUSTED_CONFIG_PATHS 为会话目录），取 PATH 中各工具的安装目录，去掉 shims（shim 在 srt 内无法运行），realpath 后放入会话 PATH 与 allowRead（只读）。声明的版本未安装（mise 报 missing）时拒绝启动该会话并说明，foremand 不自动安装。会话内不运行 mise。项目没有 mise.toml 时会话只有系统工具。取代以 sandbox.read_paths 手写工具链目录的做法（该键保留给其他只读路径）"
+    enforced_by: "test:session-toolchain-from-mise"
+    status: active
