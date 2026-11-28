@@ -542,3 +542,9 @@ decisions:
     amends: D-076
     enforced_by: "check:deps-registry"
     status: active
+
+  - id: D-078
+    date: 2026-11-28
+    statement: "（owner 2026-11-28）解耦与组合由程序检查，不靠模型审查：modules.yaml 为每个模块声明 uses 白名单（MD-10），stage、role 兄弟 package 互不导入（MD-11），只有 cli 组装、其他 package 导入本仓库 package ≤ 8 个（MD-12），禁止可变全局变量（MD-13）、函数认知复杂度 ≤ 30（MD-14）。MD-10..MD-12 在 test:module-deps 中检查；MD-13、MD-14 用 golangci-lint（go.mod tool 指令固定版本，go tool golangci-lint run）。不设历史例外：现有违反（pipeline 依赖 forge、harness、sandbox、stage、workspace；sched 导入 21 个 package；stage 兄弟导入 3 处）在接入检查的同一任务中改掉：pipeline 通过自身定义的接口调度阶段，具体阶段由 cli 注入。模型只在修改架构声明时参与"
+    enforced_by: "test:module-deps；check:golangci-lint"
+    status: active

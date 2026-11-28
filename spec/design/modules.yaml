@@ -1,36 +1,37 @@
 # 模块与 package（D-024）。模块可以大，package 受 C-03 上限约束。
-# 依赖规则：layer 小的不得导入 layer 大的；同一模块内的 package 可以互相导入（无环）；同层不同模块之间只允许 allowed_deps 中列出的边；test:module-deps 检查。
+# 依赖规则（D-078，全部由程序检查，不靠模型审查）：模块只能导入 uses 中列出的模块（"*" 只给 cli 与 repocheck）；layer 小的不得导入 layer 大的；
+# 同一模块内的 package 无环，且 stage、role 两个模块的兄弟 package 互不导入，共用代码放 shared 中列出的 package；见 allowed_deps MD-10..MD-14。
 schema: foreman.modules/1
 
 binary: "单一可执行文件 foreman；foreman daemon 启动常驻进程，其余子命令通过 Unix socket 调用 daemon 的 API"
 
 modules:
-  - { module: clock,     layer: 0, packages: [internal/clock],                                   duty: "可注入时钟（C-05）" }
-  - { module: spec,      layer: 0, packages: [internal/spec/model, internal/spec/validate, internal/spec/ears, internal/spec/lint, internal/spec/smcheck], duty: "Requirement/Spec/Step 的类型与入库校验（entities.yaml）；spec 文件 lint（format-rules F1–F10，foreman spec lint）；状态表检查（smcheck，C-02）。读取 YAML 用 gopkg.in/yaml.v3" }
-  - { module: repocheck, layer: 0, packages: [internal/repocheck], duty: "仓库级检查，只有测试：package 行数（C-03）、模块依赖（C-04）、AGENTS.md 体积（C-11）、测试禁 time.Sleep（C-05）、禁执行 gh、禁止的测试类型（C-07）；不被任何 package 导入" }
-  - { module: privguard, layer: 0, packages: [internal/privguard],                               duty: "隐私扫描与脱敏（privguard.yaml P1–P4，D-014，C-09）：Scan、Redact、提交元数据检查；owner 专属值只经 Config 传入；本 package 的测试扫描全部 tracked 文件" }
+  - { module: clock,     layer: 0, uses: [], packages: [internal/clock],                                   duty: "可注入时钟（C-05）" }
+  - { module: spec,      layer: 0, uses: [clock], packages: [internal/spec/model, internal/spec/validate, internal/spec/ears, internal/spec/lint, internal/spec/smcheck], duty: "Requirement/Spec/Step 的类型与入库校验（entities.yaml）；spec 文件 lint（format-rules F1–F10，foreman spec lint）；状态表检查（smcheck，C-02）。读取 YAML 用 gopkg.in/yaml.v3" }
+  - { module: repocheck, layer: 0, uses: ["*"], packages: [internal/repocheck], duty: "仓库级检查，只有测试：package 行数（C-03）、模块依赖（C-04）、AGENTS.md 体积（C-11）、测试禁 time.Sleep（C-05）、禁执行 gh、禁止的测试类型（C-07）；不被任何 package 导入" }
+  - { module: privguard, layer: 0, uses: [], packages: [internal/privguard],                               duty: "隐私扫描与脱敏（privguard.yaml P1–P4，D-014，C-09）：Scan、Redact、提交元数据检查；owner 专属值只经 Config 传入；本 package 的测试扫描全部 tracked 文件" }
 
-  - { module: store,     layer: 1, packages: [internal/store/sqlite, internal/store/migrate],    duty: "global.db / work.db / ci.db 的打开、迁移、单写者" }
-  - { module: config,    layer: 1, packages: [internal/config/schema, internal/config/schema/configgen, internal/config/revision], duty: "配置读取、校验、revision、回退（config.yaml）" }
-  - { module: secrets,   layer: 1, packages: [internal/secrets],                                 duty: "密钥文件检查与读取（D-026）" }
+  - { module: store,     layer: 1, uses: [clock], packages: [internal/store/sqlite, internal/store/migrate],    duty: "global.db / work.db / ci.db 的打开、迁移、单写者" }
+  - { module: config,    layer: 1, uses: [clock, store, spec], packages: [internal/config/schema, internal/config/schema/configgen, internal/config/revision], duty: "配置读取、校验、revision、回退（config.yaml）" }
+  - { module: secrets,   layer: 1, uses: [], packages: [internal/secrets],                                 duty: "密钥文件检查与读取（D-026）" }
 
-  - { module: resource,  layer: 2, packages: [internal/resource/meter, internal/resource/ledger, internal/resource/gate, internal/resource/history], duty: "资源层（resources.yaml）" }
-  - { module: forge,     layer: 2, packages: [internal/forge/client, internal/forge/cache, internal/forge/ops], duty: "GitHub 访问（forge.yaml）；REST 用 go-github、GraphQL 用 githubv4（D-075）；唯一可以导入 GitHub 客户端库的模块" }
-  - { module: harness,   layer: 2, packages: [internal/harness/api, internal/harness/claude, internal/harness/scripted], duty: "模型适配；scripted 为测试用的脚本化假模型（真实进程）；codex、gemini 适配器 phase: v2（D-037）" }
-  - { module: sandbox,   layer: 2, packages: [internal/sandbox/policy, internal/sandbox/launch, internal/sandbox/probe], duty: "OS 级沙箱策略、启动、探测（access.yaml）" }
-  - { module: workspace, layer: 2, packages: [internal/workspace/git, internal/workspace/session, internal/workspace/integrate], duty: "foremand 自有镜像 repo.git；每个需求一个会话仓库（clone --shared）；以禁用钩子的 fetch 取回提交；在 foremand 自有的集成目录做 squash 合回与 rebase（D-045）" }
-  - { module: notify,    layer: 2, packages: [internal/notify/telegram, internal/notify/ask],    duty: "OwnerAsk 发送与回答接收（D-012）" }
+  - { module: resource,  layer: 2, uses: [clock, store], packages: [internal/resource/meter, internal/resource/ledger, internal/resource/gate, internal/resource/history], duty: "资源层（resources.yaml）" }
+  - { module: forge,     layer: 2, uses: [clock, resource, store, privguard], packages: [internal/forge/client, internal/forge/cache, internal/forge/ops], duty: "GitHub 访问（forge.yaml）；REST 用 go-github、GraphQL 用 githubv4（D-075）；唯一可以导入 GitHub 客户端库的模块" }
+  - { module: harness,   layer: 2, uses: [clock, resource, spec], packages: [internal/harness/api, internal/harness/claude, internal/harness/scripted], duty: "模型适配；scripted 为测试用的脚本化假模型（真实进程）；codex、gemini 适配器 phase: v2（D-037）" }
+  - { module: sandbox,   layer: 2, uses: [clock], packages: [internal/sandbox/policy, internal/sandbox/launch, internal/sandbox/probe], duty: "OS 级沙箱策略、启动、探测（access.yaml）" }
+  - { module: workspace, layer: 2, uses: [clock], packages: [internal/workspace/git, internal/workspace/session, internal/workspace/integrate], duty: "foremand 自有镜像 repo.git；每个需求一个会话仓库（clone --shared）；以禁用钩子的 fetch 取回提交；在 foremand 自有的集成目录做 squash 合回与 rebase（D-045）" }
+  - { module: notify,    layer: 2, uses: [clock, store, spec], packages: [internal/notify/telegram, internal/notify/ask],    duty: "OwnerAsk 发送与回答接收（D-012）" }
 
-  - { module: pipeline,  layer: 3, packages: [internal/pipeline/state, internal/pipeline/state/tablegen, internal/pipeline/sched, internal/pipeline/escalate, internal/pipeline/recover], duty: "状态机（唯一写者在 state）、调度、上限与救援路由、重启恢复" }
-  - { module: stage,     layer: 3, packages: [internal/stage/context, internal/stage/code, internal/stage/check, internal/stage/review, internal/stage/integrate, internal/stage/merge], duty: "各阶段执行；context 生成上下文包（protocol-run.yaml PF-CTX）" }
-  - { module: role,      layer: 3, packages: [internal/role/intake, internal/role/planner, internal/role/rescuer, internal/role/improver], phase_v2_packages: [internal/role/improver], duty: "非步骤类角色的会话与结果处理" }
-  - { module: prod,      layer: 3, packages: [internal/prod/tools, internal/prod/actions, internal/prod/audit], duty: "线上只读工具与动作（prod-access.yaml）；diagnoser 会话经此访问线上", phase: v2 }
+  - { module: pipeline,  layer: 3, uses: [clock, spec, store, resource, privguard, config], packages: [internal/pipeline/state, internal/pipeline/state/tablegen, internal/pipeline/sched, internal/pipeline/escalate, internal/pipeline/recover], duty: "状态机（唯一写者在 state）、调度、上限与救援路由、重启恢复" }
+  - { module: stage,     layer: 3, uses: [clock, spec, store, resource, privguard, forge, harness, sandbox, workspace], packages: [internal/stage/context, internal/stage/code, internal/stage/check, internal/stage/review, internal/stage/integrate, internal/stage/merge], duty: "各阶段执行；context 生成上下文包（protocol-run.yaml PF-CTX）" }
+  - { module: role,      layer: 3, uses: [clock, spec, store, resource, privguard, harness, sandbox, workspace], packages: [internal/role/intake, internal/role/planner, internal/role/rescuer, internal/role/improver], phase_v2_packages: [internal/role/improver], duty: "非步骤类角色的会话与结果处理" }
+  - { module: prod,      layer: 3, uses: [clock, spec, store, privguard, sandbox], packages: [internal/prod/tools, internal/prod/actions, internal/prod/audit], duty: "线上只读工具与动作（prod-access.yaml）；diagnoser 会话经此访问线上", phase: v2 }
 
-  - { module: report,    layer: 4, packages: [internal/report/feedback, internal/report/metrics, internal/report/improve], duty: "反馈报告（v1）、指标定义（v1）、改进触发（improve 为 phase: v2，D-010）" }
-  - { module: api,       layer: 4, packages: [internal/api/server, internal/api/client],         duty: "Unix socket HTTP API；CLI 与 web 的唯一入口" }
+  - { module: report,    layer: 4, uses: [clock, spec, store], packages: [internal/report/feedback, internal/report/metrics, internal/report/improve], duty: "反馈报告（v1）、指标定义（v1）、改进触发（improve 为 phase: v2，D-010）" }
+  - { module: api,       layer: 4, uses: [clock, spec, store, config, pipeline, report], packages: [internal/api/server, internal/api/client],         duty: "Unix socket HTTP API；CLI 与 web 的唯一入口" }
 
-  - { module: web,       layer: 5, packages: [internal/web],                                     duty: "web 页面的 Go 侧（静态资源服务 + 代理到 api）；前端源码在 web/", phase: v2 }
-  - { module: cli,       layer: 5, packages: [cmd/foreman],                                      duty: "命令行入口与 daemon 组装（composition root）" }
+  - { module: web,       layer: 5, uses: [api], packages: [internal/web],                                     duty: "web 页面的 Go 侧（静态资源服务 + 代理到 api）；前端源码在 web/", phase: v2 }
+  - { module: cli,       layer: 5, uses: ["*"], packages: [cmd/foreman],                                      duty: "命令行入口与 daemon 组装（composition root）" }
 
 allowed_deps:   # 除"低层可被高层导入"之外的额外限制
   - { rule: "internal/web 只能导入 internal/api/client 与 layer 0", id: MD-1 }
@@ -38,6 +39,11 @@ allowed_deps:   # 除"低层可被高层导入"之外的额外限制
   - { rule: "internal/forge/* 与 internal/harness/* 的客户端构造必须接收 internal/resource/gate 的 Lease 类型", id: MD-3 }
   - { rule: "只有 internal/pipeline/state 写 Step.state/stage/reason（C-01）", id: MD-4 }
   - { rule: "只有 internal/secrets 打开密钥目录下的文件", id: MD-5 }
+  - { rule: "模块只能导入 uses 中列出的模块（白名单）；新增一条依赖 = 改本表", id: MD-10 }
+  - { rule: "stage 与 role 模块内兄弟 package 互不导入；共用代码只能放在 internal/stage/context 与 internal/role/shared", id: MD-11 }
+  - { rule: "只有 cmd/foreman（cli）组装具体实现；其他 package 依赖别的模块时只依赖其自身定义的小接口或下层类型；非 cli、非 repocheck 的 package 导入的本仓库 package 不超过 8 个", id: MD-12 }
+  - { rule: "禁止 package 级可变变量（错误值、编译后的正则、只读表除外），由 golangci-lint gochecknoglobals 检查", id: MD-13 }
+  - { rule: "单个函数认知复杂度 ≤ 30，由 golangci-lint gocognit 检查", id: MD-14 }
   - { rule: "layer 2 内部模块之间不得互相导入（resource 除外：forge、harness 可导入 resource/gate 与 resource/meter）", id: MD-6 }
   - { rule: "layer 3 跨模块的边只有：pipeline → stage、role（sched、recover 调用）；role → stage（只限 internal/stage/context）。stage、role、prod 不导入 pipeline：执行后返回事件值（类型在 layer 0 的 internal/spec/model），由 sched 交给 state.Transition（C-01）", id: MD-7 }
   - { rule: "internal/pipeline/state 不导入 pipeline 模块内其它 package（保持状态转移纯净）；internal/pipeline/state/tablegen 是生成器（go:generate 运行的 main 包），读 spec/design/state-machine.yaml 生成 state 包内的 table_gen.go，任何 package 不得导入它", id: MD-8 }

@@ -14,7 +14,7 @@ articles:
     rule: "模块可以大，package 必须小：每个 Go package 非测试代码 ≤ 3000 行、测试代码 ≤ 4500 行、单文件 ≤ 600 行；绝对上限，不设渐进上限；唯一例外：source=prod 且 P0 的修复可超出 50 行，下一个需求必须收回（D-049 ⑦）。模块 = 多个 package 的组合，在 design/modules.yaml 定义"
     enforced_by: check:size-limits
   - id: C-04
-    rule: "package 依赖方向遵守 design/modules.yaml；不得出现环"
+    rule: "package 依赖方向遵守 design/modules.yaml；不得出现环；模块只依赖 uses 白名单；兄弟 package 互不导入；只有 cli 组装具体实现（MD-10..MD-14，全部由程序检查）"
     enforced_by: test:module-deps
   - id: C-05
     rule: "测试中禁止 time.Sleep 和真实时钟；时间通过 clock.Clock 注入"
