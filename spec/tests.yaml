@@ -286,6 +286,9 @@ tests:
 - name: test:session-git-identity
   covers:
   - privguard:P7
+- name: test:session-gitconfig-generated
+  covers:
+  - D-082
 - name: test:session-output-only-result-files
   covers:
   - D-002
@@ -354,4 +357,5 @@ not_in_code:
 - test:sandbox-layout-policy
 - test:sandbox-read-allowlist
 - test:selfupdate-rollback
+- test:session-gitconfig-generated
 - test:web-no-github-import
